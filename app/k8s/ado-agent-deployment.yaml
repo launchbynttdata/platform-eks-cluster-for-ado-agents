@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ado-agent-deployment
+  namespace: ado-agents
+spec:
+  replicas: 0  # KEDA will manage replicas
+  selector:
+    matchLabels:
+      app: ado-agent
+  template:
+    metadata:
+      labels:
+        app: ado-agent
+    spec:
+      serviceAccountName: ado-agent-dev-build
+      automountServiceAccountToken: false
+      tolerations:
+        - key: "ks.amazonaws.com/compute-type"
+          operator: "Equal"
+          value: "fargate"
+          effect: "NoSchedule"
+      containers:
+      - name: ado-agent
+        image: 742846647113.dkr.ecr.us-west-2.amazonaws.com/ado-agent-cluster-ado-agents:latest
+        env:
+        - name: AZP_ORG
+          valueFrom:
+            secretKeyRef:
+              name: ado-pat
+              key: organization
+        - name: AZP_URL
+          valueFrom:
+            secretKeyRef:
+              name: ado-pat
+              key: adourl
+        - name: AZP_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: ado-pat
+              key: personalAccessToken
+        - name: AZP_POOL
+          value: "batch-poc-eks-agent-pool"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+      restartPolicy: Always
+      

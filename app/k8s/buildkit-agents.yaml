@@ -1,0 +1,228 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: build
+---
+# (Optional) lock down who can talk to buildkitd later with NetworkPolicy
+# For now, just create the ServiceAccount to keep identities clear.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: buildkit
+  namespace: build
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::742846647113:role/ado-agent-cluster-ado-agent-buildkit-role"
+---
+# ClusterIP Service for clients (your ADO agents) to reach buildkitd
+apiVersion: v1
+kind: Service
+metadata:
+  name: buildkitd
+  namespace: build
+spec:
+  selector:
+    app: buildkitd
+  ports:
+    - name: tcp
+      port: 1234
+      targetPort: 1234
+  type: ClusterIP
+---
+# apiVersion: v1
+# kind: ConfigMap
+# metadata:
+#   name: ecr-login-scripts
+#   namespace: build
+# data:
+#   refresh.sh: |
+#     #!/bin/sh
+#     set -euo pipefail
+#     while :; do
+#       PASS="$(aws ecr get-login-password --region "${AWS_REGION}")"
+#       ACCOUNT="742846647113"
+#       REG="${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+#       AUTH="$(printf 'AWS:%s' "$PASS" | base64 | tr -d '\n')"
+#       tmp="$(mktemp)"
+#       echo "{ \"auths\": { \"${REG}\": { \"auth\": \"${AUTH}\", \"username\": \"AWS\", \"password\": \"${PASS}\" }, \"https://${REG}\": { \"auth\": \"${AUTH}\", \"username\": \"AWS\", \"password\": \"${PASS}\" } } }" > "$tmp"
+#       mv "$tmp" /root/.docker/config.json
+#       sleep 36000
+#     done
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: docker-config
+  namespace: build
+data:
+  config.json: |
+    {
+      "credHelpers": {
+        "742846647113.dkr.ecr.us-west-2.amazonaws.com": "ecr-login"
+      }
+    }
+---
+# PodDisruptionBudget to keep at least one builder during voluntary disruptions
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: buildkitd-pdb
+  namespace: build
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: buildkitd
+---
+# BuildKit Deployment (rootful). Use 1 replica so CA can scale the node group from 0.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: buildkitd
+  namespace: build
+  annotations:
+    checkov.io/skip1: CKV_K8S_16=rootful BuildKit needs privileged mode
+    checkov.io/skip2: CVK_K8S_23=BuildKit needs privilege escalation 
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: buildkitd
+  template:
+    metadata:
+      labels:
+        app: buildkitd
+    spec:
+      serviceAccountName: buildkit
+      # land ONLY on your builder nodes
+      nodeSelector:
+        eks.amazonaws.com/nodegroup: "buildkit-nodes"
+      tolerations:
+        - key: "node-role.kubernetes.io/buildkit"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+
+      # optional: spread pods across AZs if you scale >1
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: buildkitd
+      volumes:
+        - name: helper-bin
+          emptyDir: {}
+        - name: docker-config
+          configMap:
+            name: docker-config
+            defaultMode: 0444
+      initContainers:
+        - name: install-ecr-helper
+          image: golang:1.25-bookworm
+          env:
+            - { name: GOBIN, value: /helper }
+            - { name: CGO_ENABLED, value: "0" }    # static; no libc needed
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              go install github.com/awslabs/amazon-ecr-credential-helper/ecr-login/cli/docker-credential-ecr-login@v0.10.1
+              test -x /helper/docker-credential-ecr-login
+          volumeMounts:
+            - { name: helper-bin, mountPath: /helper }
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "1000m"
+      containers:
+        # - name: ecr-login-refresh
+        #   image: public.ecr.aws/aws-cli/aws-cli:2.17.39
+        #   env:
+        #     - name: AWS_REGION
+        #       value: us-west-2
+        #   command: ["/bin/sh","/scripts/refresh.sh"]
+        #   volumeMounts:
+        #     - name: docker-config
+        #       mountPath: /root/.docker
+        #     - name: scripts
+        #       mountPath: /scripts
+        #   resource:s:
+        #     requests:
+        #       memory: "128Mi"
+        #       cpu: "100m"
+        #     limits:
+        #       memory: "256Mi"
+        #       cpu: "200m"
+        - name: buildkitd
+          image: moby/buildkit:v0.24.0
+          args: ["--debug", "--addr", "tcp://0.0.0.0:1234"]
+          ports:
+            - containerPort: 1234
+              name: bk
+          env:
+            - name: DOCKER_CONFIG
+              value: /root/.docker
+            - { name: AWS_REGION, value: us-west-2 }          # explicit region for the helper
+            - { name: AWS_EC2_METADATA_DISABLED, value: "true" } # force WebIdentity path
+            - name: PATH 
+              value: /ecr:/usr/local/bin:/usr/bin:/bin  # include the helper
+          # Simple TCP check; BuildKit listens on 1234 when ready
+          readinessProbe:
+            tcpSocket: { port: 1234 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: 1234 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "2"
+              memory: "4Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+          securityContext:
+            allowPrivilegeEscalation: true # allow mounting the snapshots in the builder
+            privileged: true
+          volumeMounts:
+            - name: docker-config
+              mountPath: /root/.docker
+            - name: helper-bin
+              mountPath: /ecr
+---
+# Horizontal Pod Autoscaler (CPU-based). HPA won't scale to 0; keep minReplicas: 1.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: buildkitd
+  namespace: build
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: buildkitd
+  minReplicas: 1
+  maxReplicas: 10
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # tune to your liking; 60–70% is a common starting point
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 60

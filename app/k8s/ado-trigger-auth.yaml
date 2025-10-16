@@ -1,0 +1,10 @@
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: azure-devops-trigger
+  namespace: ado-agents
+spec:
+  secretTargetRef:
+  - parameter: personalAccessToken
+    name: ado-pat
+    key: personalAccessToken

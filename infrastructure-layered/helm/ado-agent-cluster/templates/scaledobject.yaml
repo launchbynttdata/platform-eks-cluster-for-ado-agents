@@ -1,0 +1,27 @@
+{{- range $poolName, $poolConfig := .Values.agentPools }}
+{{- if and $poolConfig.enabled $poolConfig.autoscaling.enabled }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "ado-agent-cluster.scaledObjectName" $poolConfig }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "ado-agent-cluster.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $poolName }}
+spec:
+  scaleTargetRef:
+    name: {{ include "ado-agent-cluster.deploymentName" $poolConfig }}
+  minReplicaCount: {{ $poolConfig.autoscaling.minReplicas }}
+  maxReplicaCount: {{ $poolConfig.autoscaling.maxReplicas }}
+  triggers:
+  - type: azure-pipelines
+    metadata:
+      organizationURLFromEnv: "AZP_URL"
+      personalAccessTokenFromEnv: "AZP_TOKEN"
+      poolName: {{ $poolConfig.ado.poolName | quote }}
+      targetPipelinesQueueLength: {{ $poolConfig.autoscaling.targetPipelinesQueueLength | quote }}
+    authenticationRef:
+      name: {{ include "ado-agent-cluster.triggerAuthName" $poolConfig }}
+{{- end }}
+{{- end }}

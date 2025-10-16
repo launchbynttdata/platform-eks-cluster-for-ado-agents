@@ -1,0 +1,17 @@
+apiVersion: v2
+name: ado-agent-cluster
+description: A Helm chart for deploying Azure DevOps agents on EKS with KEDA autoscaling
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - azure-devops
+  - ado
+  - agents
+  - keda
+  - autoscaling
+  - eks
+home: https://github.com/launchbynttdata/platform-eks-cluster-for-ado-agents
+maintainers:
+  - name: Platform Team
+    email: platform-team@example.com
