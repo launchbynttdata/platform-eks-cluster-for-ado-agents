@@ -14,7 +14,7 @@ variable "aws_region" {
 variable "cluster_name" {
   description = "Name of the EKS cluster"
   type        = string
-  
+
   validation {
     condition     = can(regex("^[a-zA-Z0-9-]+$", var.cluster_name))
     error_message = "Cluster name must contain only alphanumeric characters and hyphens."
@@ -49,7 +49,7 @@ variable "enabled_cluster_log_types" {
 variable "vpc_id" {
   description = "ID of the VPC where the cluster will be created"
   type        = string
-  
+
   validation {
     condition     = can(regex("^vpc-[a-z0-9]+$", var.vpc_id))
     error_message = "VPC ID must be a valid AWS VPC identifier."
@@ -59,7 +59,7 @@ variable "vpc_id" {
 variable "subnet_ids" {
   description = "List of subnet IDs where the cluster will be created (should be private subnets)"
   type        = list(string)
-  
+
   validation {
     condition     = length(var.subnet_ids) >= 2
     error_message = "At least 2 subnets are required for high availability."
@@ -108,7 +108,7 @@ variable "kms_key_deletion_window_in_days" {
   description = "Number of days to wait before deleting the KMS key"
   type        = number
   default     = 7
-  
+
   validation {
     condition     = var.kms_key_deletion_window_in_days >= 7 && var.kms_key_deletion_window_in_days <= 30
     error_message = "KMS key deletion window must be between 7 and 30 days."
@@ -116,39 +116,42 @@ variable "kms_key_deletion_window_in_days" {
 }
 
 # Fargate Configuration
-variable "fargate_profile_selectors" {
-  description = "List of Fargate profile selectors for application workloads"
-  type = list(object({
-    namespace = string
-    labels    = optional(map(string), {})
+variable "fargate_profiles" {
+  description = "Map of Fargate profiles to create. Each profile can have multiple selectors."
+  type = map(object({
+    selectors = list(object({
+      namespace = string
+      labels    = optional(map(string), {})
+    }))
   }))
-  default = [
-    {
-      namespace = "keda-system"
-    },
-    {
-      namespace = "external-secrets-system"
-    },
-    {
-      namespace = "ado-agents"
+  default = {
+    apps = {
+      selectors = [
+        {
+          namespace = "keda-system"
+          labels    = {}
+        },
+        {
+          namespace = "external-secrets"
+          labels    = {}
+        },
+        {
+          namespace = "ado-agents"
+          labels    = {}
+        }
+      ]
     }
-  ]
-}
-
-variable "fargate_system_profile_selectors" {
-  description = "List of Fargate profile selectors for system workloads (e.g., CoreDNS)"
-  type = list(object({
-    namespace = string
-    labels    = optional(map(string), {})
-  }))
-  default = [
-    {
-      namespace = "kube-system"
-      labels = {
-        "k8s-app" = "kube-dns"
-      }
+    system = {
+      selectors = [
+        {
+          namespace = "kube-system"
+          labels = {
+            "k8s-app" = "kube-dns"
+          }
+        }
+      ]
     }
-  ]
+  }
 }
 
 # EKS Add-ons

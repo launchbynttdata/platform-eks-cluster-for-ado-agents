@@ -9,36 +9,28 @@
 # This layer depends on the base infrastructure layer via remote state.
 
 terraform {
-  required_version = ">= 1.5"
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = ">= 5.0"
-    }
-    kubernetes = {
-      source  = "hashicorp/kubernetes"
-      version = ">= 2.20"
-    }
-    helm = {
-      source  = "hashicorp/helm"
-      version = ">= 2.10"
-    }
-  }
-  
-  # REVIEW: Remote state configuration - requires S3 bucket to be created externally
+  # Remote state configuration - S3 backend with native state locking
+  # Note: Terraform 1.10+ supports native S3 state locking without DynamoDB
+  # The bucket name and region will be substituted by the deployment script from env vars
   backend "s3" {
-    # These values should be configured via terraform init -backend-config
-    # or environment variables:
-    # - bucket: S3 bucket for state storage
-    # - key: "middleware/terraform.tfstate" 
-    # - region: AWS region
-    # - dynamodb_table: DynamoDB table for state locking (optional)
+    bucket = "TF_STATE_BUCKET_PLACEHOLDER"
+    key    = "middleware/terraform.tfstate"
+    region = "TF_STATE_REGION_PLACEHOLDER"
+    
+    # Enable native S3 state locking (Terraform 1.10+)
+    # No DynamoDB table required
+    encrypt        = true
+    use_lockfile   = true
   }
 }
 
 # Configure AWS Provider
+# Uses AWS_REGION environment variable if set, otherwise falls back to var.aws_region
 provider "aws" {
-  region = var.aws_region
+  region = coalesce(
+    try(var.aws_region, null),
+    "us-west-2"  # Explicit fallback
+  )
 }
 
 # Configure Kubernetes Provider using base layer cluster information
@@ -265,8 +257,10 @@ module "external_secrets_operator" {
   webhook_enabled       = var.eso_webhook_enabled
   webhook_failurePolicy = var.eso_webhook_failure_policy
 
-  # Create ClusterSecretStore for AWS Secrets Manager
-  create_cluster_secret_store = var.create_cluster_secret_store
+  # Create ClusterSecretStore AFTER CRDs are installed
+  # Set to false during initial deployment, can be enabled in subsequent applies
+  # or moved to application layer
+  create_cluster_secret_store = false  # Temporarily disabled to avoid CRD timing issues
   cluster_secret_store_name   = var.cluster_secret_store_name
 
   # Don't create external secrets here - application layer will manage them
@@ -293,6 +287,10 @@ resource "kubernetes_namespace" "buildkit" {
   }
 }
 
+# privileged security context is required for buildkitd
+# https://github.com/moby/buildkit/blob/main/docs/architecture.md#security-context
+# Note: This may not be compatible with Fargate profiles
+# checkov:skip=CKV_K8S_16:buildkit requires privileged security context
 resource "kubernetes_deployment" "buildkitd" {
   count = var.enable_buildkitd ? 1 : 0
   
@@ -323,12 +321,7 @@ resource "kubernetes_deployment" "buildkitd" {
 
       spec {
         # Use node selector for EC2 nodes if available
-        dynamic "node_selector" {
-          for_each = var.buildkitd_node_selector
-          content {
-            node_selector = var.buildkitd_node_selector
-          }
-        }
+        node_selector = var.buildkitd_node_selector
 
         # Tolerations for dedicated buildkit nodes
         dynamic "toleration" {

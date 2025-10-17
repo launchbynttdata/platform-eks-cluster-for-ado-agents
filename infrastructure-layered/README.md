@@ -101,11 +101,19 @@ Application Layer (depends on Base + Middleware)
 
 ## Layer Structure
 
+> 📖 **Configuration Guides**:
+> - [Fargate Profile Configuration](./docs/FARGATE_CONFIGURATION.md) - Comprehensive guide for configuring Fargate profiles
+> - [EKS Addon Split Solution](./docs/EKS_ADDON_SPLIT_SOLUTION.md) - **CRITICAL**: Split VPC CNI from other addons to prevent CoreDNS degraded state
+> - [EKS Addon Dependency Resolution](./docs/EKS_ADDON_DEPENDENCY_RESOLUTION.md) - Understanding VPC CNI and compute resource dependencies
+> - [Addons and Compute Resources](./docs/ADDONS_AND_COMPUTE.md) - Addon independence and dependency patterns
+> - [Region Configuration](./check-region-config.sh) - Script to validate AWS region consistency
+
 ### Directory Structure
 
 ```
 infrastructure-layered/
 ├── deploy.sh                           # Orchestration script
+├── .env.example                        # Environment variable template
 ├── README.md                          # This documentation
 │
 ├── base/                              # Layer 1: Foundation
@@ -212,13 +220,8 @@ kubectl version --client  # Client Version: v1.28.x or later
      --bucket my-terraform-state-bucket \
      --versioning-configuration Status=Enabled
    
-   # Create DynamoDB table for state locking (optional but recommended)
-   aws dynamodb create-table \
-     --table-name terraform-state-lock \
-     --attribute-definitions AttributeName=LockID,AttributeType=S \
-     --key-schema AttributeName=LockID,KeyType=HASH \
-     --billing-mode PAY_PER_REQUEST \
-     --region us-east-1
+   # Note: DynamoDB table is NOT required for state locking
+   # Terraform 1.10+ supports native S3 state locking with use_lockfile=true
    ```
 
 3. **Azure DevOps Prerequisites**
@@ -261,7 +264,29 @@ git clone <repository-url>
 cd platform-eks-cluster-for-ado-agents/infrastructure-layered
 ```
 
-### 2. Configure Base Layer
+### 2. Set Environment Variables
+
+```bash
+# Option 1: Use the provided template
+cp .env.example .env
+# Edit .env with your values, then load it
+source .env
+
+# Option 2: Set variables manually
+export TF_STATE_BUCKET='my-terraform-state-bucket'
+export TF_VAR_ado_pat_value='your-personal-access-token'  # Optional
+export AWS_REGION='us-west-2'  # Important: Must match your VPC region
+```
+
+> **Important Region Configuration:**
+> - The `AWS_REGION` environment variable should match the region where your VPC and subnets exist
+> - Your AWS CLI default region (`aws configure get region`) should also match
+> - All three layers use the same region - mixing regions will cause VPC lookup failures
+> - Set `AWS_REGION` before running any deployment commands
+
+> **Note**: The `TF_STATE_BUCKET` environment variable is **required**. See `.env.example` for all configuration options.
+
+### 3. Configure Base Layer
 
 ```bash
 # Copy sample configuration
@@ -313,12 +338,15 @@ export TF_VAR_ado_pat_value="your-personal-access-token"
 
 ```bash
 # Deploy all layers with interactive prompts
+export TF_STATE_BUCKET='my-terraform-state-bucket'
 ./deploy.sh deploy
 
 # Or deploy with auto-approval
+export TF_STATE_BUCKET='my-terraform-state-bucket'
 ./deploy.sh --auto-approve deploy
 
 # Or deploy specific layer only
+export TF_STATE_BUCKET='my-terraform-state-bucket'
 ./deploy.sh --layer base deploy
 ```
 

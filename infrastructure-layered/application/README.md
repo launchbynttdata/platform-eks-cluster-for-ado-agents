@@ -177,24 +177,31 @@ ado_url            = "https://dev.azure.com/your-ado-org"
 export TF_VAR_ado_pat_value="your-personal-access-token"
 ```
 
-### Step 2: Initialize Terraform
+### Step 2: Set Environment Variable
 
 ```bash
-terraform init \
-  -backend-config="bucket=your-terraform-state-bucket" \
-  -backend-config="key=application/terraform.tfstate" \
-  -backend-config="region=us-east-1"
+export TF_STATE_BUCKET='your-terraform-state-bucket'
 ```
 
-### Step 3: Plan and Apply
+### Step 3: Deploy Using Orchestration Script (Recommended)
 
 ```bash
-# Review the planned changes
-terraform plan
+# From infrastructure-layered/ directory
+cd ..
+./deploy.sh --layer application deploy
+```
 
-# Deploy the application layer
+Or deploy manually with Terraform:
+
+```bash
+# The orchestration script handles bucket substitution automatically
+# Manual deployment requires sed substitution first
+terraform init
+terraform plan
 terraform apply
 ```
+
+> **Note**: The orchestration script (`../deploy.sh`) handles S3 bucket name substitution automatically. If deploying manually, ensure the backend configuration in `main.tf` has the correct bucket name.
 
 ### Step 4: Verify Deployment
 

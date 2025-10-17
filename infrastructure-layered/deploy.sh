@@ -132,6 +132,9 @@ OPTIONS:
     --help              Show this help message
 
 EXAMPLES:
+    # Set required environment variable
+    export TF_STATE_BUCKET='my-terraform-state-bucket'
+    
     # Deploy entire stack interactively
     $0 deploy
 
@@ -144,9 +147,6 @@ EXAMPLES:
     # Validate configuration without deploying
     $0 validate
 
-    # Deploy with custom backend config
-    $0 --backend-config backend.hcl deploy
-
     # Deploy with custom variables file
     $0 --var-file production.tfvars deploy
 
@@ -155,6 +155,11 @@ EXAMPLES:
 
     # Destroy in dry-run mode
     $0 --dry-run destroy
+
+ENVIRONMENT VARIABLES:
+    TF_STATE_BUCKET      (Required) S3 bucket name for Terraform remote state storage
+    TF_STATE_REGION      (Optional) AWS region for the S3 state bucket (defaults to AWS_REGION)
+    AWS_REGION           (Optional) AWS region for resources (defaults to AWS CLI default region)
 
 LAYER DEPENDENCIES:
     base → middleware → application
@@ -167,8 +172,8 @@ PREREQUISITES:
     • Terraform >= 1.5 installed
     • Helm >= 3.10 installed  
     • kubectl configured (for post-deployment validation)
-    • S3 bucket for remote state storage
-    • DynamoDB table for state locking (recommended)
+    • S3 bucket for remote state storage (set in TF_STATE_BUCKET)
+    • sed utility installed (for bucket name substitution)
 
 EOF
 }
@@ -212,7 +217,7 @@ check_prerequisites() {
     local missing_tools=()
     
     # Check for required tools
-    for tool in aws terraform helm kubectl; do
+    for tool in aws terraform helm kubectl sed; do
         if ! command -v "$tool" &> /dev/null; then
             missing_tools+=("$tool")
         fi
@@ -246,11 +251,28 @@ check_prerequisites() {
     current_region=$(aws configure get region || echo "")
     if [[ -z "$current_region" ]]; then
         log_warning "No default AWS region configured, using: $AWS_REGION"
+        AWS_REGION="${AWS_REGION:-us-east-1}"
     else
-        log_info "AWS region: $current_region"
+        AWS_REGION="$current_region"
+        log_info "AWS region: $AWS_REGION"
+    fi
+    
+    # Check for TF_STATE_BUCKET environment variable
+    if [[ -z "${TF_STATE_BUCKET:-}" ]]; then
+        log_error "TF_STATE_BUCKET environment variable is not set"
+        log_error "Export TF_STATE_BUCKET with your S3 bucket name:"
+        log_error "  export TF_STATE_BUCKET='my-terraform-state-bucket'"
+        exit 1
+    fi
+    
+    # Set TF_STATE_REGION if not already set (use detected AWS_REGION)
+    if [[ -z "${TF_STATE_REGION:-}" ]]; then
+        TF_STATE_REGION="$AWS_REGION"
+        log_debug "Using AWS region for state bucket: $TF_STATE_REGION"
     fi
     
     log_success "Prerequisites check passed"
+    log_info "Using S3 state bucket: $TF_STATE_BUCKET (region: $TF_STATE_REGION)"
 }
 
 version_compare() {
@@ -293,31 +315,85 @@ validate_layer_directory() {
     return 0
 }
 
-get_terraform_backend_args() {
-    local layer="$1"
-    local backend_args=()
+substitute_bucket_placeholder() {
+    local layer_dir="$1"
+    local main_tf="$layer_dir/main.tf"
     
-    if [[ -n "$BACKEND_CONFIG_FILE" ]]; then
-        if [[ -f "$BACKEND_CONFIG_FILE" ]]; then
-            backend_args+=("-backend-config=$BACKEND_CONFIG_FILE")
-        else
-            log_error "Backend config file not found: $BACKEND_CONFIG_FILE"
-            return 1
-        fi
-    else
-        # Default backend configuration
-        backend_args+=("-backend-config=key=$layer/terraform.tfstate")
-        
-        # Add region if specified
-        if [[ -n "$AWS_REGION" ]]; then
-            backend_args+=("-backend-config=region=$AWS_REGION")
-        fi
+    log_debug "Substituting S3 bucket placeholder in $main_tf"
+    
+    if [[ ! -f "$main_tf" ]]; then
+        log_error "main.tf not found: $main_tf"
+        return 1
     fi
     
-    printf '%s\n' "${backend_args[@]}"
+    # Check if placeholder exists
+    if ! grep -q "TF_STATE_BUCKET_PLACEHOLDER" "$main_tf"; then
+        log_debug "No placeholder found in $main_tf, assuming already substituted"
+        return 0
+    fi
+    
+    # Substitute placeholders with actual values
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY-RUN] Would substitute TF_STATE_BUCKET_PLACEHOLDER with $TF_STATE_BUCKET"
+        log_info "[DRY-RUN] Would substitute TF_STATE_REGION_PLACEHOLDER with $TF_STATE_REGION"
+        return 0
+    fi
+    
+    # Use sed to replace the placeholders
+    # macOS and Linux have different sed syntax, so we'll use a compatible approach
+    if sed --version &>/dev/null 2>&1; then
+        # GNU sed (Linux)
+        sed -i "s/TF_STATE_BUCKET_PLACEHOLDER/$TF_STATE_BUCKET/g" "$main_tf"
+        sed -i "s/TF_STATE_REGION_PLACEHOLDER/$TF_STATE_REGION/g" "$main_tf"
+    else
+        # BSD sed (macOS)
+        sed -i '' "s/TF_STATE_BUCKET_PLACEHOLDER/$TF_STATE_BUCKET/g" "$main_tf"
+        sed -i '' "s/TF_STATE_REGION_PLACEHOLDER/$TF_STATE_REGION/g" "$main_tf"
+    fi
+    
+    log_debug "Substituted bucket placeholder with: $TF_STATE_BUCKET"
+    log_debug "Substituted region placeholder with: $TF_STATE_REGION"
+    return 0
+}
+
+restore_bucket_placeholder() {
+    local layer_dir="$1"
+    local main_tf="$layer_dir/main.tf"
+    
+    log_debug "Restoring S3 bucket and region placeholders in $main_tf"
+    
+    if [[ ! -f "$main_tf" ]]; then
+        return 0
+    fi
+    
+    # Check if bucket name exists (not placeholder)
+    if ! grep -q "bucket = \"$TF_STATE_BUCKET\"" "$main_tf"; then
+        log_debug "Bucket already using placeholder in $main_tf"
+        return 0
+    fi
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY-RUN] Would restore TF_STATE_BUCKET_PLACEHOLDER and TF_STATE_REGION_PLACEHOLDER"
+        return 0
+    fi
+    
+    # Restore the placeholders
+    if sed --version &>/dev/null 2>&1; then
+        # GNU sed (Linux)
+        sed -i "s/bucket = \"$TF_STATE_BUCKET\"/bucket = \"TF_STATE_BUCKET_PLACEHOLDER\"/g" "$main_tf"
+        sed -i "s/region = \"$TF_STATE_REGION\"/region = \"TF_STATE_REGION_PLACEHOLDER\"/g" "$main_tf"
+    else
+        # BSD sed (macOS)
+        sed -i '' "s/bucket = \"$TF_STATE_BUCKET\"/bucket = \"TF_STATE_BUCKET_PLACEHOLDER\"/g" "$main_tf"
+        sed -i '' "s/region = \"$TF_STATE_REGION\"/region = \"TF_STATE_REGION_PLACEHOLDER\"/g" "$main_tf"
+    fi
+    
+    log_debug "Restored bucket and region placeholders"
+    return 0
 }
 
 get_terraform_var_args() {
+    local layer="${1:-}"  # Optional layer name parameter
     local var_args=()
     
     if [[ -n "$VAR_FILE" ]]; then
@@ -332,7 +408,48 @@ get_terraform_var_args() {
     # Add region variable
     var_args+=("-var=aws_region=$AWS_REGION")
     
+    # Add remote state bucket variable for layers that need it (middleware and application)
+    # Base layer doesn't need this variable as it has no dependencies
+    if [[ -n "${TF_STATE_BUCKET:-}" ]] && [[ "$layer" != "base" ]]; then
+        var_args+=("-var=remote_state_bucket=$TF_STATE_BUCKET")
+    fi
+    
     printf '%s\n' "${var_args[@]}"
+}
+
+configure_kubectl_alias() {
+    local cluster_name="$1"
+    local region="${2:-$AWS_REGION}"
+    local context_alias="${3:-$cluster_name}"
+    
+    log_info "Configuring kubectl access for cluster: $cluster_name"
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY-RUN] Would configure kubectl with alias: $context_alias"
+        return 0
+    fi
+    
+    # Update kubeconfig with the cluster configuration
+    if ! aws eks update-kubeconfig \
+        --region "$region" \
+        --name "$cluster_name" \
+        --alias "$context_alias" 2>/dev/null; then
+        log_warning "Failed to configure kubectl for cluster $cluster_name"
+        return 1
+    fi
+    
+    log_success "Successfully configured kubectl with context alias: $context_alias"
+    
+    # Test cluster connectivity
+    if kubectl cluster-info --context "$context_alias" &>/dev/null; then
+        log_success "Cluster connectivity verified"
+        log_info "You can now access the cluster using: kubectl --context $context_alias"
+        log_info "Or set as default: kubectl config use-context $context_alias"
+    else
+        log_warning "Cluster is not immediately accessible (may still be initializing)"
+    fi
+    
+    return 0
 }
 
 # =============================================================================
@@ -345,33 +462,34 @@ terraform_init() {
     
     log_info "Initializing Terraform for $layer layer..."
     
-    local backend_args
-    if ! backend_args=$(get_terraform_backend_args "$layer"); then
+    # Substitute bucket placeholder before init
+    if ! substitute_bucket_placeholder "$layer_dir"; then
+        log_error "Failed to substitute bucket placeholder"
         return 1
     fi
     
     cd "$layer_dir"
     
-    local init_cmd="terraform init"
-    
-    # Add backend configuration
-    while IFS= read -r arg; do
-        init_cmd="$init_cmd $arg"
-    done <<< "$backend_args"
+    local init_cmd="terraform init -reconfigure"
     
     log_debug "Running: $init_cmd"
     
     if [[ "$DRY_RUN" == "true" ]]; then
         log_info "[DRY-RUN] Would run: $init_cmd"
+        restore_bucket_placeholder "$layer_dir"
         return 0
     fi
     
     if ! eval "$init_cmd"; then
         log_error "Terraform init failed for $layer layer"
+        restore_bucket_placeholder "$layer_dir"
         return 1
     fi
     
     log_success "Terraform initialized for $layer layer"
+    
+    # Restore placeholder to keep files clean in version control
+    restore_bucket_placeholder "$layer_dir"
 }
 
 terraform_validate() {
@@ -380,35 +498,59 @@ terraform_validate() {
     
     log_info "Validating Terraform configuration for $layer layer..."
     
+    # Substitute bucket placeholder before validate
+    if ! substitute_bucket_placeholder "$layer_dir"; then
+        log_error "Failed to substitute bucket placeholder"
+        return 1
+    fi
+    
     cd "$layer_dir"
     
     if [[ "$DRY_RUN" == "true" ]]; then
         log_info "[DRY-RUN] Would validate Terraform configuration"
+        restore_bucket_placeholder "$layer_dir"
         return 0
     fi
     
     if ! terraform validate; then
         log_error "Terraform validation failed for $layer layer"
+        restore_bucket_placeholder "$layer_dir"
         return 1
     fi
     
     log_success "Terraform validation passed for $layer layer"
+    
+    # Restore placeholder
+    restore_bucket_placeholder "$layer_dir"
 }
 
 terraform_plan() {
     local layer="$1"
     local layer_dir="$2"
+    local plan_file="${3:-}"  # Optional plan file path
     
     log_info "Planning Terraform changes for $layer layer..."
     
+    # Substitute bucket placeholder before plan
+    if ! substitute_bucket_placeholder "$layer_dir"; then
+        log_error "Failed to substitute bucket placeholder"
+        return 1
+    fi
+    
     local var_args
-    if ! var_args=$(get_terraform_var_args); then
+    if ! var_args=$(get_terraform_var_args "$layer"); then
+        restore_bucket_placeholder "$layer_dir"
         return 1
     fi
     
     cd "$layer_dir"
     
     local plan_cmd="terraform plan -detailed-exitcode"
+    
+    # Add plan output file if specified
+    if [[ -n "$plan_file" ]]; then
+        plan_cmd="$plan_cmd -out=$plan_file"
+    fi
     
     # Add variable arguments
     while IFS= read -r arg; do
@@ -421,6 +563,7 @@ terraform_plan() {
     
     if [[ "$DRY_RUN" == "true" ]]; then
         log_info "[DRY-RUN] Would run: $plan_cmd"
+        restore_bucket_placeholder "$layer_dir"
         return 0
     fi
     
@@ -428,21 +571,39 @@ terraform_plan() {
     local plan_exitcode=0
     eval "$plan_cmd" || plan_exitcode=$?
     
+    # Restore placeholder
+    restore_bucket_placeholder "$layer_dir"
+    
     case $plan_exitcode in
         0)
             log_success "No changes required for $layer layer"
+            # Clean up plan file if no changes
+            if [[ -n "$plan_file" && -f "$plan_file" ]]; then
+                rm -f "$plan_file"
+            fi
             return 0
             ;;
         1)
             log_error "Terraform plan failed for $layer layer"
+            # Clean up plan file on error
+            if [[ -n "$plan_file" && -f "$plan_file" ]]; then
+                rm -f "$plan_file"
+            fi
             return 1
             ;;
         2)
             log_info "Changes planned for $layer layer"
+            if [[ -n "$plan_file" ]]; then
+                log_debug "Plan saved to: $plan_file"
+            fi
             return 2  # Changes detected
             ;;
         *)
             log_error "Unexpected exit code from terraform plan: $plan_exitcode"
+            # Clean up plan file on error
+            if [[ -n "$plan_file" && -f "$plan_file" ]]; then
+                rm -f "$plan_file"
+            fi
             return 1
             ;;
     esac
@@ -451,42 +612,73 @@ terraform_plan() {
 terraform_apply() {
     local layer="$1"
     local layer_dir="$2"
+    local plan_file="${3:-}"  # Optional plan file to apply
     
     log_info "Applying Terraform changes for $layer layer..."
     
-    local var_args
-    if ! var_args=$(get_terraform_var_args); then
+    # Substitute bucket placeholder before apply
+    if ! substitute_bucket_placeholder "$layer_dir"; then
+        log_error "Failed to substitute bucket placeholder"
         return 1
     fi
     
     cd "$layer_dir"
     
-    local apply_cmd="terraform apply"
-    
-    if [[ "$AUTO_APPROVE" == "true" ]]; then
-        apply_cmd="$apply_cmd -auto-approve"
-    fi
-    
-    # Add variable arguments  
-    while IFS= read -r arg; do
-        if [[ -n "$arg" ]]; then
-            apply_cmd="$apply_cmd $arg"
+    local apply_cmd
+    if [[ -n "$plan_file" && -f "$plan_file" ]]; then
+        # Apply from plan file (no need for -auto-approve or var args)
+        apply_cmd="terraform apply $plan_file"
+        log_debug "Applying from plan file: $plan_file"
+    else
+        # Traditional apply with variables
+        local var_args
+        if ! var_args=$(get_terraform_var_args "$layer"); then
+            restore_bucket_placeholder "$layer_dir"
+            return 1
         fi
-    done <<< "$var_args"
+        
+        apply_cmd="terraform apply"
+        
+        if [[ "$AUTO_APPROVE" == "true" ]]; then
+            apply_cmd="$apply_cmd -auto-approve"
+        fi
+        
+        # Add variable arguments  
+        while IFS= read -r arg; do
+            if [[ -n "$arg" ]]; then
+                apply_cmd="$apply_cmd $arg"
+            fi
+        done <<< "$var_args"
+    fi
     
     log_debug "Running: $apply_cmd"
     
     if [[ "$DRY_RUN" == "true" ]]; then
         log_info "[DRY-RUN] Would run: $apply_cmd"
+        restore_bucket_placeholder "$layer_dir"
         return 0
     fi
     
     if ! eval "$apply_cmd"; then
         log_error "Terraform apply failed for $layer layer"
+        restore_bucket_placeholder "$layer_dir"
+        # Clean up plan file on error
+        if [[ -n "$plan_file" && -f "$plan_file" ]]; then
+            rm -f "$plan_file"
+        fi
         return 1
     fi
     
     log_success "Terraform apply completed for $layer layer"
+    
+    # Clean up plan file after successful apply
+    if [[ -n "$plan_file" && -f "$plan_file" ]]; then
+        rm -f "$plan_file"
+        log_debug "Removed plan file: $plan_file"
+    fi
+    
+    # Restore placeholder
+    restore_bucket_placeholder "$layer_dir"
 }
 
 terraform_destroy() {
@@ -495,8 +687,15 @@ terraform_destroy() {
     
     log_info "Destroying Terraform resources for $layer layer..."
     
+    # Substitute bucket placeholder before destroy
+    if ! substitute_bucket_placeholder "$layer_dir"; then
+        log_error "Failed to substitute bucket placeholder"
+        return 1
+    fi
+    
     local var_args
-    if ! var_args=$(get_terraform_var_args); then
+    if ! var_args=$(get_terraform_var_args "$layer"); then
+        restore_bucket_placeholder "$layer_dir"
         return 1
     fi
     
@@ -519,15 +718,20 @@ terraform_destroy() {
     
     if [[ "$DRY_RUN" == "true" ]]; then
         log_info "[DRY-RUN] Would run: $destroy_cmd"
+        restore_bucket_placeholder "$layer_dir"
         return 0
     fi
     
     if ! eval "$destroy_cmd"; then
         log_error "Terraform destroy failed for $layer layer"
+        restore_bucket_placeholder "$layer_dir"
         return 1
     fi
     
     log_success "Terraform destroy completed for $layer layer"
+    
+    # Restore placeholder
+    restore_bucket_placeholder "$layer_dir"
 }
 
 terraform_output() {
@@ -544,6 +748,61 @@ terraform_output() {
     fi
 }
 
+show_recovery_guidance() {
+    local failed_layer="$1"
+    shift
+    local successful_layers=("$@")
+    
+    echo
+    echo "================================"
+    echo "RECOVERY GUIDANCE"
+    echo "================================"
+    echo
+    echo "Current State:"
+    if [[ ${#successful_layers[@]} -gt 0 ]]; then
+        echo "  Successfully deployed: ${successful_layers[*]}"
+    else
+        echo "  No layers successfully deployed"
+    fi
+    echo "  Failed at: $failed_layer"
+    echo
+    echo "To recover:"
+    echo "  1. Review the error messages above"
+    echo "  2. Fix the issue in the $failed_layer layer"
+    echo "  3. Re-run deployment for just the failed layer:"
+    echo "     ./deploy.sh --layer $failed_layer deploy"
+    echo
+    
+    case "$failed_layer" in
+        "base")
+            echo "Common base layer issues:"
+            echo "  - Duplicate terraform provider configuration (check main.tf and versions.tf)"
+            echo "  - Invalid AWS credentials or insufficient permissions"
+            echo "  - VPC or subnet configuration issues"
+            echo "  - S3 bucket does not exist or is not accessible"
+            ;;
+        "middleware")
+            echo "Common middleware layer issues:"
+            echo "  - Base layer not fully deployed"
+            echo "  - Kubernetes authentication issues"
+            echo "  - Helm chart repository not accessible"
+            ;;
+        "application")
+            echo "Common application layer issues:"
+            echo "  - Base or middleware layers not fully deployed"
+            echo "  - ADO PAT secret value not set"
+            echo "  - ECR repository name conflicts"
+            ;;
+    esac
+    echo
+    echo "To check layer status:"
+    echo "  ./deploy.sh status"
+    echo
+    echo "To destroy and start over:"
+    echo "  ./deploy.sh destroy"
+    echo
+}
+
 get_layer_status() {
     local layer="$1"
     local layer_dir="$2"
@@ -553,16 +812,21 @@ get_layer_status() {
         return 0
     fi
     
+    # Substitute bucket placeholder before checking state
+    substitute_bucket_placeholder "$layer_dir" &>/dev/null
+    
     cd "$layer_dir"
     
     # Check if Terraform is initialized
     if [[ ! -d ".terraform" ]]; then
+        restore_bucket_placeholder "$layer_dir" &>/dev/null
         echo "not-initialized"
         return 0
     fi
     
     # Check if state exists
     if ! terraform show &>/dev/null; then
+        restore_bucket_placeholder "$layer_dir" &>/dev/null
         echo "no-state"
         return 0
     fi
@@ -570,6 +834,9 @@ get_layer_status() {
     # Check if there are any resources in state
     local resource_count
     resource_count=$(terraform state list 2>/dev/null | wc -l)
+    
+    # Restore placeholder
+    restore_bucket_placeholder "$layer_dir" &>/dev/null
     
     if [[ "$resource_count" -eq 0 ]]; then
         echo "empty-state"
@@ -654,9 +921,12 @@ deploy_layer() {
         return 1
     fi
     
-    # Plan changes
+    # Create temporary plan file
+    local plan_file="$layer_dir/terraform-deploy-$layer.tfplan"
+    
+    # Plan changes with output file
     local plan_exitcode=0
-    terraform_plan "$layer" "$layer_dir" || plan_exitcode=$?
+    terraform_plan "$layer" "$layer_dir" "$plan_file" || plan_exitcode=$?
     
     case $plan_exitcode in
         0)
@@ -667,7 +937,7 @@ deploy_layer() {
             return 1  # Plan failed
             ;;
         2)
-            # Changes detected, proceed with apply
+            # Changes detected, proceed with confirmation and apply
             ;;
         *)
             log_error "Unexpected plan result for $layer layer"
@@ -677,14 +947,17 @@ deploy_layer() {
     
     # Confirm before applying (unless auto-approved or dry-run)
     if [[ "$DRY_RUN" != "true" && "$AUTO_APPROVE" != "true" ]]; then
-        if ! confirm_action "Apply changes to $layer layer?"; then
+        echo
+        if ! confirm_action "Apply the planned changes to $layer layer?"; then
             log_info "Deployment cancelled by user"
+            # Clean up plan file
+            rm -f "$plan_file"
             return 1
         fi
     fi
     
-    # Apply changes
-    if ! terraform_apply "$layer" "$layer_dir"; then
+    # Apply changes using the plan file
+    if ! terraform_apply "$layer" "$layer_dir" "$plan_file"; then
         return 1
     fi
     
@@ -726,19 +999,8 @@ validate_base_layer_deployment() {
     if [[ -n "$cluster_name" ]]; then
         log_info "EKS cluster: $cluster_name"
         
-        # Update kubeconfig
-        if aws eks update-kubeconfig --region "$AWS_REGION" --name "$cluster_name" &>/dev/null; then
-            log_success "Successfully configured kubectl for cluster $cluster_name"
-            
-            # Test cluster connectivity
-            if kubectl cluster-info &>/dev/null; then
-                log_success "Cluster connectivity verified"
-            else
-                log_warning "Cluster is not immediately accessible"
-            fi
-        else
-            log_warning "Could not configure kubectl for cluster $cluster_name"
-        fi
+        # Configure kubectl with cluster name as alias
+        configure_kubectl_alias "$cluster_name" "$AWS_REGION" "$cluster_name"
     fi
 }
 
@@ -867,6 +1129,7 @@ cmd_deploy() {
     
     # Deploy layers in order
     local failed_layers=()
+    local successful_layers=()
     for i in "${!layers[@]}"; do
         local layer="${layers[$i]}"
         local layer_dir="${layer_dirs[$i]}"
@@ -875,23 +1138,107 @@ cmd_deploy() {
             log_error "Failed to deploy $layer layer"
             failed_layers+=("$layer")
             
-            if [[ "$AUTO_APPROVE" != "true" ]]; then
-                if ! confirm_action "Continue with remaining layers?"; then
-                    break
-                fi
+            # Show deployment status so far
+            echo
+            echo "================================"
+            echo "DEPLOYMENT INTERRUPTED"
+            echo "================================"
+            echo
+            if [[ ${#successful_layers[@]} -gt 0 ]]; then
+                echo "Successfully deployed:"
+                for success in "${successful_layers[@]}"; do
+                    echo "  ✓ $success"
+                done
+                echo
             fi
+            echo "Failed at:"
+            echo "  ✗ $layer"
+            echo
+            if [[ $((i+1)) -lt ${#layers[@]} ]]; then
+                echo "Not yet deployed:"
+                for ((j=i+1; j<${#layers[@]}; j++)); do
+                    echo "  ○ ${layers[$j]}"
+                done
+                echo
+            fi
+            
+            # Always exit on error - no option to continue
+            log_error "Deployment failed at $layer layer"
+            show_recovery_guidance "$layer" "${successful_layers[@]}"
+            exit 1
+        else
+            successful_layers+=("$layer")
         fi
     done
     
     # Report results
     if [[ ${#failed_layers[@]} -eq 0 ]]; then
-        log_success "All layers deployed successfully"
+        echo
+        echo "================================"
+        echo "DEPLOYMENT SUCCESSFUL"
+        echo "================================"
+        echo
+        
+        if [[ -n "$TARGET_LAYER" ]]; then
+            log_success "Target layer deployed successfully: $TARGET_LAYER"
+            for layer in "${successful_layers[@]}"; do
+                echo "  ✓ $layer"
+            done
+            echo
+            
+            # List other layers that were intentionally skipped
+            local all_layers=("base" "middleware" "application")
+            local skipped_layers=()
+            for check_layer in "${all_layers[@]}"; do
+                local found=false
+                for deployed_layer in "${successful_layers[@]}"; do
+                    if [[ "$check_layer" == "$deployed_layer" ]]; then
+                        found=true
+                        break
+                    fi
+                done
+                if [[ "$found" == "false" ]]; then
+                    skipped_layers+=("$check_layer")
+                fi
+            done
+            
+            if [[ ${#skipped_layers[@]} -gt 0 ]]; then
+                echo "Other layers (not deployed - layer mode):"
+                for layer in "${skipped_layers[@]}"; do
+                    echo "  ⊘ $layer (skipped)"
+                done
+                echo
+            fi
+        else
+            log_success "All layers deployed successfully"
+            for layer in "${successful_layers[@]}"; do
+                echo "  ✓ $layer"
+            done
+            echo
+        fi
         
         # Show post-deployment information
         show_deployment_info
         
     else
-        log_error "Deployment failed for layers: ${failed_layers[*]}"
+        echo
+        echo "================================"
+        echo "DEPLOYMENT COMPLETED WITH ERRORS"
+        echo "================================"
+        echo
+        if [[ ${#successful_layers[@]} -gt 0 ]]; then
+            echo "Successfully deployed:"
+            for layer in "${successful_layers[@]}"; do
+                echo "  ✓ $layer"
+            done
+            echo
+        fi
+        echo "Failed layers:"
+        for layer in "${failed_layers[@]}"; do
+            echo "  ✗ $layer"
+        done
+        echo
+        show_recovery_guidance "${failed_layers[0]}" "${successful_layers[@]}"
         exit 1
     fi
 }
@@ -949,6 +1296,33 @@ cmd_plan() {
         terraform_plan "$layer" "$layer_dir"
         echo
     done
+    
+    # Show summary if in layer mode
+    if [[ -n "$TARGET_LAYER" ]]; then
+        echo
+        echo "================================"
+        echo "PLAN MODE: LAYER $TARGET_LAYER"
+        echo "================================"
+        echo
+        log_info "Planned layer: $TARGET_LAYER"
+        
+        # List other layers that were intentionally skipped
+        local all_layers=("base" "middleware" "application")
+        local skipped_layers=()
+        for check_layer in "${all_layers[@]}"; do
+            if [[ "$check_layer" != "$TARGET_LAYER" ]]; then
+                skipped_layers+=("$check_layer")
+            fi
+        done
+        
+        if [[ ${#skipped_layers[@]} -gt 0 ]]; then
+            echo "Other layers (not planned - layer mode):"
+            for layer in "${skipped_layers[@]}"; do
+                echo "  ⊘ $layer (skipped)"
+            done
+            echo
+        fi
+    fi
 }
 
 cmd_validate() {
@@ -1016,7 +1390,28 @@ cmd_validate() {
     
     # Report results
     if [[ ${#validation_errors[@]} -eq 0 ]]; then
-        log_success "All validations passed"
+        echo
+        if [[ -n "$TARGET_LAYER" ]]; then
+            log_success "Target layer validation passed: $TARGET_LAYER"
+            
+            # List other layers that were intentionally skipped
+            local all_layers=("base" "middleware" "application")
+            local skipped_layers=()
+            for check_layer in "${all_layers[@]}"; do
+                if [[ "$check_layer" != "$TARGET_LAYER" ]]; then
+                    skipped_layers+=("$check_layer")
+                fi
+            done
+            
+            if [[ ${#skipped_layers[@]} -gt 0 ]]; then
+                echo "Other layers (not validated - layer mode):"
+                for layer in "${skipped_layers[@]}"; do
+                    echo "  ⊘ $layer (skipped)"
+                done
+            fi
+        else
+            log_success "All validations passed"
+        fi
     else
         log_error "Validation errors found:"
         for error in "${validation_errors[@]}"; do
@@ -1077,17 +1472,37 @@ cmd_destroy() {
             log_error "Failed to destroy $layer layer"
             failed_layers+=("$layer")
             
-            if [[ "$AUTO_APPROVE" != "true" ]]; then
-                if ! confirm_action "Continue with remaining layers?"; then
-                    break
-                fi
-            fi
+            # Always exit on error - no option to continue
+            log_error "Destruction halted at $layer layer"
+            log_error "Failed to destroy layers: ${failed_layers[*]}"
+            exit 1
         fi
     done
     
     # Report results
     if [[ ${#failed_layers[@]} -eq 0 ]]; then
-        log_success "All layers destroyed successfully"
+        echo
+        if [[ -n "$TARGET_LAYER" ]]; then
+            log_success "Target layer destroyed successfully: $TARGET_LAYER"
+            
+            # List other layers that were intentionally skipped
+            local all_layers=("base" "middleware" "application")
+            local skipped_layers=()
+            for check_layer in "${all_layers[@]}"; do
+                if [[ "$check_layer" != "$TARGET_LAYER" ]]; then
+                    skipped_layers+=("$check_layer")
+                fi
+            done
+            
+            if [[ ${#skipped_layers[@]} -gt 0 ]]; then
+                echo "Other layers (not destroyed - layer mode):"
+                for layer in "${skipped_layers[@]}"; do
+                    echo "  ⊘ $layer (skipped)"
+                done
+            fi
+        else
+            log_success "All layers destroyed successfully"
+        fi
     else
         log_error "Destruction failed for layers: ${failed_layers[*]}"
         exit 1

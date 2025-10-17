@@ -9,36 +9,44 @@
 # This layer depends on both base infrastructure and middleware layers.
 
 terraform {
-  required_version = ">= 1.5"
+  required_version = "~> 1.5"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 5.0"
+      version = "~> 5.0"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = ">= 2.20"
+      version = "~> 2.20"
     }
     helm = {
       source  = "hashicorp/helm"
-      version = ">= 2.10"
+      version = "~> 2.10"
     }
   }
   
-  # REVIEW: Remote state configuration - requires S3 bucket to be created externally
+  # Remote state configuration - S3 backend with native state locking
+  # Note: Terraform 1.10+ supports native S3 state locking without DynamoDB
+  # The bucket name and region will be substituted by the deployment script from env vars
   backend "s3" {
-    # These values should be configured via terraform init -backend-config
-    # or environment variables:
-    # - bucket: S3 bucket for state storage
-    # - key: "application/terraform.tfstate"
-    # - region: AWS region
-    # - dynamodb_table: DynamoDB table for state locking (optional)
+    bucket = "TF_STATE_BUCKET_PLACEHOLDER"
+    key    = "application/terraform.tfstate"
+    region = "TF_STATE_REGION_PLACEHOLDER"
+    
+    # Enable native S3 state locking (Terraform 1.10+)
+    # No DynamoDB table required
+    encrypt        = true
+    use_lockfile   = true
   }
 }
 
 # Configure AWS Provider
+# Uses AWS_REGION environment variable if set, otherwise falls back to var.aws_region
 provider "aws" {
-  region = var.aws_region
+  region = coalesce(
+    try(var.aws_region, null),
+    "us-west-2"  # Explicit fallback
+  )
 }
 
 # Configure Kubernetes Provider using base layer cluster information

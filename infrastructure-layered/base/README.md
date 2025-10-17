@@ -55,19 +55,28 @@ The deploying user/role needs the following AWS permissions:
    subnet_ids   = ["subnet-xxxxxxxxx", "subnet-yyyyyyyyy"]
    ```
 
-3. **Configure remote state backend:**
+3. **Set environment variable for remote state:**
    ```bash
-   terraform init \\
-     -backend-config="bucket=your-terraform-state-bucket" \\
-     -backend-config="key=base/terraform.tfstate" \\
-     -backend-config="region=us-west-2"
+   export TF_STATE_BUCKET='your-terraform-state-bucket'
    ```
 
-4. **Deploy infrastructure:**
+4. **Deploy using orchestration script (recommended):**
    ```bash
+   # From infrastructure-layered/ directory
+   cd ..
+   ./deploy.sh --layer base deploy
+   ```
+
+   Or deploy manually with Terraform:
+   ```bash
+   # The orchestration script handles bucket substitution automatically
+   # Manual deployment requires sed substitution first
+   terraform init
    terraform plan
    terraform apply
    ```
+
+> **Note**: The orchestration script (`../deploy.sh`) handles S3 bucket name substitution automatically. If deploying manually, ensure the backend configuration in `main.tf` has the correct bucket name.
 
 ## Important Configuration Notes
 

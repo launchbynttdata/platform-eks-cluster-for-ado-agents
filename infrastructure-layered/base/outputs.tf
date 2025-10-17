@@ -99,17 +99,16 @@ output "subnet_ids" {
 output "vpc_endpoints" {
   description = "Map of VPC endpoint information"
   value = var.create_vpc_endpoints ? {
-    for k, v in module.vpc_endpoints[0].vpc_endpoint_ids : k => {
-      id = v
-    }
+    gateway   = module.vpc_endpoints[0].gateway_endpoint_ids
+    interface = module.vpc_endpoints[0].interface_endpoint_ids
   } : {}
 }
 
 # EC2 Node Groups (if any)
-output "ec2_node_group_arns" {
-  description = "Map of EC2 node group ARNs"
+output "ec2_node_group_ids" {
+  description = "Map of EC2 node group IDs"
   value = {
-    for k, v in module.ec2_nodes : k => v.node_group_arn
+    for k, v in module.ec2_nodes : k => v.node_group_id
   }
 }
 

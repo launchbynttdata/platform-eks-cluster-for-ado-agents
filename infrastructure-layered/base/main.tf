@@ -14,48 +14,42 @@
 # This layer has NO dependencies on middleware or application components.
 
 terraform {
-  required_version = ">= 1.5"
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = ">= 5.0"
-    }
-  }
-  
-  # REVIEW: Remote state configuration - requires S3 bucket to be created externally
+  # Remote state configuration - S3 backend with native state locking
+  # Note: Terraform 1.10+ supports native S3 state locking without DynamoDB
+  # The bucket name and region will be substituted by the deployment script from env vars
   backend "s3" {
-    # These values should be configured via terraform init -backend-config
-    # or environment variables:
-    # - bucket: S3 bucket for state storage
-    # - key: "base/terraform.tfstate" 
-    # - region: AWS region
-    # - dynamodb_table: DynamoDB table for state locking (optional)
+    bucket = "TF_STATE_BUCKET_PLACEHOLDER"
+    key    = "base/terraform.tfstate"
+    region = "TF_STATE_REGION_PLACEHOLDER"
+
+    # Enable native S3 state locking (Terraform 1.10+)
+    # No DynamoDB table required
+    encrypt      = true
+    use_lockfile = true
   }
 }
 
 # Configure AWS Provider
+# Uses AWS_REGION environment variable if set, otherwise falls back to var.aws_region
 provider "aws" {
-  region = var.aws_region
+  region = coalesce(
+    try(var.aws_region, null),
+    "us-west-2" # Explicit fallback
+  )
 }
 
 # Data sources
 data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
+# VPC and Subnets - basic validation that they exist
 data "aws_vpc" "selected" {
   id = var.vpc_id
 }
 
-data "aws_subnets" "selected" {
-  filter {
-    name   = "vpc-id"
-    values = [var.vpc_id]
-  }
-
-  filter {
-    name   = "subnet-id"
-    values = var.subnet_ids
-  }
+data "aws_subnet" "selected" {
+  for_each = toset(var.subnet_ids)
+  id       = each.value
 }
 
 data "aws_route_tables" "private" {
@@ -79,6 +73,10 @@ locals {
     },
     var.tags
   )
+
+  # Determine if we have any compute resources configured
+  has_fargate = length(var.fargate_profiles) > 0
+  has_ec2     = length(var.ec2_node_group) > 0
 }
 
 # KMS Key for EKS encryption
@@ -200,6 +198,62 @@ resource "aws_iam_openid_connect_provider" "eks" {
   tags = local.common_tags
 }
 
+# IAM Role for VPC CNI using IRSA
+resource "aws_iam_role" "vpc_cni_irsa" {
+  count = var.create_iam_roles ? 1 : 0
+
+  name = "${local.cluster_name}-vpc-cni-irsa-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Effect = "Allow"
+        Principal = {
+          Federated = aws_iam_openid_connect_provider.eks.arn
+        }
+        Condition = {
+          StringEquals = {
+            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = "system:serviceaccount:kube-system:aws-node"
+            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = local.common_tags
+}
+
+# Attach AWS managed policy for VPC CNI
+resource "aws_iam_role_policy_attachment" "vpc_cni_policy" {
+  count = var.create_iam_roles ? 1 : 0
+
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+  role       = aws_iam_role.vpc_cni_irsa[0].name
+}
+
+# VPC CNI Addon (deployed before compute resources)
+resource "aws_eks_addon" "vpc_cni" {
+  count = contains(keys(var.eks_addons), "vpc-cni") ? 1 : 0
+
+  cluster_name             = module.eks_cluster.cluster_name
+  addon_name               = "vpc-cni"
+  addon_version            = try(var.eks_addons["vpc-cni"].addon_version, null)
+  service_account_role_arn = var.create_iam_roles ? aws_iam_role.vpc_cni_irsa[0].arn : null
+  resolve_conflicts_on_create = try(var.eks_addons["vpc-cni"].resolve_conflicts_on_create, "OVERWRITE")
+  resolve_conflicts_on_update = try(var.eks_addons["vpc-cni"].resolve_conflicts_on_update, "OVERWRITE")
+
+  depends_on = [
+    module.eks_cluster,
+    aws_iam_openid_connect_provider.eks,
+    aws_iam_role_policy_attachment.vpc_cni_policy
+  ]
+
+  tags = local.common_tags
+}
+
 # VPC Endpoints (optional)
 module "vpc_endpoints" {
   count  = var.create_vpc_endpoints ? 1 : 0
@@ -216,47 +270,35 @@ module "vpc_endpoints" {
   tags = local.common_tags
 }
 
-# Application Fargate profile (for middleware and applications)
+# Fargate Profiles
+# Create one Fargate profile per entry in the fargate_profiles map
+# Each profile can have multiple namespace selectors
+# IMPORTANT: Fargate pods need VPC CNI addon to be installed first
 module "fargate_profile" {
-  source = "../../infrastructure/modules/primitive/fargate-profile"
+  for_each = var.fargate_profiles
+  source   = "../../infrastructure/modules/primitive/fargate-profile"
 
   cluster_name           = module.eks_cluster.cluster_name
-  profile_name           = "${local.cluster_name}-apps-fargate-profile"
+  profile_name           = "${local.cluster_name}-${each.key}-fargate-profile"
   pod_execution_role_arn = var.create_iam_roles ? module.iam_roles.fargate_role_arn : var.existing_fargate_role_arn
   subnet_ids             = var.subnet_ids
-  selectors              = var.fargate_profile_selectors
+  selectors              = each.value.selectors
 
   tags = local.common_tags
 
+  # Wait for IAM roles, cluster, and VPC CNI addon to be ready
   depends_on = [
     module.eks_cluster,
-    module.iam_roles
+    module.iam_roles,
+    aws_eks_addon.vpc_cni
   ]
 }
 
-# System Fargate profile (CoreDNS only)
-module "fargate_profile_system" {
-  count = length(var.fargate_system_profile_selectors) > 0 ? 1 : 0
-  
-  source = "../../infrastructure/modules/primitive/fargate-profile"
-
-  cluster_name           = module.eks_cluster.cluster_name
-  profile_name           = "${local.cluster_name}-system-fargate-profile"
-  pod_execution_role_arn = var.create_iam_roles ? module.iam_roles.fargate_role_arn : var.existing_fargate_role_arn
-  subnet_ids             = var.subnet_ids
-  selectors              = var.fargate_system_profile_selectors
-
-  tags = local.common_tags
-
-  depends_on = [
-    module.eks_cluster,
-    module.iam_roles
-  ]
-}
-
-# EKS Addons - created after both Fargate profiles are ready
+# EKS Addons (excluding VPC CNI which is installed earlier)
+# Install remaining addons after compute resources are available
+# VPC CNI is handled separately with IRSA before compute resources
 resource "aws_eks_addon" "addons" {
-  for_each = var.eks_addons
+  for_each = { for k, v in var.eks_addons : k => v if k != "vpc-cni" }
 
   cluster_name                = module.eks_cluster.cluster_name
   addon_name                  = each.key
@@ -266,23 +308,25 @@ resource "aws_eks_addon" "addons" {
   service_account_role_arn    = try(each.value.service_account_role_arn, null)
   configuration_values        = try(each.value.configuration_values, null)
 
+  # Wait for compute resources to be available
   depends_on = [
-    module.fargate_profile_system,
-    module.fargate_profile,
-    module.eks_cluster
+    module.eks_cluster,
+    module.ec2_nodes,
+    module.fargate_profile
   ]
 
   tags = local.common_tags
 }
 
 # EC2 Node Groups (optional)
+# IMPORTANT: Nodes must wait for VPC CNI addon to be installed before they can join the cluster
 module "ec2_nodes" {
   source   = "../../infrastructure/modules/primitive/eks-node-group"
   for_each = var.ec2_node_group
 
   node_group_name = each.key
   cluster_name    = module.eks_cluster.cluster_name
-  node_role_arn   = aws_iam_role.ec2_node_group_role.arn
+  node_role_arn   = aws_iam_role.ec2_node_group_role[0].arn
   subnet_ids      = var.subnet_ids
   instance_types  = try(each.value.instance_types, ["t3.medium"])
   disk_size       = try(each.value.disk_size, 50)
@@ -293,7 +337,7 @@ module "ec2_nodes" {
   max_size        = try(each.value.max_size, 3)
   min_size        = try(each.value.min_size, 0)
   taints          = try(each.value.taints, [])
-  
+
   # Cluster Autoscaler Configuration
   enable_cluster_autoscaler = var.enable_cluster_autoscaler
   cluster_autoscaler_tags = var.enable_cluster_autoscaler ? merge(
@@ -308,10 +352,10 @@ module "ec2_nodes" {
     # Dynamically create labels from the actual labels configuration
     {
       for label_key, label_value in coalesce(each.value.labels, {}) :
-      "k8s.io/cluster-autoscaler/node-template/label/${label_key}" => label_value 
+      "k8s.io/cluster-autoscaler/node-template/label/${label_key}" => label_value
     }
   ) : {}
-  
+
   tags = merge(
     local.common_tags,
     {
@@ -319,12 +363,19 @@ module "ec2_nodes" {
     },
     try(each.value.tags, {})
   )
+
+  # Wait for VPC CNI addon to be installed before creating nodes
+  depends_on = [
+    module.eks_cluster,
+    aws_eks_addon.vpc_cni,
+    aws_iam_role.ec2_node_group_role
+  ]
 }
 
 # IAM Role for EC2 Node Groups
 resource "aws_iam_role" "ec2_node_group_role" {
   count = length(var.ec2_node_group) > 0 ? 1 : 0
-  
+
   name = "${local.cluster_name}-eks-node-group-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -334,7 +385,7 @@ resource "aws_iam_role" "ec2_node_group_role" {
       Action    = "sts:AssumeRole"
     }]
   })
-  
+
   tags = local.common_tags
 }
 
@@ -396,7 +447,7 @@ resource "aws_iam_policy" "cluster_autoscaler_policy" {
       }
     ]
   })
-  
+
   tags = local.common_tags
 }
 
