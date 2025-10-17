@@ -1736,7 +1736,13 @@ parse_arguments() {
 
 main() {
     local command
-    command=$(parse_arguments "$@")
+    
+    # Parse arguments - this sets global variables (TARGET_LAYER, AUTO_APPROVE, etc.)
+    # and returns the command. We use a temporary file to avoid subshell issues.
+    local temp_cmd_file="/tmp/deploy_cmd_$$"
+    parse_arguments "$@" > "$temp_cmd_file"
+    command=$(cat "$temp_cmd_file")
+    rm -f "$temp_cmd_file"
     
     # Show configuration in verbose mode
     if [[ "$VERBOSE" == "true" ]]; then

@@ -71,6 +71,16 @@ output "buildkitd_service_endpoint" {
   value       = var.enable_buildkitd ? "${kubernetes_service.buildkitd[0].metadata[0].name}.${var.buildkitd_namespace}.svc.cluster.local:1234" : null
 }
 
+output "buildkitd_service_alias" {
+  description = "Buildkitd service alias in ado-agents namespace (for convenience)"
+  value       = var.enable_buildkitd ? "buildkitd.${var.ado_agents_namespace}.svc.cluster.local:1234" : null
+}
+
+output "buildkitd_short_name" {
+  description = "Short name for buildkitd service (usable from ado-agents namespace)"
+  value       = var.enable_buildkitd ? "buildkitd:1234" : null
+}
+
 # Common Information
 output "aws_region" {
   description = "AWS region"

@@ -59,7 +59,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Agent pool selector labels
 */}}
 {{- define "ado-agent-cluster.agentPoolSelectorLabels" -}}
-{{ include "ado-agent-cluster.selectorLabels" . }}
+{{ include "ado-agent-cluster.selectorLabels" .root }}
 app.kubernetes.io/component: {{ .poolName }}
 {{- end }}
 
@@ -70,7 +70,7 @@ Create the name of the service account for an agent pool
 {{- if .serviceAccount.name }}
 {{- .serviceAccount.name }}
 {{- else }}
-{{- printf "%s-%s" (include "ado-agent-cluster.fullname" .) .poolName }}
+{{- printf "%s-%s" (include "ado-agent-cluster.fullname" .root) .poolName }}
 {{- end }}
 {{- end }}
 

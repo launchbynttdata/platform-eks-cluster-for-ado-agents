@@ -96,7 +96,7 @@ module "ecr" {
   count  = length(var.ecr_repositories) > 0 ? 1 : 0
   source = "../../infrastructure/modules/collections/ecr"
 
-  ecr_repositories       = var.ecr_repositories
+  ecr_repositories       = local.ecr_repositories_with_defaults
   cluster_name           = local.cluster_name
   create_iam_policies    = true
   attach_pull_to_fargate = true
@@ -199,7 +199,7 @@ resource "aws_iam_role_policy" "ado_agent_execution_policies" {
 # Grant ESO access to ADO PAT secret
 resource "aws_iam_role_policy" "eso_ado_secret_access" {
   name = "${local.cluster_name}-eso-ado-secret-access"
-  role = data.terraform_remote_state.middleware.outputs.eso_role_name
+  role = split("/", data.terraform_remote_state.middleware.outputs.eso_role_arn)[1]
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -225,48 +225,61 @@ locals {
       region      = data.aws_region.current.name
     }
 
-    agentPools = {
-      for pool_name, pool_config in var.agent_pools : pool_name => {
-        enabled = pool_config.enabled
-        name    = pool_name
-        
-        ado = {
-          poolName   = pool_config.ado_pool_name
-          secretName = data.terraform_remote_state.middleware.outputs.ado_secret_name
+    # Disable all default agent pools from values.yaml
+    # We only want the pools we explicitly define here
+    agentPools = merge(
+      {
+        # Disable the default dev-build pool from values.yaml
+        dev-build = {
+          enabled = false
         }
-        
-        image = {
-          repository = length(var.ecr_repositories) > 0 ? module.ecr[0].repositories[pool_config.ecr_repository_key].repository_url : pool_config.image_repository
-          tag        = pool_config.image_tag
-          pullPolicy = pool_config.image_pull_policy
+        iac = {
+          enabled = false
         }
-        
-        serviceAccount = {
-          name    = pool_config.service_account_name
-          roleArn = aws_iam_role.ado_agent_execution_roles[pool_name].arn
+      },
+      {
+        for pool_name, pool_config in var.agent_pools : pool_name => {
+          enabled = pool_config.enabled
+          name    = pool_name
+          
+          ado = {
+            poolName   = pool_config.ado_pool_name
+            secretName = data.terraform_remote_state.middleware.outputs.ado_secret_name
+          }
+          
+          image = {
+            repository = length(var.ecr_repositories) > 0 ? module.ecr[0].repository_urls[pool_config.ecr_repository_key] : pool_config.image_repository
+            tag        = pool_config.image_tag
+            pullPolicy = pool_config.image_pull_policy
+          }
+          
+          serviceAccount = {
+            name    = pool_config.service_account_name
+            roleArn = aws_iam_role.ado_agent_execution_roles[pool_name].arn
+          }
+          
+          resources = pool_config.resources
+          
+          autoscaling = {
+            enabled                     = pool_config.autoscaling.enabled
+            minReplicas                = pool_config.autoscaling.min_replicas
+            maxReplicas                = pool_config.autoscaling.max_replicas
+            targetPipelinesQueueLength = pool_config.autoscaling.target_queue_length
+          }
+          
+          tolerations   = pool_config.tolerations
+          nodeSelector  = pool_config.node_selector
+          affinity      = pool_config.affinity
+          
+          # Additional environment variables
+          env = pool_config.additional_env_vars
+          
+          # Volume mounts and volumes
+          volumeMounts = pool_config.volume_mounts
+          volumes      = pool_config.volumes
         }
-        
-        resources = pool_config.resources
-        
-        autoscaling = {
-          enabled                     = pool_config.autoscaling.enabled
-          minReplicas                = pool_config.autoscaling.min_replicas
-          maxReplicas                = pool_config.autoscaling.max_replicas
-          targetPipelinesQueueLength = pool_config.autoscaling.target_queue_length
-        }
-        
-        tolerations   = pool_config.tolerations
-        nodeSelector  = pool_config.node_selector
-        affinity      = pool_config.affinity
-        
-        # Additional environment variables
-        env = pool_config.additional_env_vars
-        
-        # Volume mounts and volumes
-        volumeMounts = pool_config.volume_mounts
-        volumes      = pool_config.volumes
       }
-    }
+    )
 
     externalSecrets = {
       enabled                  = true

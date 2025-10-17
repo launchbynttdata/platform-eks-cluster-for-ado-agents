@@ -53,6 +53,12 @@ buildkitd_tolerations = [
     operator = "Equal"
     value    = "buildkit"
     effect   = "NoSchedule"
+  },
+  {
+    key = "node-role.kubernetes.io/buildkit"
+    operator = "Equal"
+    value    = "true"
+    effect   = "NoSchedule"
   }
 ]
 

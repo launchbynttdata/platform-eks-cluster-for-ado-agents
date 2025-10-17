@@ -51,49 +51,7 @@ variable "ecr_repositories" {
         encryption_type = "KMS"
         kms_key        = ""  # Will use cluster KMS key
       }
-      lifecycle_policy_text = jsonencode({
-        rules = [
-          {
-            rulePriority = 1
-            description  = "Keep last 10 production images"
-            selection = {
-              tagStatus     = "tagged"
-              tagPrefixList = ["prod", "release", "v"]
-              countType     = "imageCountMoreThan"
-              countNumber   = 10
-            }
-            action = {
-              type = "expire"
-            }
-          },
-          {
-            rulePriority = 2
-            description  = "Keep last 5 development images"
-            selection = {
-              tagStatus     = "tagged"
-              tagPrefixList = ["dev", "test", "staging"]
-              countType     = "imageCountMoreThan"
-              countNumber   = 5
-            }
-            action = {
-              type = "expire"
-            }
-          },
-          {
-            rulePriority = 3
-            description  = "Expire untagged images after 1 day"
-            selection = {
-              tagStatus   = "untagged"
-              countType   = "sinceImagePushed"
-              countUnit   = "days"
-              countNumber = 1
-            }
-            action = {
-              type = "expire"
-            }
-          }
-        ]
-      })
+      lifecycle_policy_text = ""  # Empty string will use default policy from locals
     }
     ado-agent-iac = {
       image_tag_mutability = "MUTABLE"
@@ -104,49 +62,7 @@ variable "ecr_repositories" {
         encryption_type = "KMS"
         kms_key        = ""  # Will use cluster KMS key
       }
-      lifecycle_policy_text = jsonencode({
-        rules = [
-          {
-            rulePriority = 1
-            description  = "Keep last 10 production images"
-            selection = {
-              tagStatus     = "tagged"
-              tagPrefixList = ["prod", "release", "v"]
-              countType     = "imageCountMoreThan"
-              countNumber   = 10
-            }
-            action = {
-              type = "expire"
-            }
-          },
-          {
-            rulePriority = 2
-            description  = "Keep last 5 development images"
-            selection = {
-              tagStatus     = "tagged"
-              tagPrefixList = ["dev", "test", "staging"]
-              countType     = "imageCountMoreThan"
-              countNumber   = 5
-            }
-            action = {
-              type = "expire"
-            }
-          },
-          {
-            rulePriority = 3
-            description  = "Expire untagged images after 1 day"
-            selection = {
-              tagStatus   = "untagged"
-              countType   = "sinceImagePushed"
-              countUnit   = "days"
-              countNumber = 1
-            }
-            action = {
-              type = "expire"
-            }
-          }
-        ]
-      })
+      lifecycle_policy_text = ""  # Empty string will use default policy from locals
     }
   }
 }

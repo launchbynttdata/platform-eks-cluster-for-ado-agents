@@ -10,10 +10,10 @@
 output "ecr_repositories" {
   description = "ECR repository information for ADO agent images"
   value = length(var.ecr_repositories) > 0 ? {
-    for key, repo in module.ecr[0].repositories : key => {
-      repository_url = repo.repository_url
-      registry_id    = repo.registry_id
-      arn           = repo.arn
+    for key in keys(var.ecr_repositories) : key => {
+      repository_url = module.ecr[0].repository_urls[key]
+      registry_id    = module.ecr[0].registry_ids[key]
+      arn           = module.ecr[0].repository_arns[key]
     }
   } : {}
 }

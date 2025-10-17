@@ -187,7 +187,7 @@ resource "aws_iam_role" "eso_role" {
   tags = local.common_tags
 }
 
-# ESO Policy - Basic Secrets Manager permissions (application layer will add specific secrets)
+# ESO Policy - Basic Secrets Manager permissions and KMS access
 resource "aws_iam_role_policy" "eso_policy" {
   name = "${local.cluster_name}-external-secrets-policy"
   role = aws_iam_role.eso_role.id
@@ -202,6 +202,19 @@ resource "aws_iam_role_policy" "eso_policy" {
           "secretsmanager:ListSecrets"
         ]
         Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey"
+        ]
+        Resource = data.terraform_remote_state.base.outputs.kms_key_arn
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "secretsmanager.${data.aws_region.current.name}.amazonaws.com"
+          }
+        }
       }
       # Note: Specific secret access will be granted by the application layer
       # via additional policies or resource-specific permissions
@@ -260,7 +273,7 @@ module "external_secrets_operator" {
   # Create ClusterSecretStore AFTER CRDs are installed
   # Set to false during initial deployment, can be enabled in subsequent applies
   # or moved to application layer
-  create_cluster_secret_store = false  # Temporarily disabled to avoid CRD timing issues
+  create_cluster_secret_store = false  # ClusterSecretStore created manually via kubectl to avoid Terraform timing issues
   cluster_secret_store_name   = var.cluster_secret_store_name
 
   # Don't create external secrets here - application layer will manage them
@@ -344,13 +357,36 @@ resource "kubernetes_deployment" "buildkitd" {
             protocol      = "TCP"
           }
 
+          # Use --debug for better logging, don't use --oci-worker-no-process-sandbox
+          # as it requires rootless mode
           args = [
-            "--addr", "tcp://0.0.0.0:1234",
-            "--oci-worker-no-process-sandbox"
+            "--debug",
+            "--addr", "tcp://0.0.0.0:1234"
           ]
 
+          # BuildKit requires elevated privileges for container image building
+          # This includes privileged mode and allowing privilege escalation
           security_context {
-            privileged = true
+            privileged                 = true
+            allow_privilege_escalation = true
+          }
+
+          # Readiness probe to ensure buildkitd is ready before routing traffic
+          readiness_probe {
+            tcp_socket {
+              port = 1234
+            }
+            initial_delay_seconds = 5
+            period_seconds        = 10
+          }
+
+          # Liveness probe to restart unhealthy buildkitd pods
+          liveness_probe {
+            tcp_socket {
+              port = 1234
+            }
+            initial_delay_seconds = 10
+            period_seconds        = 20
           }
 
           resources {
@@ -417,4 +453,36 @@ resource "kubernetes_service" "buildkitd" {
 
     type = "ClusterIP"
   }
+}
+
+# Create an ExternalName service alias in the ado-agents namespace
+# This allows ADO agents to reference buildkitd as:
+# - buildkitd.ado-agents.svc.cluster.local
+# - buildkitd (from within the ado-agents namespace)
+# Instead of the full: buildkitd.buildkit-system.svc.cluster.local
+resource "kubernetes_service" "buildkitd_alias" {
+  count = var.enable_buildkitd ? 1 : 0
+  
+  metadata {
+    name      = "buildkitd"
+    namespace = var.ado_agents_namespace
+    
+    labels = {
+      app = "buildkitd"
+    }
+    
+    annotations = {
+      "description" = "ExternalName service alias to buildkitd in buildkit-system namespace"
+    }
+  }
+
+  spec {
+    type          = "ExternalName"
+    external_name = "buildkitd.${var.buildkitd_namespace}.svc.cluster.local"
+  }
+
+  depends_on = [
+    kubernetes_service.buildkitd,
+    module.keda_operator  # Ensures ado-agents namespace exists
+  ]
 }
