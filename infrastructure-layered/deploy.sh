@@ -1238,7 +1238,7 @@ inject_ado_secret() {
     local region="$1"
     local cluster_name="$2"
     
-    log_info "Injecting ADO PAT secret into AWS Secrets Manager..."
+    log_info "Injecting ADO PAT credentials into Terraform-managed secret..."
     
     # Check if secret should be skipped
     if [[ "${SKIP_ADO_SECRET:-false}" == "true" ]]; then
@@ -1246,44 +1246,65 @@ inject_ado_secret() {
         return 0
     fi
     
+    # Get the secret name from application layer tfvars or use default
+    # The secret name is defined in application layer variables with default "ado-agent-pat"
+    local secret_name="ado-agent-pat"
+    
+    # Try to read from tfvars if it exists
+    if [[ -f "$APPLICATION_LAYER_DIR/terraform.tfvars" ]]; then
+        local tfvars_secret=$(grep "^ado_pat_secret_name" "$APPLICATION_LAYER_DIR/terraform.tfvars" 2>/dev/null | cut -d'=' -f2 | tr -d ' "' || echo "")
+        if [[ -n "$tfvars_secret" ]]; then
+            secret_name="$tfvars_secret"
+            log_info "Using secret name from tfvars: $secret_name"
+        else
+            log_info "Using default secret name: $secret_name"
+        fi
+    else
+        log_info "Using default secret name: $secret_name"
+    fi
+    
+    # Verify the secret exists (created by Terraform)
+    if ! aws secretsmanager describe-secret \
+        --secret-id "$secret_name" \
+        --region "$region" &>/dev/null; then
+        log_error "Secret '$secret_name' does not exist in AWS Secrets Manager"
+        log_error "Ensure the application layer has been deployed first (creates the secret container)"
+        return 1
+    fi
+    
+    log_success "Found Terraform-managed secret: $secret_name"
+    
     # Prompt for credentials if not already set
     if ! prompt_for_ado_credentials; then
         return 1
     fi
     
-    # Create secret name based on cluster
-    local secret_name="eks/${cluster_name}/ado-pat"
+    # Extract organization name from URL (remove https://dev.azure.com/ prefix and trailing slash)
+    local org_name=$(echo "$ADO_ORG_URL" | sed 's|https://dev.azure.com/||' | sed 's|/$||')
     
-    # Create the secret in AWS Secrets Manager
-    log_info "Creating/updating secret: $secret_name in region: $region"
+    # Update the existing Terraform-managed secret with actual credentials
+    # Use the same structure as Terraform expects (personalAccessToken, organization, adourl)
+    log_info "Updating secret content with provided credentials..."
     
-    # Check if secret exists
-    if aws secretsmanager describe-secret \
+    local secret_json=$(cat <<EOF
+{
+  "personalAccessToken": "$ADO_PAT_TOKEN",
+  "organization": "$org_name",
+  "adourl": "$ADO_ORG_URL"
+}
+EOF
+)
+    
+    if aws secretsmanager put-secret-value \
         --secret-id "$secret_name" \
+        --secret-string "$secret_json" \
         --region "$region" &>/dev/null; then
-        
-        # Update existing secret
-        if aws secretsmanager update-secret \
-            --secret-id "$secret_name" \
-            --secret-string "{\"pat\":\"$ADO_PAT_TOKEN\",\"orgUrl\":\"$ADO_ORG_URL\"}" \
-            --region "$region" &>/dev/null; then
-            log_success "Secret updated successfully: $secret_name"
-        else
-            log_error "Failed to update secret: $secret_name"
-            return 1
-        fi
+        log_success "Secret content updated successfully: $secret_name"
+        log_info "  Organization: $org_name"
+        log_info "  URL: $ADO_ORG_URL"
     else
-        # Create new secret
-        if aws secretsmanager create-secret \
-            --name "$secret_name" \
-            --description "Azure DevOps PAT token for EKS cluster $cluster_name" \
-            --secret-string "{\"pat\":\"$ADO_PAT_TOKEN\",\"orgUrl\":\"$ADO_ORG_URL\"}" \
-            --region "$region" &>/dev/null; then
-            log_success "Secret created successfully: $secret_name"
-        else
-            log_error "Failed to create secret: $secret_name"
-            return 1
-        fi
+        log_error "Failed to update secret content: $secret_name"
+        return 1
     fi
     
     # Verify the ExternalSecret resource exists
@@ -1292,9 +1313,11 @@ inject_ado_secret() {
         log_success "ExternalSecret resources found in ado-agents namespace"
         
         # Trigger a refresh if possible
-        log_info "ExternalSecrets will sync automatically (check: kubectl get externalsecret -n ado-agents)"
+        log_info "ExternalSecrets will sync automatically within ~1 minute"
+        log_info "Check sync status: kubectl get externalsecret -n ado-agents"
     else
-        log_warning "No ExternalSecret resources found - you may need to deploy application layer resources"
+        log_warning "No ExternalSecret resources found"
+        log_warning "Ensure application layer Helm chart has been deployed"
     fi
     
     return 0
