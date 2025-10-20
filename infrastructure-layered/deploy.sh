@@ -63,6 +63,7 @@ AUTO_APPROVE=false
 DRY_RUN=false
 VERBOSE=false
 FORCE=false
+UPDATE_ADO_SECRET=false
 TARGET_LAYER=""
 BACKEND_CONFIG_FILE=""
 VAR_FILE=""
@@ -133,9 +134,7 @@ OPTIONS:
     --force             Skip safety checks and dependencies (dangerous)
     
     Config Layer Options (for use with --layer config):
-    --skip-ado-secret   Skip Azure DevOps PAT secret injection
-    --pat TOKEN         Azure DevOps PAT token (prompts if not provided)
-    --org-url URL       Azure DevOps organization URL
+    --update-ado-secret Update ADO PAT secret with new credentials (default: skip)
     
     --help              Show this help message
 
@@ -150,10 +149,14 @@ EXAMPLES:
     $0 --layer base --auto-approve deploy
     
     # Deploy only config layer (post-deployment configuration)
+    # By default, does NOT update the ADO secret
     $0 --layer config deploy
     
-    # Deploy config layer with PAT credentials
-    $0 --layer config --pat "your-pat-token" --org-url "https://dev.azure.com/your-org" deploy
+    # Deploy config layer and update ADO PAT secret
+    # Credentials from environment variables (ADO_PAT, ADO_ORG_URL) or prompts
+    export ADO_PAT="your-pat-token"
+    export ADO_ORG_URL="https://dev.azure.com/your-org"
+    $0 --layer config --update-ado-secret deploy
 
     # Show deployment plan for all layers
     $0 plan
@@ -1210,27 +1213,34 @@ prompt_for_ado_credentials() {
     log "Azure DevOps Credentials Required"
     log "=================================="
     log ""
-    log "To enable Azure DevOps agent autoscaling, we need to inject the ADO PAT token"
-    log "into AWS Secrets Manager. This will be synced to Kubernetes via External Secrets Operator."
+    log "To update the ADO PAT secret, provide credentials via environment variables or prompts."
+    log "The secret will be synced to Kubernetes via External Secrets Operator."
     log ""
     
-    # Prompt for organization URL if not set
-    if [[ -z "${ADO_ORG_URL:-}" ]]; then
-        read -p "Enter Azure DevOps Organization URL (e.g., https://dev.azure.com/myorg): " ADO_ORG_URL
-    fi
-    
-    # Prompt for PAT if not set
-    if [[ -z "${ADO_PAT_TOKEN:-}" ]]; then
-        read -sp "Enter Azure DevOps PAT Token: " ADO_PAT_TOKEN
+    # Check for ADO_PAT environment variable first, then prompt
+    if [[ -z "${ADO_PAT:-}" ]]; then
+        log_info "ADO_PAT environment variable not set"
+        read -sp "Enter Azure DevOps PAT Token: " ADO_PAT
         echo ""
+    else
+        log_info "Using ADO_PAT from environment variable"
     fi
     
-    if [[ -z "$ADO_ORG_URL" || -z "$ADO_PAT_TOKEN" ]]; then
+    # Check for ADO_ORG_URL environment variable first, then prompt
+    if [[ -z "${ADO_ORG_URL:-}" ]]; then
+        log_info "ADO_ORG_URL environment variable not set"
+        read -p "Enter Azure DevOps Organization URL (e.g., https://dev.azure.com/myorg): " ADO_ORG_URL
+    else
+        log_info "Using ADO_ORG_URL from environment variable"
+    fi
+    
+    if [[ -z "$ADO_ORG_URL" || -z "$ADO_PAT" ]]; then
         log_error "Organization URL and PAT token are required"
+        log_error "Set via environment variables: ADO_PAT and ADO_ORG_URL"
         return 1
     fi
     
-    log_info "Credentials received"
+    log_success "Credentials received"
     return 0
 }
 
@@ -1238,13 +1248,14 @@ inject_ado_secret() {
     local region="$1"
     local cluster_name="$2"
     
-    log_info "Injecting ADO PAT credentials into Terraform-managed secret..."
-    
-    # Check if secret should be skipped
-    if [[ "${SKIP_ADO_SECRET:-false}" == "true" ]]; then
-        log_warning "Skipping ADO secret injection (--skip-ado-secret flag set)"
+    # Default behavior: DO NOT update the secret unless explicitly requested
+    if [[ "${UPDATE_ADO_SECRET:-false}" != "true" ]]; then
+        log_info "Skipping ADO secret update (use --update-ado-secret to update credentials)"
+        log_info "The Terraform-managed secret container exists and is configured"
         return 0
     fi
+    
+    log_info "Updating ADO PAT credentials in Terraform-managed secret..."
     
     # Get the secret name from application layer tfvars or use default
     # The secret name is defined in application layer variables with default "ado-agent-pat"
@@ -1288,7 +1299,7 @@ inject_ado_secret() {
     
     local secret_json=$(cat <<EOF
 {
-  "personalAccessToken": "$ADO_PAT_TOKEN",
+  "personalAccessToken": "$ADO_PAT",
   "organization": "$org_name",
   "adourl": "$ADO_ORG_URL"
 }
@@ -1359,17 +1370,15 @@ deploy_config_layer() {
         log_warning "ClusterSecretStore creation had issues, but continuing..."
     fi
     
-    # Inject ADO secret (interactive)
+    # Inject ADO secret (only if --update-ado-secret flag is set)
     log ""
-    if [[ "$AUTO_APPROVE" == "true" ]]; then
-        log_info "Auto-approve enabled - skipping ADO secret injection"
-        log_info "Run manually later: ./deploy.sh --layer config deploy"
-        SKIP_ADO_SECRET=true
-    fi
-    
     if ! inject_ado_secret "$AWS_REGION" "$cluster_name"; then
-        log_warning "ADO secret injection failed or was skipped"
-        log_info "You can run this layer again: ./deploy.sh --layer config deploy"
+        log_warning "ADO secret update failed or was skipped"
+        if [[ "${UPDATE_ADO_SECRET:-false}" == "true" ]]; then
+            log_warning "To retry, run: ./deploy.sh --layer config --update-ado-secret deploy"
+        else
+            log_info "To update credentials, run: ./deploy.sh --layer config --update-ado-secret deploy"
+        fi
     fi
     
     log_success "Config layer deployment completed"
@@ -1380,11 +1389,16 @@ deploy_config_layer() {
     log "  1. Verify ClusterSecretStore:"
     log "     kubectl get clustersecretstore $css_name"
     log ""
-    log "  2. Verify ExternalSecret syncs:"
+    log "  2. Update ADO PAT secret (if needed):"
+    log "     export ADO_PAT='your-pat-token'"
+    log "     export ADO_ORG_URL='https://dev.azure.com/your-org'"
+    log "     ./deploy.sh --layer config --update-ado-secret deploy"
+    log ""
+    log "  3. Verify ExternalSecret syncs:"
     log "     kubectl get externalsecret -n $ado_namespace"
     log "     kubectl get secret -n $ado_namespace $ado_secret"
     log ""
-    log "  3. Monitor KEDA and agent pods:"
+    log "  4. Monitor KEDA and agent pods:"
     log "     kubectl get scaledobject -n $ado_namespace"
     log "     kubectl get pods -n $ado_namespace -w"
     log ""
@@ -2106,17 +2120,9 @@ parse_arguments() {
                 FORCE=true
                 shift
                 ;;
-            --skip-ado-secret)
-                SKIP_ADO_SECRET=true
+            --update-ado-secret)
+                UPDATE_ADO_SECRET=true
                 shift
-                ;;
-            --pat)
-                ADO_PAT_TOKEN="$2"
-                shift 2
-                ;;
-            --org-url)
-                ADO_ORG_URL="$2"
-                shift 2
                 ;;
             --help|-h)
                 show_usage
