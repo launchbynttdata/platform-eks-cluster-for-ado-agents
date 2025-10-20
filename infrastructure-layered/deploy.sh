@@ -1681,7 +1681,6 @@ destroy_layer() {
     if [[ "$layer" == "config" ]]; then
         log_info "Config layer cleanup (manual steps required):"
         log_info "  1. Delete ClusterSecretStore: kubectl delete clustersecretstore aws-secrets-manager"
-        log_info "  2. Delete AWS Secrets Manager secret: aws secretsmanager delete-secret --secret-id eks/<cluster-name>/ado-pat"
         log_info "Config layer destroy is informational only"
         return 0
     fi
