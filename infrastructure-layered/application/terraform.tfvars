@@ -144,10 +144,10 @@ ado_execution_roles = {
 agent_pools = {
   ado-agent = {
     enabled                = true
-    ado_pool_name         = "EKS-Linux-Agents"
+    ado_pool_name         = "aws-hosted-eks-pool"
     ecr_repository_key    = "ado-agent"
-    image_repository      = "mcr.microsoft.com/azure-pipelines/vsts-agent"  # Will use ECR if available
-    image_tag            = "ubuntu-20.04"
+    image_repository      = "020127659860.dkr.ecr.us-west-2.amazonaws.com"  # Will use ECR if available
+    image_tag            = "v1"
     image_pull_policy    = "IfNotPresent"
     service_account_name = "ado-agent"
     resources = {
@@ -162,7 +162,7 @@ agent_pools = {
     }
     autoscaling = {
       enabled              = true
-      min_replicas        = 0
+      min_replicas        = 1
       max_replicas        = 10
       target_queue_length = 1
     }
@@ -182,10 +182,10 @@ agent_pools = {
   }
   ado-agent-iac = {
     enabled                = true
-    ado_pool_name         = "EKS-IaC-Agents"
+    ado_pool_name         = "aws-hosted-eks-iac-pool"
     ecr_repository_key    = "ado-agent-iac"
-    image_repository      = "mcr.microsoft.com/azure-pipelines/vsts-agent"  # Will use ECR if available
-    image_tag            = "ubuntu-20.04"
+    image_repository      = "020127659860.dkr.ecr.us-west-2.amazonaws.com"  # Will use ECR if available
+    image_tag            = "v1"
     image_pull_policy    = "IfNotPresent"
     service_account_name = "ado-agent-iac"
     resources = {
@@ -200,7 +200,7 @@ agent_pools = {
     }
     autoscaling = {
       enabled              = true
-      min_replicas        = 0
+      min_replicas        = 1
       max_replicas        = 5
       target_queue_length = 1
     }

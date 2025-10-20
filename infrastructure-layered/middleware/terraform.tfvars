@@ -14,7 +14,13 @@ base_state_key      = "base/terraform.tfstate"
 # KEDA Configuration
 install_keda          = true
 keda_namespace        = "keda-system"
-keda_version          = "2.15.1"
+keda_version          = "2.17.2"  # Updated to match image tags
+
+# CloudEventSource controllers - keep disabled if you don't use CloudEventSource/ClusterCloudEventSource resources
+# Disabling prevents CrashLoopBackOff issues when CRDs are not installed (common in KEDA 2.15.x)
+keda_enable_cloudeventsource         = false
+keda_enable_cluster_cloudeventsource = false
+
 ado_agents_namespace  = "ado-agents"
 ado_secret_name       = "ado-pat"
 

@@ -134,6 +134,15 @@ variable "affinity" {
   default     = {}
 }
 
+variable "env" {
+  description = "Additional environment variables for KEDA operator"
+  type = list(object({
+    name  = string
+    value = string
+  }))
+  default = []
+}
+
 variable "create_ado_secret" {
   description = "Whether to create the ADO PAT secret"
   type        = bool

@@ -38,7 +38,19 @@ variable "keda_namespace" {
 variable "keda_version" {
   description = "Version of KEDA operator to install"
   type        = string
-  default     = "2.15.1"
+  default     = "2.17.2"
+}
+
+variable "keda_enable_cloudeventsource" {
+  description = "Enable CloudEventSource controller in KEDA. Set to false if CloudEventSource CRDs are not needed to avoid CrashLoopBackOff issues in KEDA 2.15.x"
+  type        = bool
+  default     = false
+}
+
+variable "keda_enable_cluster_cloudeventsource" {
+  description = "Enable ClusterCloudEventSource controller in KEDA. Set to false if ClusterCloudEventSource CRDs are not needed to avoid CrashLoopBackOff issues in KEDA 2.15.x"
+  type        = bool
+  default     = false
 }
 
 variable "ado_agents_namespace" {

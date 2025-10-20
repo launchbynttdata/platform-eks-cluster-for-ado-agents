@@ -76,6 +76,9 @@ resource "helm_release" "keda" {
         }
       }
 
+      # Additional environment variables for KEDA operator
+      env = var.env
+
       resources = var.resources
 
       nodeSelector = var.node_selector

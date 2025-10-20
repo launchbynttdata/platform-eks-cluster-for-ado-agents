@@ -243,6 +243,20 @@ module "keda_operator" {
   ado_secret_name      = var.ado_secret_name
   create_scaled_object = false # ScaledObjects will be created by application layer
   
+  # Configure CloudEventSource controllers via environment variables
+  # Disable by default to prevent CrashLoopBackOff in KEDA 2.15.x when CRDs are not installed
+  # See: https://github.com/kedacore/keda/issues/5751
+  env = [
+    {
+      name  = "KEDA_ENABLE_CLOUDEVENTSOURCE_CONTROLLER"
+      value = tostring(var.keda_enable_cloudeventsource)
+    },
+    {
+      name  = "KEDA_ENABLE_CLUSTERCLOUDEVENTSOURCE_CONTROLLER"
+      value = tostring(var.keda_enable_cluster_cloudeventsource)
+    }
+  ]
+  
   tolerations = [{
     key      = "ks.amazonaws.com/compute-type"
     operator = "Equal"
