@@ -24,7 +24,9 @@ eso_namespace                 = "external-secrets-system"
 eso_version                   = "0.10.4"
 eso_webhook_enabled           = false  # Keep false for Fargate compatibility
 eso_webhook_failure_policy    = "Ignore"
-create_cluster_secret_store   = true
+
+# NOTE: ClusterSecretStore is created by post-deploy-middleware.sh script (not Terraform)
+# This variable defines the name for reference by the application layer
 cluster_secret_store_name     = "aws-secrets-manager"
 
 # Buildkitd Configuration
@@ -74,7 +76,7 @@ buildkitd_resources = {
   }
 }
 
-buildkitd_storage_size = "20Gi"
+buildkitd_storage_size = "50Gi"
 
 # Additional tags for middleware layer
 additional_tags = {

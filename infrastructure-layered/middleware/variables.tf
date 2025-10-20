@@ -89,14 +89,12 @@ variable "eso_webhook_failure_policy" {
   }
 }
 
-variable "create_cluster_secret_store" {
-  description = "Whether to create a ClusterSecretStore for AWS Secrets Manager"
-  type        = bool
-  default     = true
-}
+# NOTE: ClusterSecretStore is NOT created by Terraform due to CRD timing limitations.
+# It must be created post-deployment using the post-deploy-middleware.sh script.
+# See: docs/MIDDLEWARE_POST_DEPLOYMENT_STEPS.md
 
 variable "cluster_secret_store_name" {
-  description = "Name of the ClusterSecretStore"
+  description = "Name of the ClusterSecretStore (created by post-deploy script, used by application layer)"
   type        = string
   default     = "aws-secrets-manager"
 }

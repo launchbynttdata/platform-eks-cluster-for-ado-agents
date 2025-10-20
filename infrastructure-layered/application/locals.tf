@@ -61,4 +61,20 @@ locals {
       keep_tagged_count       = 10
     }
   }
+
+  # Agent pools with dynamic AWS region injection
+  # This ensures AWS_DEFAULT_REGION is always set to the current region
+  agent_pools_with_region = {
+    for pool_name, pool_config in var.agent_pools : pool_name => merge(
+      pool_config,
+      {
+        additional_env_vars = merge(
+          pool_config.additional_env_vars,
+          {
+            AWS_DEFAULT_REGION = data.aws_region.current.name
+          }
+        )
+      }
+    )
+  }
 }

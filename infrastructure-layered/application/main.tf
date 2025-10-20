@@ -57,7 +57,7 @@ provider "kubernetes" {
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
     command     = "aws"
-    args        = ["eks", "get-token", "--cluster-name", data.terraform_remote_state.base.outputs.cluster_name]
+    args        = ["eks", "get-token", "--cluster-name", data.terraform_remote_state.base.outputs.cluster_name, "--region", data.aws_region.current.name]
   }
 }
 
@@ -70,7 +70,7 @@ provider "helm" {
     exec {
       api_version = "client.authentication.k8s.io/v1beta1"
       command     = "aws"
-      args        = ["eks", "get-token", "--cluster-name", data.terraform_remote_state.base.outputs.cluster_name]
+      args        = ["eks", "get-token", "--cluster-name", data.terraform_remote_state.base.outputs.cluster_name, "--region", data.aws_region.current.name]
     }
   }
 }
@@ -238,7 +238,7 @@ locals {
         }
       },
       {
-        for pool_name, pool_config in var.agent_pools : pool_name => {
+        for pool_name, pool_config in local.agent_pools_with_region : pool_name => {
           enabled = pool_config.enabled
           name    = pool_name
           

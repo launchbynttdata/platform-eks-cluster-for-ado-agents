@@ -30,7 +30,7 @@
 #   status        Show status of all layers
 #
 # Options:
-#   --layer LAYER        Deploy specific layer only (base|middleware|application)
+#   --layer LAYER        Deploy specific layer only (base|middleware|application|config)
 #   --auto-approve       Skip interactive prompts
 #   --dry-run           Show what would be done without making changes
 #   --backend-config     Path to backend configuration file
@@ -53,6 +53,7 @@ readonly LAYERS_DIR="$PROJECT_ROOT/infrastructure-layered"
 readonly BASE_LAYER_DIR="$LAYERS_DIR/base"
 readonly MIDDLEWARE_LAYER_DIR="$LAYERS_DIR/middleware"
 readonly APPLICATION_LAYER_DIR="$LAYERS_DIR/application"
+readonly CONFIG_LAYER_DIR="$LAYERS_DIR"  # Config layer doesn't have a subdirectory
 readonly HELM_CHART_DIR="$LAYERS_DIR/helm/ado-agent-cluster"
 
 # Default configuration
@@ -65,7 +66,8 @@ FORCE=false
 TARGET_LAYER=""
 BACKEND_CONFIG_FILE=""
 VAR_FILE=""
-AWS_REGION="$DEFAULT_REGION"
+# Preserve AWS_REGION from environment (e.g., direnv) if set, otherwise use default
+AWS_REGION="${AWS_REGION:-$DEFAULT_REGION}"
 
 # Colors for output
 readonly RED='\033[0;31m'
@@ -121,7 +123,7 @@ COMMANDS:
     status        Show current status of all layers
 
 OPTIONS:
-    --layer LAYER        Target specific layer only (base|middleware|application)
+    --layer LAYER        Target specific layer only (base|middleware|application|config)
     --auto-approve       Skip interactive confirmation prompts
     --dry-run           Show actions without executing them
     --backend-config     Path to backend configuration file
@@ -129,17 +131,29 @@ OPTIONS:
     --region REGION     AWS region (default: us-east-1)
     --verbose           Enable verbose debug output
     --force             Skip safety checks and dependencies (dangerous)
+    
+    Config Layer Options (for use with --layer config):
+    --skip-ado-secret   Skip Azure DevOps PAT secret injection
+    --pat TOKEN         Azure DevOps PAT token (prompts if not provided)
+    --org-url URL       Azure DevOps organization URL
+    
     --help              Show this help message
 
 EXAMPLES:
     # Set required environment variable
     export TF_STATE_BUCKET='my-terraform-state-bucket'
     
-    # Deploy entire stack interactively
+    # Deploy entire stack interactively (includes config layer)
     $0 deploy
 
     # Deploy only base layer with auto-approval
     $0 --layer base --auto-approve deploy
+    
+    # Deploy only config layer (post-deployment configuration)
+    $0 --layer config deploy
+    
+    # Deploy config layer with PAT credentials
+    $0 --layer config --pat "your-pat-token" --org-url "https://dev.azure.com/your-org" deploy
 
     # Show deployment plan for all layers
     $0 plan
@@ -162,9 +176,10 @@ ENVIRONMENT VARIABLES:
     AWS_REGION           (Optional) AWS region for resources (defaults to AWS CLI default region)
 
 LAYER DEPENDENCIES:
-    base → middleware → application
+    base → middleware → application → config
 
-    Each layer depends on outputs from the previous layer via remote state.
+    Each infrastructure layer depends on outputs from the previous layer via remote state.
+    The config layer performs post-deployment configuration (ClusterSecretStore, ADO PAT injection).
     Layers must be deployed in order and destroyed in reverse order.
 
 PREREQUISITES:
@@ -246,15 +261,19 @@ check_prerequisites() {
         exit 1
     fi
     
-    # Check AWS region
-    local current_region
-    current_region=$(aws configure get region || echo "")
-    if [[ -z "$current_region" ]]; then
-        log_warning "No default AWS region configured, using: $AWS_REGION"
-        AWS_REGION="${AWS_REGION:-us-east-1}"
+    # Check AWS region (prioritize environment variable, then AWS CLI config, then default)
+    if [[ -n "${AWS_REGION:-}" ]]; then
+        log_info "Using AWS region from environment: $AWS_REGION"
     else
-        AWS_REGION="$current_region"
-        log_info "AWS region: $AWS_REGION"
+        local current_region
+        current_region=$(aws configure get region 2>/dev/null || echo "")
+        if [[ -n "$current_region" ]]; then
+            AWS_REGION="$current_region"
+            log_info "Using AWS region from AWS CLI config: $AWS_REGION"
+        else
+            AWS_REGION="$DEFAULT_REGION"
+            log_warning "No AWS region configured, using default: $AWS_REGION"
+        fi
     fi
     
     # Check for TF_STATE_BUCKET environment variable
@@ -290,6 +309,11 @@ version_compare() {
 validate_layer_directory() {
     local layer="$1"
     local layer_dir="$2"
+    
+    # Config layer doesn't have a traditional directory structure
+    if [[ "$layer" == "config" ]]; then
+        return 0
+    fi
     
     log_debug "Validating layer directory: $layer_dir"
     
@@ -886,6 +910,29 @@ validate_layer_dependencies() {
                 return 1
             fi
             ;;
+        "config")
+            # Config layer requires all infrastructure layers to be deployed
+            local base_status middleware_status application_status
+            base_status=$(get_layer_status "base" "$BASE_LAYER_DIR")
+            middleware_status=$(get_layer_status "middleware" "$MIDDLEWARE_LAYER_DIR")
+            application_status=$(get_layer_status "application" "$APPLICATION_LAYER_DIR")
+            
+            if [[ "$base_status" != "deployed" ]]; then
+                log_error "Config layer requires base layer to be deployed (status: $base_status)"
+                return 1
+            fi
+            
+            if [[ "$middleware_status" != "deployed" ]]; then
+                log_error "Config layer requires middleware layer to be deployed (status: $middleware_status)"
+                return 1
+            fi
+            
+            if [[ "$application_status" != "deployed" ]]; then
+                log_error "Config layer requires application layer to be deployed (status: $application_status)"
+                log_error "The application layer deploys the ExternalSecret resources that config layer configures"
+                return 1
+            fi
+            ;;
         *)
             log_error "Unknown layer: $layer"
             return 1
@@ -895,11 +942,329 @@ validate_layer_dependencies() {
     return 0
 }
 
+# =============================================================================
+# Config Layer Functions (Post-Deployment Configuration)
+# =============================================================================
+
+detect_cluster_name_from_tf() {
+    local cluster_name=""
+    
+    # Try middleware layer first (most reliable)
+    if [[ -d "$MIDDLEWARE_LAYER_DIR" ]]; then
+        log_debug "Attempting to get cluster_name from middleware layer..."
+        
+        # Initialize if needed using the script's proper initialization
+        if terraform_init "middleware" "$MIDDLEWARE_LAYER_DIR" &>/dev/null; then
+            cluster_name=$(cd "$MIDDLEWARE_LAYER_DIR" && terraform output -raw cluster_name 2>/dev/null || echo "")
+        fi
+    fi
+    
+    # Fallback: Try base layer
+    if [[ -z "$cluster_name" && -d "$BASE_LAYER_DIR" ]]; then
+        log_debug "Attempting to get cluster_name from base layer..."
+        
+        if terraform_init "base" "$BASE_LAYER_DIR" &>/dev/null; then
+            cluster_name=$(cd "$BASE_LAYER_DIR" && terraform output -raw cluster_name 2>/dev/null || echo "")
+        fi
+    fi
+    
+    # Final fallback: List EKS clusters in the region (assumes only one cluster)
+    if [[ -z "$cluster_name" ]]; then
+        log_debug "Fallback: Listing EKS clusters in region $AWS_REGION..."
+        cluster_name=$(aws eks list-clusters --region "$AWS_REGION" --query 'clusters[0]' --output text 2>/dev/null || echo "")
+        
+        if [[ -n "$cluster_name" && "$cluster_name" != "None" ]]; then
+            log_info "Detected cluster from AWS EKS: $cluster_name"
+        fi
+    fi
+    
+    echo "$cluster_name"
+}
+
+get_eso_config_from_tf() {
+    local output_name="$1"
+    local default_value="$2"
+    local value=""
+    
+    # Try to get from middleware layer
+    if [[ -d "$MIDDLEWARE_LAYER_DIR" ]]; then
+        log_debug "Attempting to get $output_name from middleware layer..."
+        
+        # Initialize if needed
+        if terraform_init "middleware" "$MIDDLEWARE_LAYER_DIR" &>/dev/null; then
+            value=$(cd "$MIDDLEWARE_LAYER_DIR" && terraform output -raw "$output_name" 2>/dev/null || echo "")
+        fi
+    fi
+    
+    # Use default if not found
+    if [[ -z "$value" ]]; then
+        log_debug "Using default value for $output_name: $default_value"
+        value="$default_value"
+    fi
+    
+    echo "$value"
+}
+
+configure_kubectl_for_cluster() {
+    local cluster_name="$1"
+    local region="$2"
+    
+    log_info "Configuring kubectl for cluster: $cluster_name (region: $region)"
+    
+    if ! aws eks update-kubeconfig \
+        --name "$cluster_name" \
+        --region "$region" \
+        --kubeconfig "${KUBECONFIG:-$HOME/.kube/config}"; then
+        log_error "Failed to update kubeconfig"
+        return 1
+    fi
+    
+    # Verify kubectl access
+    if ! kubectl get nodes &>/dev/null; then
+        log_error "Cannot access cluster with kubectl"
+        return 1
+    fi
+    
+    log_success "kubectl configured successfully"
+    return 0
+}
+
+create_cluster_secret_store() {
+    local region="$1"
+    
+    log_info "Creating ClusterSecretStore for AWS Secrets Manager..."
+    
+    # Get ESO configuration from Terraform outputs
+    local eso_namespace=$(get_eso_config_from_tf "eso_namespace" "external-secrets-system")
+    local eso_sa_name=$(get_eso_config_from_tf "eso_service_account_name" "external-secrets")
+    local css_name=$(get_eso_config_from_tf "cluster_secret_store_name" "aws-secrets-manager")
+    
+    log_info "ESO Configuration:"
+    log_info "  Namespace: $eso_namespace"
+    log_info "  ServiceAccount: $eso_sa_name"
+    log_info "  ClusterSecretStore: $css_name"
+    
+    # Create the ClusterSecretStore manifest
+    cat <<EOF | kubectl apply -f -
+apiVersion: external-secrets.io/v1beta1
+kind: ClusterSecretStore
+metadata:
+  name: ${css_name}
+spec:
+  provider:
+    aws:
+      service: SecretsManager
+      region: ${region}
+      auth:
+        jwt:
+          serviceAccountRef:
+            name: ${eso_sa_name}
+            namespace: ${eso_namespace}
+EOF
+    
+    if [[ $? -eq 0 ]]; then
+        log_success "ClusterSecretStore created successfully"
+        
+        # Wait for the ClusterSecretStore to be ready
+        log_info "Waiting for ClusterSecretStore to become ready..."
+        local max_attempts=30
+        local attempt=0
+        
+        while [[ $attempt -lt $max_attempts ]]; do
+            local status=$(kubectl get clustersecretstore "$css_name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+            
+            if [[ "$status" == "True" ]]; then
+                log_success "ClusterSecretStore is ready"
+                return 0
+            fi
+            
+            attempt=$((attempt + 1))
+            sleep 2
+        done
+        
+        log_warning "ClusterSecretStore may not be ready yet (check with: kubectl get clustersecretstore $css_name)"
+        return 0
+    else
+        log_error "Failed to create ClusterSecretStore"
+        return 1
+    fi
+}
+
+prompt_for_ado_credentials() {
+    log ""
+    log "Azure DevOps Credentials Required"
+    log "=================================="
+    log ""
+    log "To enable Azure DevOps agent autoscaling, we need to inject the ADO PAT token"
+    log "into AWS Secrets Manager. This will be synced to Kubernetes via External Secrets Operator."
+    log ""
+    
+    # Prompt for organization URL if not set
+    if [[ -z "${ADO_ORG_URL:-}" ]]; then
+        read -p "Enter Azure DevOps Organization URL (e.g., https://dev.azure.com/myorg): " ADO_ORG_URL
+    fi
+    
+    # Prompt for PAT if not set
+    if [[ -z "${ADO_PAT_TOKEN:-}" ]]; then
+        read -sp "Enter Azure DevOps PAT Token: " ADO_PAT_TOKEN
+        echo ""
+    fi
+    
+    if [[ -z "$ADO_ORG_URL" || -z "$ADO_PAT_TOKEN" ]]; then
+        log_error "Organization URL and PAT token are required"
+        return 1
+    fi
+    
+    log_info "Credentials received"
+    return 0
+}
+
+inject_ado_secret() {
+    local region="$1"
+    local cluster_name="$2"
+    
+    log_info "Injecting ADO PAT secret into AWS Secrets Manager..."
+    
+    # Check if secret should be skipped
+    if [[ "${SKIP_ADO_SECRET:-false}" == "true" ]]; then
+        log_warning "Skipping ADO secret injection (--skip-ado-secret flag set)"
+        return 0
+    fi
+    
+    # Prompt for credentials if not already set
+    if ! prompt_for_ado_credentials; then
+        return 1
+    fi
+    
+    # Create secret name based on cluster
+    local secret_name="eks/${cluster_name}/ado-pat"
+    
+    # Create the secret in AWS Secrets Manager
+    log_info "Creating/updating secret: $secret_name in region: $region"
+    
+    # Check if secret exists
+    if aws secretsmanager describe-secret \
+        --secret-id "$secret_name" \
+        --region "$region" &>/dev/null; then
+        
+        # Update existing secret
+        if aws secretsmanager update-secret \
+            --secret-id "$secret_name" \
+            --secret-string "{\"pat\":\"$ADO_PAT_TOKEN\",\"orgUrl\":\"$ADO_ORG_URL\"}" \
+            --region "$region" &>/dev/null; then
+            log_success "Secret updated successfully: $secret_name"
+        else
+            log_error "Failed to update secret: $secret_name"
+            return 1
+        fi
+    else
+        # Create new secret
+        if aws secretsmanager create-secret \
+            --name "$secret_name" \
+            --description "Azure DevOps PAT token for EKS cluster $cluster_name" \
+            --secret-string "{\"pat\":\"$ADO_PAT_TOKEN\",\"orgUrl\":\"$ADO_ORG_URL\"}" \
+            --region "$region" &>/dev/null; then
+            log_success "Secret created successfully: $secret_name"
+        else
+            log_error "Failed to create secret: $secret_name"
+            return 1
+        fi
+    fi
+    
+    # Verify the ExternalSecret resource exists
+    log_info "Verifying ExternalSecret configuration..."
+    if kubectl get externalsecret -n ado-agents &>/dev/null; then
+        log_success "ExternalSecret resources found in ado-agents namespace"
+        
+        # Trigger a refresh if possible
+        log_info "ExternalSecrets will sync automatically (check: kubectl get externalsecret -n ado-agents)"
+    else
+        log_warning "No ExternalSecret resources found - you may need to deploy application layer resources"
+    fi
+    
+    return 0
+}
+
+deploy_config_layer() {
+    log_info "Deploying config layer (post-deployment configuration)..."
+    
+    # Check prerequisites
+    for cmd in aws kubectl; do
+        if ! command -v "$cmd" &>/dev/null; then
+            log_error "Required command not found: $cmd"
+            return 1
+        fi
+    done
+    
+    # Detect cluster name from Terraform outputs
+    local cluster_name=$(detect_cluster_name_from_tf)
+    if [[ -z "$cluster_name" ]]; then
+        log_error "Could not detect cluster name from Terraform outputs"
+        log_error "Make sure base and middleware layers are deployed"
+        return 1
+    fi
+    
+    log_info "Detected cluster: $cluster_name"
+    
+    # Get ESO configuration for later use in messages
+    local css_name=$(get_eso_config_from_tf "cluster_secret_store_name" "aws-secrets-manager")
+    local ado_namespace=$(get_eso_config_from_tf "ado_agents_namespace" "ado-agents")
+    local ado_secret=$(get_eso_config_from_tf "ado_secret_name" "ado-pat")
+    
+    # Configure kubectl
+    if ! configure_kubectl_for_cluster "$cluster_name" "$AWS_REGION"; then
+        return 1
+    fi
+    
+    # Create ClusterSecretStore
+    if ! create_cluster_secret_store "$AWS_REGION"; then
+        log_warning "ClusterSecretStore creation had issues, but continuing..."
+    fi
+    
+    # Inject ADO secret (interactive)
+    log ""
+    if [[ "$AUTO_APPROVE" == "true" ]]; then
+        log_info "Auto-approve enabled - skipping ADO secret injection"
+        log_info "Run manually later: ./deploy.sh --layer config deploy"
+        SKIP_ADO_SECRET=true
+    fi
+    
+    if ! inject_ado_secret "$AWS_REGION" "$cluster_name"; then
+        log_warning "ADO secret injection failed or was skipped"
+        log_info "You can run this layer again: ./deploy.sh --layer config deploy"
+    fi
+    
+    log_success "Config layer deployment completed"
+    
+    # Show next steps with dynamic values
+    log ""
+    log "Next Steps:"
+    log "  1. Verify ClusterSecretStore:"
+    log "     kubectl get clustersecretstore $css_name"
+    log ""
+    log "  2. Verify ExternalSecret syncs:"
+    log "     kubectl get externalsecret -n $ado_namespace"
+    log "     kubectl get secret -n $ado_namespace $ado_secret"
+    log ""
+    log "  3. Monitor KEDA and agent pods:"
+    log "     kubectl get scaledobject -n $ado_namespace"
+    log "     kubectl get pods -n $ado_namespace -w"
+    log ""
+    
+    return 0
+}
+
 deploy_layer() {
     local layer="$1"
     local layer_dir="$2"
     
     log "Starting deployment of $layer layer..."
+    
+    # Special handling for config layer (doesn't use Terraform)
+    if [[ "$layer" == "config" ]]; then
+        deploy_config_layer
+        return $?
+    fi
     
     # Validate layer directory
     if ! validate_layer_directory "$layer" "$layer_dir"; then
@@ -1051,6 +1416,15 @@ destroy_layer() {
     
     log "Starting destruction of $layer layer..."
     
+    # Special handling for config layer
+    if [[ "$layer" == "config" ]]; then
+        log_info "Config layer cleanup (manual steps required):"
+        log_info "  1. Delete ClusterSecretStore: kubectl delete clustersecretstore aws-secrets-manager"
+        log_info "  2. Delete AWS Secrets Manager secret: aws secretsmanager delete-secret --secret-id eks/<cluster-name>/ado-pat"
+        log_info "Config layer destroy is informational only"
+        return 0
+    fi
+    
     # Check if layer exists and has resources
     local status
     status=$(get_layer_status "$layer" "$layer_dir")
@@ -1089,8 +1463,8 @@ destroy_layer() {
 # =============================================================================
 
 cmd_deploy() {
-    local layers=("base" "middleware" "application")
-    local layer_dirs=("$BASE_LAYER_DIR" "$MIDDLEWARE_LAYER_DIR" "$APPLICATION_LAYER_DIR")
+    local layers=("base" "middleware" "application" "config")
+    local layer_dirs=("$BASE_LAYER_DIR" "$MIDDLEWARE_LAYER_DIR" "$APPLICATION_LAYER_DIR" "$CONFIG_LAYER_DIR")
     
     if [[ -n "$TARGET_LAYER" ]]; then
         case "$TARGET_LAYER" in
@@ -1106,9 +1480,13 @@ cmd_deploy() {
                 layers=("application")
                 layer_dirs=("$APPLICATION_LAYER_DIR")
                 ;;
+            "config")
+                layers=("config")
+                layer_dirs=("$CONFIG_LAYER_DIR")
+                ;;
             *)
                 log_error "Invalid layer: $TARGET_LAYER"
-                log_error "Valid layers: base, middleware, application"
+                log_error "Valid layers: base, middleware, application, config"
                 exit 1
                 ;;
         esac
@@ -1244,8 +1622,8 @@ cmd_deploy() {
 }
 
 cmd_plan() {
-    local layers=("base" "middleware" "application")
-    local layer_dirs=("$BASE_LAYER_DIR" "$MIDDLEWARE_LAYER_DIR" "$APPLICATION_LAYER_DIR")
+    local layers=("base" "middleware" "application" "config")
+    local layer_dirs=("$BASE_LAYER_DIR" "$MIDDLEWARE_LAYER_DIR" "$APPLICATION_LAYER_DIR" "$CONFIG_LAYER_DIR")
     
     if [[ -n "$TARGET_LAYER" ]]; then
         case "$TARGET_LAYER" in
@@ -1261,8 +1639,13 @@ cmd_plan() {
                 layers=("application")
                 layer_dirs=("$APPLICATION_LAYER_DIR")
                 ;;
+            "config")
+                layers=("config")
+                layer_dirs=("$CONFIG_LAYER_DIR")
+                ;;
             *)
                 log_error "Invalid layer: $TARGET_LAYER"
+                log_error "Valid layers: base, middleware, application, config"
                 exit 1
                 ;;
         esac
@@ -1273,6 +1656,12 @@ cmd_plan() {
     for i in "${!layers[@]}"; do
         local layer="${layers[$i]}"
         local layer_dir="${layer_dirs[$i]}"
+        
+        # Skip config layer - it doesn't use Terraform
+        if [[ "$layer" == "config" ]]; then
+            log_info "Skipping plan for config layer (no Terraform)"
+            continue
+        fi
         
         echo
         log "Planning $layer layer..."
@@ -1326,8 +1715,8 @@ cmd_plan() {
 }
 
 cmd_validate() {
-    local layers=("base" "middleware" "application")
-    local layer_dirs=("$BASE_LAYER_DIR" "$MIDDLEWARE_LAYER_DIR" "$APPLICATION_LAYER_DIR")
+    local layers=("base" "middleware" "application" "config")
+    local layer_dirs=("$BASE_LAYER_DIR" "$MIDDLEWARE_LAYER_DIR" "$APPLICATION_LAYER_DIR" "$CONFIG_LAYER_DIR")
     
     if [[ -n "$TARGET_LAYER" ]]; then
         case "$TARGET_LAYER" in
@@ -1343,8 +1732,13 @@ cmd_validate() {
                 layers=("application")
                 layer_dirs=("$APPLICATION_LAYER_DIR")
                 ;;
+            "config")
+                layers=("config")
+                layer_dirs=("$CONFIG_LAYER_DIR")
+                ;;
             *)
                 log_error "Invalid layer: $TARGET_LAYER"
+                log_error "Valid layers: base, middleware, application, config"
                 exit 1
                 ;;
         esac
@@ -1357,6 +1751,13 @@ cmd_validate() {
     for i in "${!layers[@]}"; do
         local layer="${layers[$i]}"
         local layer_dir="${layer_dirs[$i]}"
+        
+        # Skip config layer - it doesn't use Terraform
+        if [[ "$layer" == "config" ]]; then
+            log_info "Skipping validation for config layer (no Terraform)"
+            log_success "$layer layer validation passed (runtime checks only)"
+            continue
+        fi
         
         log_info "Validating $layer layer..."
         
@@ -1422,8 +1823,8 @@ cmd_validate() {
 }
 
 cmd_destroy() {
-    local layers=("application" "middleware" "base")  # Reverse order
-    local layer_dirs=("$APPLICATION_LAYER_DIR" "$MIDDLEWARE_LAYER_DIR" "$BASE_LAYER_DIR")
+    local layers=("config" "application" "middleware" "base")  # Reverse order - config first
+    local layer_dirs=("$CONFIG_LAYER_DIR" "$APPLICATION_LAYER_DIR" "$MIDDLEWARE_LAYER_DIR" "$BASE_LAYER_DIR")
     
     if [[ -n "$TARGET_LAYER" ]]; then
         case "$TARGET_LAYER" in
@@ -1439,8 +1840,13 @@ cmd_destroy() {
                 layers=("application")
                 layer_dirs=("$APPLICATION_LAYER_DIR")
                 ;;
+            "config")
+                layers=("config")
+                layer_dirs=("$CONFIG_LAYER_DIR")
+                ;;
             *)
                 log_error "Invalid layer: $TARGET_LAYER"
+                log_error "Valid layers: base, middleware, application, config"
                 exit 1
                 ;;
         esac
@@ -1700,6 +2106,18 @@ parse_arguments() {
             --force)
                 FORCE=true
                 shift
+                ;;
+            --skip-ado-secret)
+                SKIP_ADO_SECRET=true
+                shift
+                ;;
+            --pat)
+                ADO_PAT_TOKEN="$2"
+                shift 2
+                ;;
+            --org-url)
+                ADO_ORG_URL="$2"
+                shift 2
                 ;;
             --help|-h)
                 show_usage

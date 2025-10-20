@@ -203,7 +203,39 @@ terraform apply
 
 > **Note**: The orchestration script (`../deploy.sh`) handles S3 bucket name substitution automatically. If deploying manually, ensure the backend configuration in `main.tf` has the correct bucket name.
 
-### Step 4: Verify Deployment
+### Step 4: Inject ADO PAT Secret
+
+After deployment, you need to update the AWS Secrets Manager secret with your actual Azure DevOps Personal Access Token.
+
+**Quick Reference:**
+```bash
+export SECRET_NAME="ado-agent-pat"
+export AWS_REGION="us-west-2"  # Match your cluster region
+export ADO_ORG="your-org-name"
+
+# Securely prompt for PAT
+echo "Enter your Azure DevOps PAT:"
+read -s ADO_PAT
+
+# Update the secret
+aws secretsmanager put-secret-value \
+    --secret-id "$SECRET_NAME" \
+    --region "$AWS_REGION" \
+    --secret-string "$(jq -n \
+        --arg pat "$ADO_PAT" \
+        --arg org "$ADO_ORG" \
+        --arg url "https://dev.azure.com/${ADO_ORG}" \
+        '{personalAccessToken: $pat, organization: $org, adourl: $url}')"
+
+# Clear sensitive data
+unset ADO_PAT
+```
+
+📖 **For detailed instructions, see:**
+- [ADO PAT Secret Injection Guide](../../docs/ADO_PAT_SECRET_INJECTION.md) - Full documentation
+- [Quick Reference](../../docs/QUICK_REF_ADO_PAT_SECRET.md) - TL;DR version
+
+### Step 5: Verify Deployment
 
 ```bash
 # Check Helm release status

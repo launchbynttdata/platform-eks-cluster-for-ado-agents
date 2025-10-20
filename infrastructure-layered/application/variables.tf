@@ -351,7 +351,7 @@ variable "agent_pools" {
       affinity     = null
       additional_env_vars = {
         TF_CLI_CONFIG_FILE = "/opt/terraform/.terraformrc"
-        AWS_DEFAULT_REGION = "us-east-1"
+        # AWS_DEFAULT_REGION is dynamically injected via locals based on data.aws_region.current.name
       }
       volume_mounts = []
       volumes      = []

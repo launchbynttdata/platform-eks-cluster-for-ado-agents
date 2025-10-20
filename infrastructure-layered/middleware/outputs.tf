@@ -24,6 +24,11 @@ output "eso_namespace" {
   value       = var.eso_namespace
 }
 
+output "eso_service_account_name" {
+  description = "Name of the External Secrets Operator service account"
+  value       = var.install_eso ? module.external_secrets_operator[0].service_account_name : "external-secrets"
+}
+
 output "eso_role_arn" {
   description = "ARN of the External Secrets Operator IAM role"
   value       = aws_iam_role.eso_role.arn

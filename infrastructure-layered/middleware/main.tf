@@ -41,7 +41,7 @@ provider "kubernetes" {
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
     command     = "aws"
-    args        = ["eks", "get-token", "--cluster-name", data.terraform_remote_state.base.outputs.cluster_name]
+    args        = ["eks", "get-token", "--cluster-name", data.terraform_remote_state.base.outputs.cluster_name, "--region", data.aws_region.current.name]
   }
 }
 
@@ -54,7 +54,7 @@ provider "helm" {
     exec {
       api_version = "client.authentication.k8s.io/v1beta1"
       command     = "aws"
-      args        = ["eks", "get-token", "--cluster-name", data.terraform_remote_state.base.outputs.cluster_name]
+      args        = ["eks", "get-token", "--cluster-name", data.terraform_remote_state.base.outputs.cluster_name, "--region", data.aws_region.current.name]
     }
   }
 }
@@ -270,11 +270,10 @@ module "external_secrets_operator" {
   webhook_enabled       = var.eso_webhook_enabled
   webhook_failurePolicy = var.eso_webhook_failure_policy
 
-  # Create ClusterSecretStore AFTER CRDs are installed
-  # Set to false during initial deployment, can be enabled in subsequent applies
-  # or moved to application layer
-  create_cluster_secret_store = false  # ClusterSecretStore created manually via kubectl to avoid Terraform timing issues
-  cluster_secret_store_name   = var.cluster_secret_store_name
+  # ClusterSecretStore is NOT created by Terraform (CRD timing limitation)
+  # Must be created post-deployment using post-deploy-middleware.sh script
+  # See: docs/MIDDLEWARE_POST_DEPLOYMENT_STEPS.md
+  create_cluster_secret_store = false
 
   # Don't create external secrets here - application layer will manage them
   create_external_secrets = false
