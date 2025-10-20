@@ -1448,6 +1448,8 @@ deploy_layer() {
     case $plan_exitcode in
         0)
             log_success "$layer layer is up to date"
+            # Still run post-deployment validation to ensure k8s resources are deployed
+            validate_layer_deployment "$layer" "$layer_dir"
             return 0
             ;;
         1)
@@ -1521,6 +1523,103 @@ validate_base_layer_deployment() {
     fi
 }
 
+deploy_cluster_autoscaler() {
+    local layer_dir="$1"
+    
+    log_info "Deploying Cluster Autoscaler..."
+    
+    # Get cluster name - try multiple methods
+    local cluster_name=""
+    
+    # Method 1: Try from terraform output (if available)
+    cluster_name=$(terraform_output "base" "$BASE_LAYER_DIR" "cluster_name" 2>/dev/null || echo "")
+    
+    # Method 2: If that failed, detect from kubectl context
+    if [[ -z "$cluster_name" ]]; then
+        cluster_name=$(kubectl config current-context 2>/dev/null | cut -d'/' -f2 2>/dev/null || echo "")
+        if [[ -n "$cluster_name" ]]; then
+            log_debug "Detected cluster name from kubectl context: $cluster_name"
+        fi
+    fi
+    
+    # Method 3: List EKS clusters in region
+    if [[ -z "$cluster_name" ]]; then
+        cluster_name=$(aws eks list-clusters --region "${AWS_REGION}" --query 'clusters[0]' --output text 2>/dev/null || echo "")
+        if [[ -n "$cluster_name" && "$cluster_name" != "None" ]]; then
+            log_debug "Detected cluster name from AWS: $cluster_name"
+        fi
+    fi
+    
+    if [[ -z "$cluster_name" ]]; then
+        log_warning "Could not determine cluster name - skipping cluster autoscaler deployment"
+        return 0
+    fi
+    
+    # Check if IAM role exists for cluster autoscaler
+    local cluster_autoscaler_role_arn=""
+    local expected_role_name="${cluster_name}-cluster-autoscaler-role"
+    
+    # Try to get role ARN from AWS IAM
+    cluster_autoscaler_role_arn=$(aws iam get-role --role-name "$expected_role_name" --query 'Role.Arn' --output text 2>/dev/null || echo "")
+    
+    # If role doesn't exist, autoscaler is disabled
+    if [[ -z "$cluster_autoscaler_role_arn" || "$cluster_autoscaler_role_arn" == "None" ]]; then
+        log_info "Cluster autoscaler IAM role not found ($expected_role_name) - skipping deployment"
+        log_info "To enable cluster autoscaler, set enable_cluster_autoscaler = true in base/terraform.tfvars"
+        return 0
+    fi
+    
+    local aws_region="${AWS_REGION}"
+    
+    # Use version 1.30.0 which supports EKS 1.30+
+    local cluster_autoscaler_version="v1.30.0"
+    
+    log_info "Cluster Autoscaler configuration:"
+    log_info "  Cluster: $cluster_name"
+    log_info "  Role ARN: $cluster_autoscaler_role_arn"
+    log_info "  Region: $aws_region"
+    log_info "  Version: $cluster_autoscaler_version"
+    
+    # Check if cluster autoscaler manifest exists
+    local manifest_template="$layer_dir/cluster-autoscaler.yaml"
+    if [[ ! -f "$manifest_template" ]]; then
+        log_error "Cluster autoscaler manifest not found: $manifest_template"
+        return 1
+    fi
+    
+    # Create temporary manifest with substituted values
+    local temp_manifest
+    temp_manifest=$(mktemp)
+    
+    sed -e "s|CLUSTER_AUTOSCALER_ROLE_ARN_PLACEHOLDER|${cluster_autoscaler_role_arn}|g" \
+        -e "s|CLUSTER_NAME_PLACEHOLDER|${cluster_name}|g" \
+        -e "s|AWS_REGION_PLACEHOLDER|${aws_region}|g" \
+        -e "s|CLUSTER_AUTOSCALER_VERSION_PLACEHOLDER|${cluster_autoscaler_version}|g" \
+        "$manifest_template" > "$temp_manifest"
+    
+    # Apply the manifest
+    if kubectl apply -f "$temp_manifest"; then
+        log_success "Cluster autoscaler deployed successfully"
+        
+        # Wait for deployment to be ready
+        log_info "Waiting for cluster autoscaler deployment to be ready..."
+        if kubectl wait --for=condition=available --timeout=180s deployment/cluster-autoscaler -n kube-system 2>/dev/null; then
+            log_success "Cluster autoscaler is running"
+        else
+            log_warning "Cluster autoscaler deployment timeout - check manually with: kubectl get deployment -n kube-system cluster-autoscaler"
+        fi
+    else
+        log_error "Failed to deploy cluster autoscaler"
+        rm -f "$temp_manifest"
+        return 1
+    fi
+    
+    # Clean up temp file
+    rm -f "$temp_manifest"
+    
+    return 0
+}
+
 validate_middleware_layer_deployment() {
     local layer_dir="$1"
     
@@ -1538,6 +1637,16 @@ validate_middleware_layer_deployment() {
         log_success "External Secrets Operator is deployed"
     else
         log_warning "External Secrets Operator not found"
+    fi
+    
+    # Deploy cluster autoscaler if enabled
+    deploy_cluster_autoscaler "$layer_dir"
+    
+    # Check Cluster Autoscaler deployment
+    if kubectl get deployment -n kube-system cluster-autoscaler &>/dev/null; then
+        log_success "Cluster autoscaler is deployed"
+    else
+        log_info "Cluster autoscaler not deployed (may be disabled or failed)"
     fi
 }
 
