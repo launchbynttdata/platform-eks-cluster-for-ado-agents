@@ -477,6 +477,121 @@ configure_kubectl_alias() {
 }
 
 # =============================================================================
+# Layer Management Helpers
+# =============================================================================
+
+get_layer_directory() {
+    local layer="$1"
+    
+    case "$layer" in
+        base) echo "$BASE_LAYER_DIR" ;;
+        middleware) echo "$MIDDLEWARE_LAYER_DIR" ;;
+        application) echo "$APPLICATION_LAYER_DIR" ;;
+        config) echo "$CONFIG_LAYER_DIR" ;;
+        *)
+            log_error "Unknown layer: $layer"
+            return 1
+            ;;
+    esac
+}
+
+validate_layer_name() {
+    local layer="$1"
+    
+    case "$layer" in
+        base|middleware|application|config)
+            return 0
+            ;;
+        *)
+            log_error "Invalid layer: $layer"
+            log_error "Valid layers: base, middleware, application, config"
+            return 1
+            ;;
+    esac
+}
+
+get_layers_and_dirs() {
+    local target_layer="$1"
+    local reverse="${2:-false}"
+    
+    local layers=()
+    local layer_dirs=()
+    
+    if [[ -n "$target_layer" ]]; then
+        # Single layer mode
+        if ! validate_layer_name "$target_layer"; then
+            return 1
+        fi
+        layers=("$target_layer")
+        layer_dirs=("$(get_layer_directory "$target_layer")")
+    else
+        # All layers mode
+        if [[ "$reverse" == "true" ]]; then
+            # Reverse order for destroy operations
+            layers=("config" "application" "middleware" "base")
+        else
+            # Normal order for deploy/plan/validate
+            layers=("base" "middleware" "application" "config")
+        fi
+        
+        for layer in "${layers[@]}"; do
+            layer_dirs+=("$(get_layer_directory "$layer")")
+        done
+    fi
+    
+    # Export arrays for caller to use
+    # Return as newline-separated values: layer|dir
+    for i in "${!layers[@]}"; do
+        echo "${layers[$i]}|${layer_dirs[$i]}"
+    done
+}
+
+show_layer_list() {
+    local title="$1"
+    local symbol="$2"
+    shift 2
+    local layers=("$@")
+    
+    if [[ ${#layers[@]} -eq 0 ]]; then
+        return 0
+    fi
+    
+    echo "$title:"
+    for layer in "${layers[@]}"; do
+        echo "  $symbol $layer"
+    done
+    echo
+}
+
+calculate_skipped_layers() {
+    local -n processed_layers_ref=$1
+    
+    local all_layers=("base" "middleware" "application" "config")
+    local skipped_layers=()
+    
+    for check_layer in "${all_layers[@]}"; do
+        local found=false
+        for processed_layer in "${processed_layers_ref[@]}"; do
+            if [[ "$check_layer" == "$processed_layer" ]]; then
+                found=true
+                break
+            fi
+        done
+        if [[ "$found" == "false" ]]; then
+            skipped_layers+=("$check_layer")
+        fi
+    done
+    
+    if [[ ${#skipped_layers[@]} -gt 0 ]]; then
+        echo "Other layers (not processed - layer mode):"
+        for layer in "${skipped_layers[@]}"; do
+            echo "  ⊘ $layer (skipped)"
+        done
+        echo
+    fi
+}
+
+# =============================================================================
 # Terraform Operations
 # =============================================================================
 
@@ -1463,34 +1578,17 @@ destroy_layer() {
 # =============================================================================
 
 cmd_deploy() {
-    local layers=("base" "middleware" "application" "config")
-    local layer_dirs=("$BASE_LAYER_DIR" "$MIDDLEWARE_LAYER_DIR" "$APPLICATION_LAYER_DIR" "$CONFIG_LAYER_DIR")
+    # Get layer configuration using helper
+    local layer_config
+    layer_config=$(get_layers_and_dirs "$TARGET_LAYER" false) || exit 1
     
-    if [[ -n "$TARGET_LAYER" ]]; then
-        case "$TARGET_LAYER" in
-            "base")
-                layers=("base")
-                layer_dirs=("$BASE_LAYER_DIR")
-                ;;
-            "middleware")
-                layers=("middleware")
-                layer_dirs=("$MIDDLEWARE_LAYER_DIR")
-                ;;
-            "application")
-                layers=("application")
-                layer_dirs=("$APPLICATION_LAYER_DIR")
-                ;;
-            "config")
-                layers=("config")
-                layer_dirs=("$CONFIG_LAYER_DIR")
-                ;;
-            *)
-                log_error "Invalid layer: $TARGET_LAYER"
-                log_error "Valid layers: base, middleware, application, config"
-                exit 1
-                ;;
-        esac
-    fi
+    local layers=()
+    local layer_dirs=()
+    
+    while IFS='|' read -r layer layer_dir; do
+        layers+=("$layer")
+        layer_dirs+=("$layer_dir")
+    done <<< "$layer_config"
     
     log "Starting deployment of ${#layers[@]} layer(s)..."
     
@@ -1559,40 +1657,13 @@ cmd_deploy() {
         
         if [[ -n "$TARGET_LAYER" ]]; then
             log_success "Target layer deployed successfully: $TARGET_LAYER"
-            for layer in "${successful_layers[@]}"; do
-                echo "  ✓ $layer"
-            done
-            echo
+            show_layer_list "Deployed" "✓" "${successful_layers[@]}"
             
-            # List other layers that were intentionally skipped
-            local all_layers=("base" "middleware" "application")
-            local skipped_layers=()
-            for check_layer in "${all_layers[@]}"; do
-                local found=false
-                for deployed_layer in "${successful_layers[@]}"; do
-                    if [[ "$check_layer" == "$deployed_layer" ]]; then
-                        found=true
-                        break
-                    fi
-                done
-                if [[ "$found" == "false" ]]; then
-                    skipped_layers+=("$check_layer")
-                fi
-            done
-            
-            if [[ ${#skipped_layers[@]} -gt 0 ]]; then
-                echo "Other layers (not deployed - layer mode):"
-                for layer in "${skipped_layers[@]}"; do
-                    echo "  ⊘ $layer (skipped)"
-                done
-                echo
-            fi
+            # Show skipped layers
+            calculate_skipped_layers successful_layers
         else
             log_success "All layers deployed successfully"
-            for layer in "${successful_layers[@]}"; do
-                echo "  ✓ $layer"
-            done
-            echo
+            show_layer_list "Deployed" "✓" "${successful_layers[@]}"
         fi
         
         # Show post-deployment information
@@ -1604,55 +1675,29 @@ cmd_deploy() {
         echo "DEPLOYMENT COMPLETED WITH ERRORS"
         echo "================================"
         echo
-        if [[ ${#successful_layers[@]} -gt 0 ]]; then
-            echo "Successfully deployed:"
-            for layer in "${successful_layers[@]}"; do
-                echo "  ✓ $layer"
-            done
-            echo
-        fi
-        echo "Failed layers:"
-        for layer in "${failed_layers[@]}"; do
-            echo "  ✗ $layer"
-        done
-        echo
+        show_layer_list "Successfully deployed" "✓" "${successful_layers[@]}"
+        show_layer_list "Failed layers" "✗" "${failed_layers[@]}"
         show_recovery_guidance "${failed_layers[0]}" "${successful_layers[@]}"
         exit 1
     fi
 }
 
 cmd_plan() {
-    local layers=("base" "middleware" "application" "config")
-    local layer_dirs=("$BASE_LAYER_DIR" "$MIDDLEWARE_LAYER_DIR" "$APPLICATION_LAYER_DIR" "$CONFIG_LAYER_DIR")
+    # Get layer configuration using helper
+    local layer_config
+    layer_config=$(get_layers_and_dirs "$TARGET_LAYER" false) || exit 1
     
-    if [[ -n "$TARGET_LAYER" ]]; then
-        case "$TARGET_LAYER" in
-            "base")
-                layers=("base")
-                layer_dirs=("$BASE_LAYER_DIR")
-                ;;
-            "middleware")
-                layers=("middleware")
-                layer_dirs=("$MIDDLEWARE_LAYER_DIR")
-                ;;
-            "application")
-                layers=("application")
-                layer_dirs=("$APPLICATION_LAYER_DIR")
-                ;;
-            "config")
-                layers=("config")
-                layer_dirs=("$CONFIG_LAYER_DIR")
-                ;;
-            *)
-                log_error "Invalid layer: $TARGET_LAYER"
-                log_error "Valid layers: base, middleware, application, config"
-                exit 1
-                ;;
-        esac
-    fi
+    local layers=()
+    local layer_dirs=()
+    
+    while IFS='|' read -r layer layer_dir; do
+        layers+=("$layer")
+        layer_dirs+=("$layer_dir")
+    done <<< "$layer_config"
     
     log "Showing deployment plan for ${#layers[@]} layer(s)..."
     
+    local planned_layers=()
     for i in "${!layers[@]}"; do
         local layer="${layers[$i]}"
         local layer_dir="${layer_dirs[$i]}"
@@ -1683,6 +1728,7 @@ cmd_plan() {
         fi
         
         terraform_plan "$layer" "$layer_dir"
+        planned_layers+=("$layer")
         echo
     done
     
@@ -1695,58 +1741,28 @@ cmd_plan() {
         echo
         log_info "Planned layer: $TARGET_LAYER"
         
-        # List other layers that were intentionally skipped
-        local all_layers=("base" "middleware" "application")
-        local skipped_layers=()
-        for check_layer in "${all_layers[@]}"; do
-            if [[ "$check_layer" != "$TARGET_LAYER" ]]; then
-                skipped_layers+=("$check_layer")
-            fi
-        done
-        
-        if [[ ${#skipped_layers[@]} -gt 0 ]]; then
-            echo "Other layers (not planned - layer mode):"
-            for layer in "${skipped_layers[@]}"; do
-                echo "  ⊘ $layer (skipped)"
-            done
-            echo
-        fi
+        # Show skipped layers
+        calculate_skipped_layers planned_layers
     fi
 }
 
 cmd_validate() {
-    local layers=("base" "middleware" "application" "config")
-    local layer_dirs=("$BASE_LAYER_DIR" "$MIDDLEWARE_LAYER_DIR" "$APPLICATION_LAYER_DIR" "$CONFIG_LAYER_DIR")
+    # Get layer configuration using helper
+    local layer_config
+    layer_config=$(get_layers_and_dirs "$TARGET_LAYER" false) || exit 1
     
-    if [[ -n "$TARGET_LAYER" ]]; then
-        case "$TARGET_LAYER" in
-            "base")
-                layers=("base")
-                layer_dirs=("$BASE_LAYER_DIR")
-                ;;
-            "middleware")
-                layers=("middleware")
-                layer_dirs=("$MIDDLEWARE_LAYER_DIR")
-                ;;
-            "application")
-                layers=("application")
-                layer_dirs=("$APPLICATION_LAYER_DIR")
-                ;;
-            "config")
-                layers=("config")
-                layer_dirs=("$CONFIG_LAYER_DIR")
-                ;;
-            *)
-                log_error "Invalid layer: $TARGET_LAYER"
-                log_error "Valid layers: base, middleware, application, config"
-                exit 1
-                ;;
-        esac
-    fi
+    local layers=()
+    local layer_dirs=()
+    
+    while IFS='|' read -r layer layer_dir; do
+        layers+=("$layer")
+        layer_dirs+=("$layer_dir")
+    done <<< "$layer_config"
     
     log "Validating ${#layers[@]} layer(s)..."
     
     local validation_errors=()
+    local validated_layers=()
     
     for i in "${!layers[@]}"; do
         local layer="${layers[$i]}"
@@ -1756,6 +1772,7 @@ cmd_validate() {
         if [[ "$layer" == "config" ]]; then
             log_info "Skipping validation for config layer (no Terraform)"
             log_success "$layer layer validation passed (runtime checks only)"
+            validated_layers+=("$layer")
             continue
         fi
         
@@ -1777,6 +1794,7 @@ cmd_validate() {
         fi
         
         log_success "$layer layer validation passed"
+        validated_layers+=("$layer")
     done
     
     # Validate Helm chart
@@ -1795,21 +1813,8 @@ cmd_validate() {
         if [[ -n "$TARGET_LAYER" ]]; then
             log_success "Target layer validation passed: $TARGET_LAYER"
             
-            # List other layers that were intentionally skipped
-            local all_layers=("base" "middleware" "application")
-            local skipped_layers=()
-            for check_layer in "${all_layers[@]}"; do
-                if [[ "$check_layer" != "$TARGET_LAYER" ]]; then
-                    skipped_layers+=("$check_layer")
-                fi
-            done
-            
-            if [[ ${#skipped_layers[@]} -gt 0 ]]; then
-                echo "Other layers (not validated - layer mode):"
-                for layer in "${skipped_layers[@]}"; do
-                    echo "  ⊘ $layer (skipped)"
-                done
-            fi
+            # Show skipped layers
+            calculate_skipped_layers validated_layers
         else
             log_success "All validations passed"
         fi
@@ -1823,34 +1828,17 @@ cmd_validate() {
 }
 
 cmd_destroy() {
-    local layers=("config" "application" "middleware" "base")  # Reverse order - config first
-    local layer_dirs=("$CONFIG_LAYER_DIR" "$APPLICATION_LAYER_DIR" "$MIDDLEWARE_LAYER_DIR" "$BASE_LAYER_DIR")
+    # Get layer configuration using helper (reverse order for destroy)
+    local layer_config
+    layer_config=$(get_layers_and_dirs "$TARGET_LAYER" true) || exit 1
     
-    if [[ -n "$TARGET_LAYER" ]]; then
-        case "$TARGET_LAYER" in
-            "base")
-                layers=("base")
-                layer_dirs=("$BASE_LAYER_DIR")
-                ;;
-            "middleware")
-                layers=("middleware")
-                layer_dirs=("$MIDDLEWARE_LAYER_DIR")
-                ;;
-            "application")
-                layers=("application")
-                layer_dirs=("$APPLICATION_LAYER_DIR")
-                ;;
-            "config")
-                layers=("config")
-                layer_dirs=("$CONFIG_LAYER_DIR")
-                ;;
-            *)
-                log_error "Invalid layer: $TARGET_LAYER"
-                log_error "Valid layers: base, middleware, application, config"
-                exit 1
-                ;;
-        esac
-    fi
+    local layers=()
+    local layer_dirs=()
+    
+    while IFS='|' read -r layer layer_dir; do
+        layers+=("$layer")
+        layer_dirs+=("$layer_dir")
+    done <<< "$layer_config"
     
     log_warning "This will destroy ${#layers[@]} layer(s) in reverse order: ${layers[*]}"
     log_warning "This action cannot be undone!"
@@ -1891,21 +1879,9 @@ cmd_destroy() {
         if [[ -n "$TARGET_LAYER" ]]; then
             log_success "Target layer destroyed successfully: $TARGET_LAYER"
             
-            # List other layers that were intentionally skipped
-            local all_layers=("base" "middleware" "application")
-            local skipped_layers=()
-            for check_layer in "${all_layers[@]}"; do
-                if [[ "$check_layer" != "$TARGET_LAYER" ]]; then
-                    skipped_layers+=("$check_layer")
-                fi
-            done
-            
-            if [[ ${#skipped_layers[@]} -gt 0 ]]; then
-                echo "Other layers (not destroyed - layer mode):"
-                for layer in "${skipped_layers[@]}"; do
-                    echo "  ⊘ $layer (skipped)"
-                done
-            fi
+            # Show skipped layers
+            local destroyed_layers=("$TARGET_LAYER")
+            calculate_skipped_layers destroyed_layers
         else
             log_success "All layers destroyed successfully"
         fi
