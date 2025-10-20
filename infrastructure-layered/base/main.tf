@@ -16,11 +16,12 @@
 terraform {
   # Remote state configuration - S3 backend with native state locking
   # Note: Terraform 1.10+ supports native S3 state locking without DynamoDB
-  # The bucket name and region will be substituted by the deployment script from env vars
+  # The bucket name and region are provided via -backend-config during init
+  # See: https://developer.hashicorp.com/terraform/language/backend#partial-configuration
   backend "s3" {
-    bucket = "TF_STATE_BUCKET_PLACEHOLDER"
+    bucket = ""  # Provided via -backend-config="bucket=..."
     key    = "base/terraform.tfstate"
-    region = "TF_STATE_REGION_PLACEHOLDER"
+    region = ""  # Provided via -backend-config="region=..."
 
     # Enable native S3 state locking (Terraform 1.10+)
     # No DynamoDB table required

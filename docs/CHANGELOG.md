@@ -4,6 +4,134 @@ This document tracks all significant changes, fixes, and improvements made to th
 
 ## [Unreleased] - 2025-10-20
 
+### Critical Fix: Terraform Backend Configuration Refactoring
+
+**10. Migrate from sed File Rewriting to Terraform Partial Backend Configuration** ✅
+
+**Problem:**
+- Script used `sed` to rewrite `main.tf` files, replacing `TF_STATE_BUCKET_PLACEHOLDER` and `TF_STATE_REGION_PLACEHOLDER`
+- Modified source files creating git diffs
+- Fragile - script interruption could leave files in modified state
+- Required complex paired substitute/restore calls around every terraform operation
+- Non-standard approach with macOS vs Linux sed compatibility issues
+
+**Solution:**
+- Migrated to Terraform's native **partial backend configuration** using `-backend-config` flags
+- Per [Terraform documentation](https://developer.hashicorp.com/terraform/language/backend#partial-configuration)
+
+**Implementation:**
+- Updated `terraform_init()` to use `-backend-config="bucket=$TF_STATE_BUCKET"` and `-backend-config="region=$TF_STATE_REGION"`
+- Removed `substitute_bucket_placeholder()` and `restore_bucket_placeholder()` calls from all functions
+- Updated `main.tf` files to use empty strings instead of placeholders
+- Updated `terraform_output()`, `terraform_validate()`, `terraform_plan()`, `terraform_apply()`, `terraform_destroy()`, and `get_layer_status()`
+
+**Files Modified:**
+- `infrastructure-layered/deploy.sh` - All terraform operation functions
+- `infrastructure-layered/base/main.tf` - Backend block configuration
+
+**Files Created:**
+- `docs/BACKEND_CONFIG_REFACTORING.md` - Complete refactoring documentation
+
+**Benefits:**
+- ✅ No file modification - source files remain unchanged
+- ✅ Terraform standard - uses official HashiCorp approach
+- ✅ Simpler - removed ~100 lines of substitute/restore logic
+- ✅ More secure - credentials never written to source files
+- ✅ Cross-platform - no macOS vs Linux sed issues
+
+---
+
+### Critical Fix: kubectl Configuration and Validation Enforcement
+
+**9. kubectl Not Configured for Fresh Deployments + Validation Failures Ignored** ✅
+
+**Problems:**
+1. Fresh cluster deployments failed at middleware layer with: `error: dial tcp: lookup [CLUSTER].eks.amazonaws.com: no such host`
+2. Base layer validation returned success even when kubectl configuration failed
+3. Deployment continued to middleware/application layers despite validation failures
+4. `terraform_output` function failed silently when terraform wasn't initialized
+
+**Root Causes:**
+1. Base layer validation didn't wait for EKS cluster to reach ACTIVE status
+2. Validation returned `0` (success) when cluster name couldn't be determined
+3. `deploy_layer()` didn't check return code from `validate_layer_deployment()`
+4. kubectl configuration could fail but script continued anyway
+
+**Solutions:**
+
+**Base Layer Validation (`validate_base_layer_deployment`):**
+- ✅ Added cluster readiness check - waits up to 5 minutes for cluster status = ACTIVE
+- ✅ Changed from `log_warning` + `return 0` to `log_error` + `return 1` when cluster name unavailable
+- ✅ Fails fast if kubectl configuration fails (stops deployment)
+- ✅ Verifies kubectl can communicate with cluster before proceeding
+- ✅ Comprehensive error messages with troubleshooting guidance
+
+**Deployment Layer (`deploy_layer`):**
+- ✅ Added return code checks on `validate_layer_deployment()` calls
+- ✅ Stops deployment immediately if validation fails
+- ✅ Shows clear error: "Post-deployment validation failed for X layer"
+
+**kubectl Configuration (`configure_kubectl_alias`):**
+- ✅ Fixed AWS CLI output capture (was using problematic `grep -v`)
+- ✅ Proper error messages showing actual AWS CLI output
+- ✅ Added 30-second timeout for cluster connectivity test
+
+**Terraform Output (`terraform_output`):**
+- ✅ Ensures terraform init runs with proper `-backend-config` flags
+- ✅ Returns error instead of empty string when directory inaccessible
+
+**Files Modified:**
+- `infrastructure-layered/deploy.sh`:
+  - `validate_base_layer_deployment()` - Lines ~1515-1578
+  - `deploy_layer()` - Lines ~1455-1497
+  - `configure_kubectl_alias()` - Lines ~447-485
+  - `terraform_output()` - Lines ~869-893
+
+**Files Created:**
+- `docs/KUBECTL_CONFIG_FIX.md` - Complete kubectl configuration fix documentation
+
+**Impact:**
+- ✅ Fresh deployments now work end-to-end
+- ✅ Middleware layer receives properly configured kubectl
+- ✅ Cluster autoscaler deploys automatically
+- ✅ Deployment stops immediately on validation failure
+- ✅ Clear error messages guide troubleshooting
+
+---
+
+### Bug Fix: Cluster Autoscaler Deployment Automation
+
+**8. Cluster Autoscaler Not Deployed Automatically** ✅
+
+**Problems:**
+1. `deploy_cluster_autoscaler()` function had duplicate code at end causing bash syntax error
+2. Function never called during deployment - validation skipped when no Terraform changes
+3. Deployment continued even when middleware validation failed
+
+**Root Causes:**
+1. Lines 1620-1642 in deploy.sh duplicated lines 1600-1619 (syntax error)
+2. `deploy_layer()` returned early when `terraform plan` showed no changes (exit code 0)
+3. Validation only ran when Terraform had changes to apply
+4. Validation return codes weren't checked
+
+**Solutions:**
+- ✅ Removed duplicate code block causing syntax error
+- ✅ Modified `deploy_layer()` to always run validation, even when no Terraform changes
+- ✅ Added return code checks on `validate_layer_deployment()` 
+- ✅ Deployment now fails fast if validation fails
+
+**Files Modified:**
+- `infrastructure-layered/deploy.sh`:
+  - `deploy_cluster_autoscaler()` - Removed duplicate lines
+  - `deploy_layer()` - Added validation even when `terraform plan` returns 0
+
+**Impact:**
+- ✅ Cluster autoscaler deploys on fresh deployments
+- ✅ Cluster autoscaler verified on re-deployments
+- ✅ Proper kubectl access ensured before attempting deployment
+
+---
+
 ### Enhancement: Dynamic Configuration from Terraform
 
 **7. Config Layer Reads Values from Terraform Outputs** ✅

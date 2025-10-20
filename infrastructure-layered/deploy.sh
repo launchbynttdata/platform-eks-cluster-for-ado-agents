@@ -457,23 +457,32 @@ configure_kubectl_alias() {
     fi
     
     # Update kubeconfig with the cluster configuration
-    if ! aws eks update-kubeconfig \
+    local update_output
+    if ! update_output=$(aws eks update-kubeconfig \
         --region "$region" \
         --name "$cluster_name" \
-        --alias "$context_alias" 2>/dev/null; then
-        log_warning "Failed to configure kubectl for cluster $cluster_name"
+        --alias "$context_alias" 2>&1); then
+        log_error "Failed to configure kubectl for cluster $cluster_name"
+        log_error "AWS CLI output: $update_output"
+        log_error "Please check that:"
+        log_error "  - AWS credentials are valid"
+        log_error "  - Cluster exists: aws eks describe-cluster --name $cluster_name --region $region"
+        log_error "  - You have eks:DescribeCluster permission"
         return 1
     fi
     
+    log_debug "kubectl configured: $update_output"
+    
     log_success "Successfully configured kubectl with context alias: $context_alias"
     
-    # Test cluster connectivity
-    if kubectl cluster-info --context "$context_alias" &>/dev/null; then
+    # Test cluster connectivity (with timeout)
+    log_debug "Testing cluster connectivity..."
+    if timeout 30 kubectl cluster-info --context "$context_alias" &>/dev/null; then
         log_success "Cluster connectivity verified"
-        log_info "You can now access the cluster using: kubectl --context $context_alias"
-        log_info "Or set as default: kubectl config use-context $context_alias"
+        log_debug "You can access the cluster using: kubectl --context $context_alias"
     else
-        log_warning "Cluster is not immediately accessible (may still be initializing)"
+        log_warning "Cluster connectivity test failed or timed out"
+        log_warning "The cluster may still be initializing - will retry in validation"
     fi
     
     return 0
@@ -604,34 +613,33 @@ terraform_init() {
     
     log_info "Initializing Terraform for $layer layer..."
     
-    # Substitute bucket placeholder before init
-    if ! substitute_bucket_placeholder "$layer_dir"; then
-        log_error "Failed to substitute bucket placeholder"
-        return 1
-    fi
-    
     cd "$layer_dir"
     
+    # Use partial backend configuration instead of modifying main.tf
+    # This is the Terraform-recommended approach per:
+    # https://developer.hashicorp.com/terraform/language/backend#partial-configuration
     local init_cmd="terraform init -reconfigure"
+    init_cmd="$init_cmd -backend-config=\"bucket=$TF_STATE_BUCKET\""
+    init_cmd="$init_cmd -backend-config=\"region=$TF_STATE_REGION\""
     
     log_debug "Running: $init_cmd"
     
     if [[ "$DRY_RUN" == "true" ]]; then
         log_info "[DRY-RUN] Would run: $init_cmd"
-        restore_bucket_placeholder "$layer_dir"
         return 0
     fi
     
     if ! eval "$init_cmd"; then
         log_error "Terraform init failed for $layer layer"
-        restore_bucket_placeholder "$layer_dir"
+        log_error "Please check that:"
+        log_error "  - S3 bucket '$TF_STATE_BUCKET' exists and is accessible"
+        log_error "  - You have s3:ListBucket and s3:GetObject permissions"
+        log_error "  - The bucket is in region '$TF_STATE_REGION'"
         return 1
     fi
     
     log_success "Terraform initialized for $layer layer"
-    
-    # Restore placeholder to keep files clean in version control
-    restore_bucket_placeholder "$layer_dir"
+    return 0
 }
 
 terraform_validate() {
@@ -640,30 +648,20 @@ terraform_validate() {
     
     log_info "Validating Terraform configuration for $layer layer..."
     
-    # Substitute bucket placeholder before validate
-    if ! substitute_bucket_placeholder "$layer_dir"; then
-        log_error "Failed to substitute bucket placeholder"
-        return 1
-    fi
-    
     cd "$layer_dir"
     
     if [[ "$DRY_RUN" == "true" ]]; then
         log_info "[DRY-RUN] Would validate Terraform configuration"
-        restore_bucket_placeholder "$layer_dir"
         return 0
     fi
     
     if ! terraform validate; then
         log_error "Terraform validation failed for $layer layer"
-        restore_bucket_placeholder "$layer_dir"
         return 1
     fi
     
     log_success "Terraform validation passed for $layer layer"
-    
-    # Restore placeholder
-    restore_bucket_placeholder "$layer_dir"
+    return 0
 }
 
 terraform_plan() {
@@ -673,15 +671,8 @@ terraform_plan() {
     
     log_info "Planning Terraform changes for $layer layer..."
     
-    # Substitute bucket placeholder before plan
-    if ! substitute_bucket_placeholder "$layer_dir"; then
-        log_error "Failed to substitute bucket placeholder"
-        return 1
-    fi
-    
     local var_args
     if ! var_args=$(get_terraform_var_args "$layer"); then
-        restore_bucket_placeholder "$layer_dir"
         return 1
     fi
     
@@ -705,16 +696,12 @@ terraform_plan() {
     
     if [[ "$DRY_RUN" == "true" ]]; then
         log_info "[DRY-RUN] Would run: $plan_cmd"
-        restore_bucket_placeholder "$layer_dir"
         return 0
     fi
     
     # Run terraform plan and capture exit code
     local plan_exitcode=0
     eval "$plan_cmd" || plan_exitcode=$?
-    
-    # Restore placeholder
-    restore_bucket_placeholder "$layer_dir"
     
     case $plan_exitcode in
         0)
@@ -758,12 +745,6 @@ terraform_apply() {
     
     log_info "Applying Terraform changes for $layer layer..."
     
-    # Substitute bucket placeholder before apply
-    if ! substitute_bucket_placeholder "$layer_dir"; then
-        log_error "Failed to substitute bucket placeholder"
-        return 1
-    fi
-    
     cd "$layer_dir"
     
     local apply_cmd
@@ -775,7 +756,6 @@ terraform_apply() {
         # Traditional apply with variables
         local var_args
         if ! var_args=$(get_terraform_var_args "$layer"); then
-            restore_bucket_placeholder "$layer_dir"
             return 1
         fi
         
@@ -797,13 +777,11 @@ terraform_apply() {
     
     if [[ "$DRY_RUN" == "true" ]]; then
         log_info "[DRY-RUN] Would run: $apply_cmd"
-        restore_bucket_placeholder "$layer_dir"
         return 0
     fi
     
     if ! eval "$apply_cmd"; then
         log_error "Terraform apply failed for $layer layer"
-        restore_bucket_placeholder "$layer_dir"
         # Clean up plan file on error
         if [[ -n "$plan_file" && -f "$plan_file" ]]; then
             rm -f "$plan_file"
@@ -819,8 +797,7 @@ terraform_apply() {
         log_debug "Removed plan file: $plan_file"
     fi
     
-    # Restore placeholder
-    restore_bucket_placeholder "$layer_dir"
+    return 0
 }
 
 terraform_destroy() {
@@ -829,15 +806,8 @@ terraform_destroy() {
     
     log_info "Destroying Terraform resources for $layer layer..."
     
-    # Substitute bucket placeholder before destroy
-    if ! substitute_bucket_placeholder "$layer_dir"; then
-        log_error "Failed to substitute bucket placeholder"
-        return 1
-    fi
-    
     local var_args
     if ! var_args=$(get_terraform_var_args "$layer"); then
-        restore_bucket_placeholder "$layer_dir"
         return 1
     fi
     
@@ -860,20 +830,16 @@ terraform_destroy() {
     
     if [[ "$DRY_RUN" == "true" ]]; then
         log_info "[DRY-RUN] Would run: $destroy_cmd"
-        restore_bucket_placeholder "$layer_dir"
         return 0
     fi
     
     if ! eval "$destroy_cmd"; then
         log_error "Terraform destroy failed for $layer layer"
-        restore_bucket_placeholder "$layer_dir"
         return 1
     fi
     
     log_success "Terraform destroy completed for $layer layer"
-    
-    # Restore placeholder
-    restore_bucket_placeholder "$layer_dir"
+    return 0
 }
 
 terraform_output() {
@@ -881,8 +847,23 @@ terraform_output() {
     local layer_dir="$2"
     local output_name="${3:-}"
     
-    cd "$layer_dir"
+    # Ensure we're in the correct directory
+    if ! cd "$layer_dir" 2>/dev/null; then
+        log_debug "terraform_output: Cannot access directory $layer_dir"
+        echo ""
+        return 1
+    fi
     
+    # Ensure terraform is initialized with backend config (silently)
+    if ! terraform init -backend=true -upgrade=false \
+        -backend-config="bucket=$TF_STATE_BUCKET" \
+        -backend-config="region=$TF_STATE_REGION" &>/dev/null; then
+        log_debug "terraform_output: Terraform not initialized in $layer_dir"
+        echo ""
+        return 1
+    fi
+    
+    # Get the output
     if [[ -n "$output_name" ]]; then
         terraform output -raw "$output_name" 2>/dev/null || echo ""
     else
@@ -954,21 +935,21 @@ get_layer_status() {
         return 0
     fi
     
-    # Substitute bucket placeholder before checking state
-    substitute_bucket_placeholder "$layer_dir" &>/dev/null
-    
     cd "$layer_dir"
     
     # Check if Terraform is initialized
     if [[ ! -d ".terraform" ]]; then
-        restore_bucket_placeholder "$layer_dir" &>/dev/null
         echo "not-initialized"
         return 0
     fi
     
+    # Ensure backend is configured (silently)
+    terraform init -backend=true -upgrade=false \
+        -backend-config="bucket=$TF_STATE_BUCKET" \
+        -backend-config="region=$TF_STATE_REGION" &>/dev/null
+    
     # Check if state exists
     if ! terraform show &>/dev/null; then
-        restore_bucket_placeholder "$layer_dir" &>/dev/null
         echo "no-state"
         return 0
     fi
@@ -976,9 +957,6 @@ get_layer_status() {
     # Check if there are any resources in state
     local resource_count
     resource_count=$(terraform state list 2>/dev/null | wc -l)
-    
-    # Restore placeholder
-    restore_bucket_placeholder "$layer_dir" &>/dev/null
     
     if [[ "$resource_count" -eq 0 ]]; then
         echo "empty-state"
@@ -1449,7 +1427,10 @@ deploy_layer() {
         0)
             log_success "$layer layer is up to date"
             # Still run post-deployment validation to ensure k8s resources are deployed
-            validate_layer_deployment "$layer" "$layer_dir"
+            if ! validate_layer_deployment "$layer" "$layer_dir"; then
+                log_error "Post-deployment validation failed for $layer layer"
+                return 1
+            fi
             return 0
             ;;
         1)
@@ -1481,7 +1462,11 @@ deploy_layer() {
     fi
     
     # Post-deployment validation
-    validate_layer_deployment "$layer" "$layer_dir"
+    if ! validate_layer_deployment "$layer" "$layer_dir"; then
+        log_error "Post-deployment validation failed for $layer layer"
+        log_error "Infrastructure was deployed but validation checks failed"
+        return 1
+    fi
     
     log_success "$layer layer deployment completed"
     return 0
@@ -1515,12 +1500,64 @@ validate_base_layer_deployment() {
     local cluster_name
     cluster_name=$(terraform_output "base" "$layer_dir" "cluster_name")
     
-    if [[ -n "$cluster_name" ]]; then
-        log_info "EKS cluster: $cluster_name"
-        
-        # Configure kubectl with cluster name as alias
-        configure_kubectl_alias "$cluster_name" "$AWS_REGION" "$cluster_name"
+    if [[ -z "$cluster_name" ]]; then
+        log_error "Could not determine cluster name from base layer outputs"
+        log_error "This usually means:"
+        log_error "  - Terraform state is not properly initialized"
+        log_error "  - The cluster was not actually created"
+        log_error "  - Output 'cluster_name' is missing from base/outputs.tf"
+        log_error ""
+        log_error "Try running: cd base && terraform init && terraform output cluster_name"
+        return 1
     fi
+    
+    log_info "EKS cluster: $cluster_name"
+    
+    # Wait for cluster to be ACTIVE
+    log_info "Waiting for EKS cluster to be active..."
+    local max_wait=300  # 5 minutes
+    local elapsed=0
+    local interval=10
+    
+    while [[ $elapsed -lt $max_wait ]]; do
+        local cluster_status=$(aws eks describe-cluster --name "$cluster_name" --region "$AWS_REGION" --query 'cluster.status' --output text 2>/dev/null || echo "UNKNOWN")
+        
+        if [[ "$cluster_status" == "ACTIVE" ]]; then
+            log_success "EKS cluster is active"
+            break
+        elif [[ "$cluster_status" == "CREATING" || "$cluster_status" == "UPDATING" ]]; then
+            log_debug "Cluster status: $cluster_status (waiting...)"
+            sleep $interval
+            elapsed=$((elapsed + interval))
+        else
+            log_error "Unexpected cluster status: $cluster_status"
+            return 1
+        fi
+    done
+    
+    if [[ $elapsed -ge $max_wait ]]; then
+        log_error "Timeout waiting for cluster to become active"
+        return 1
+    fi
+    
+    # Configure kubectl with cluster name as alias
+    log_info "Configuring kubectl access..."
+    if ! configure_kubectl_alias "$cluster_name" "$AWS_REGION" "$cluster_name"; then
+        log_error "Failed to configure kubectl for cluster $cluster_name"
+        log_error "Middleware and application layers require kubectl access"
+        return 1
+    fi
+    
+    # Verify kubectl can actually communicate with the cluster
+    log_info "Verifying cluster connectivity..."
+    if ! kubectl cluster-info &>/dev/null; then
+        log_error "kubectl is configured but cannot communicate with cluster"
+        log_error "This may indicate network connectivity issues"
+        return 1
+    fi
+    
+    log_success "Cluster is ready and kubectl is configured"
+    return 0
 }
 
 deploy_cluster_autoscaler() {
