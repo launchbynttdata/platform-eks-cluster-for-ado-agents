@@ -1,13 +1,15 @@
-# Testing Guide for Deploy Script
+# Testing Guide for Terragrunt-Based Deploy Script
 
-This document describes the testing strategy and tools for the infrastructure deployment automation.
+This document describes the testing strategy and tools for the Terragrunt-based infrastructure deployment automation.
 
 ## Overview
 
-The `deploy.sh` script is now supported by two types of automated testing:
+The `deploy.sh` script (Terragrunt-based) is supported by two types of automated testing:
 
 1. **Static Analysis** - ShellCheck catches common shell scripting bugs
 2. **Unit Testing** - BATS provides automated test coverage for functions
+
+> **Note**: The legacy Terraform-based script has been moved to `docs/deploy-legacy.sh` for reference.
 
 ## Quick Start
 
@@ -19,8 +21,9 @@ make test
 ```
 
 This will:
-- ✅ Run ShellCheck static analysis
+- ✅ Run ShellCheck static analysis on deploy.sh
 - ✅ Run BATS unit tests
+- ✅ Run Checkov security scan on Terraform configurations
 - ✅ Report any failures with details
 
 ### Run Individual Test Suites
@@ -31,6 +34,9 @@ make shellcheck
 
 # Unit tests only
 make bats-test
+
+# Security scan only
+make checkov
 ```
 
 ## Static Analysis with ShellCheck
@@ -45,39 +51,13 @@ ShellCheck is an industry-standard static analysis tool for shell scripts. It ca
 
 ### Current ShellCheck Status
 
-The deploy.sh script passes ShellCheck with some acknowledged warnings:
+The Terragrunt-based deploy.sh script follows shell best practices and should pass ShellCheck with minimal warnings.
 
-#### SC2155: Declare and assign separately
-```bash
-# Current pattern:
-local cluster_name=$(detect_cluster_name_from_tf)
-
-# Recommended pattern:
-local cluster_name
-cluster_name=$(detect_cluster_name_from_tf) || return 1
-```
-
-**Status**: Acknowledged. This pattern is used for readability. Consider refactoring when adding comprehensive error handling.
-
-#### SC2162: read without -r
-```bash
-# Current:
-read -p "Enter value: " var
-
-# Recommended:
-read -rp "Enter value: " var
-```
-
-**Status**: Low priority. Only affects user prompts where backslash handling is not critical.
-
-#### SC2181: Check exit code directly
-```bash
-# Current:
-some_command
-if [[ $? -eq 0 ]]; then
-
-# Recommended:
-if some_command; then
+Common patterns used:
+- Proper quoting of variables
+- Using `[[` for conditionals
+- Setting `set -euo pipefail` for strict error handling
+- Using `local` for function-scoped variables
 ```
 
 **Status**: Team preference. Explicit `$?` checks are acceptable for readability.

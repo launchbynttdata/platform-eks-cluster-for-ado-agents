@@ -43,3 +43,16 @@ terraform.rc
 *.zip
 
 .envrc
+
+# Terragrunt cache directories
+.terragrunt-cache/
+*/.terragrunt-cache/
+
+# Terragrunt generated files
+**/backend_generated.tf
+**/provider_generated.tf
+**/k8s_provider_generated.tf
+
+# Environment-specific Terragrunt config (keep sample)
+infrastructure-layered/env.hcl
+!infrastructure-layered/env.sample.hcl

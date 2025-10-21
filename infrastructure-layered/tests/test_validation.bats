@@ -1,15 +1,16 @@
 #!/usr/bin/env bats
-# Integration tests for deploy.sh validation functions
+# Integration tests for deploy.sh validation functions (Terragrunt-based)
 #
-# These tests verify the validation logic that checks deployment prerequisites
+# These tests verify the validation logic for the Terragrunt-based deploy.sh
 # Run with: bats tests/test_validation.bats
 
 setup() {
     export TF_STATE_BUCKET="test-bucket"
     export TF_STATE_REGION="us-west-2"
     export AWS_REGION="us-west-2"
-    export LOG_LEVEL="ERROR"
-    export DRY_RUN="true"  # Use dry-run mode for validation tests
+    export AUTO_APPROVE="false"
+    export DRY_RUN="true"
+    export VERBOSE="false"
     
     SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
     TEST_DEPLOY_SH="${BATS_TMPDIR}/deploy.sh"
@@ -21,42 +22,48 @@ teardown() {
     rm -f "${BATS_TMPDIR}/deploy.sh"
 }
 
-# Test: validate_layer_directory function
-@test "validate_layer_directory: fails when directory doesn't exist" {
-    run validate_layer_directory "/nonexistent/directory"
-    [ "$status" -ne 0 ]
+# Test: Layer directory structure
+@test "base layer directory exists" {
+    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+    [ -d "${SCRIPT_DIR}/base" ]
 }
 
-@test "validate_layer_directory: fails when main.tf missing" {
-    local test_dir="${BATS_TMPDIR}/test_layer_no_main"
-    mkdir -p "$test_dir"
-    run validate_layer_directory "$test_dir"
-    [ "$status" -ne 0 ]
-    rm -rf "$test_dir"
+@test "middleware layer directory exists" {
+    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+    [ -d "${SCRIPT_DIR}/middleware" ]
 }
 
-@test "validate_layer_directory: succeeds with valid layer directory" {
-    local test_dir="${BATS_TMPDIR}/test_layer_valid"
-    mkdir -p "$test_dir"
-    echo 'terraform {}' > "$test_dir/main.tf"
-    echo 'variable "test" {}' > "$test_dir/variables.tf"
-    echo 'output "test" { value = "test" }' > "$test_dir/outputs.tf"
-    
-    run validate_layer_directory "test" "$test_dir"
-    [ "$status" -eq 0 ]
-    
-    rm -rf "$test_dir"
+@test "application layer directory exists" {
+    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+    [ -d "${SCRIPT_DIR}/application" ]
 }
 
-# Test: validate_layer_dependencies function
-@test "validate_layer_dependencies: base layer has no dependencies" {
-    # Base layer should always pass dependency check
-    run validate_layer_dependencies "base"
-    [ "$status" -eq 0 ]
+@test "base layer has terragrunt.hcl" {
+    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+    [ -f "${SCRIPT_DIR}/base/terragrunt.hcl" ]
 }
 
-@test "validate_layer_dependencies: config requires all other layers" {
-    # Config layer requires base, middleware, and application
-    # This test would need mocking of get_layer_status
-    skip "Requires mocking of terraform state checks"
+@test "middleware layer has terragrunt.hcl" {
+    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+    [ -f "${SCRIPT_DIR}/middleware/terragrunt.hcl" ]
+}
+
+@test "application layer has terragrunt.hcl" {
+    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+    [ -f "${SCRIPT_DIR}/application/terragrunt.hcl" ]
+}
+
+@test "root terragrunt.hcl exists" {
+    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+    [ -f "${SCRIPT_DIR}/terragrunt.hcl" ]
+}
+
+@test "env.hcl configuration exists" {
+    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+    [ -f "${SCRIPT_DIR}/env.hcl" ]
+}
+
+@test "common.hcl configuration exists" {
+    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+    [ -f "${SCRIPT_DIR}/common.hcl" ]
 }
