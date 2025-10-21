@@ -24,19 +24,20 @@ terraform {
       version = "~> 2.10"
     }
   }
-  
-  # Remote state configuration - S3 backend with native state locking
+
+  # Remote state configuration - S3 backend with partial configuration
   # Note: Terraform 1.10+ supports native S3 state locking without DynamoDB
-  # The bucket name and region will be substituted by the deployment script from env vars
+  # Bucket and region are provided via -backend-config flags in deploy.sh
+  # See: https://developer.hashicorp.com/terraform/language/backend#partial-configuration
   backend "s3" {
-    bucket = "TF_STATE_BUCKET_PLACEHOLDER"
+    bucket = "" # Provided via: -backend-config="bucket=$TF_STATE_BUCKET"
     key    = "application/terraform.tfstate"
-    region = "TF_STATE_REGION_PLACEHOLDER"
-    
+    region = "" # Provided via: -backend-config="region=$TF_STATE_REGION"
+
     # Enable native S3 state locking (Terraform 1.10+)
     # No DynamoDB table required
-    encrypt        = true
-    use_lockfile   = true
+    encrypt      = true
+    use_lockfile = true
   }
 }
 
@@ -45,7 +46,7 @@ terraform {
 provider "aws" {
   region = coalesce(
     try(var.aws_region, null),
-    "us-west-2"  # Explicit fallback
+    "us-west-2" # Explicit fallback
   )
 }
 
@@ -53,7 +54,7 @@ provider "aws" {
 provider "kubernetes" {
   host                   = data.terraform_remote_state.base.outputs.cluster_endpoint
   cluster_ca_certificate = base64decode(data.terraform_remote_state.base.outputs.cluster_certificate_authority_data)
-  
+
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
     command     = "aws"
@@ -66,7 +67,7 @@ provider "helm" {
   kubernetes {
     host                   = data.terraform_remote_state.base.outputs.cluster_endpoint
     cluster_ca_certificate = base64decode(data.terraform_remote_state.base.outputs.cluster_certificate_authority_data)
-    
+
     exec {
       api_version = "client.authentication.k8s.io/v1beta1"
       command     = "aws"
@@ -101,7 +102,7 @@ module "ecr" {
   create_iam_policies    = true
   attach_pull_to_fargate = true
   fargate_role_name      = data.terraform_remote_state.base.outputs.fargate_role_name
-  attach_bastion_policy  = false  # No bastion in this architecture
+  attach_bastion_policy  = false # No bastion in this architecture
   bastion_role_name      = ""
 
   tags = local.common_tags
@@ -109,6 +110,7 @@ module "ecr" {
 
 # AWS Secrets Manager secret for ADO PAT
 resource "aws_secretsmanager_secret" "ado_pat" {
+  # checkov:skip=CKV2_AWS_57:ADO Personal Access Token rotation is managed externally in Azure DevOps, not through AWS Secrets Manager rotation
   name                    = var.ado_pat_secret_name
   description             = "Personal Access Token for Azure DevOps integration"
   recovery_window_in_days = var.secret_recovery_days
@@ -117,9 +119,9 @@ resource "aws_secretsmanager_secret" "ado_pat" {
   tags = merge(
     local.common_tags,
     {
-      Purpose     = "ADO-Integration"
-      ManagedBy   = "terraform"
-      SecretType  = "ado-pat"
+      Purpose    = "ADO-Integration"
+      ManagedBy  = "terraform"
+      SecretType = "ado-pat"
     }
   )
 }
@@ -129,7 +131,7 @@ resource "aws_secretsmanager_secret_version" "ado_pat" {
   secret_string = jsonencode({
     personalAccessToken = var.ado_pat_value
     organization        = var.ado_org
-    adourl             = var.ado_url
+    adourl              = var.ado_url
   })
 
   lifecycle {
@@ -241,39 +243,39 @@ locals {
         for pool_name, pool_config in local.agent_pools_with_region : pool_name => {
           enabled = pool_config.enabled
           name    = pool_name
-          
+
           ado = {
             poolName   = pool_config.ado_pool_name
             secretName = data.terraform_remote_state.middleware.outputs.ado_secret_name
           }
-          
+
           image = {
             repository = length(var.ecr_repositories) > 0 ? module.ecr[0].repository_urls[pool_config.ecr_repository_key] : pool_config.image_repository
             tag        = pool_config.image_tag
             pullPolicy = pool_config.image_pull_policy
           }
-          
+
           serviceAccount = {
             name    = pool_config.service_account_name
             roleArn = aws_iam_role.ado_agent_execution_roles[pool_name].arn
           }
-          
+
           resources = pool_config.resources
-          
+
           autoscaling = {
-            enabled                     = pool_config.autoscaling.enabled
+            enabled                    = pool_config.autoscaling.enabled
             minReplicas                = pool_config.autoscaling.min_replicas
             maxReplicas                = pool_config.autoscaling.max_replicas
             targetPipelinesQueueLength = pool_config.autoscaling.target_queue_length
           }
-          
-          tolerations   = pool_config.tolerations
-          nodeSelector  = pool_config.node_selector
-          affinity      = pool_config.affinity
-          
+
+          tolerations  = pool_config.tolerations
+          nodeSelector = pool_config.node_selector
+          affinity     = pool_config.affinity
+
           # Additional environment variables
           env = pool_config.additional_env_vars
-          
+
           # Volume mounts and volumes
           volumeMounts = pool_config.volume_mounts
           volumes      = pool_config.volumes
@@ -282,8 +284,8 @@ locals {
     )
 
     externalSecrets = {
-      enabled                  = true
-      clusterSecretStoreName  = data.terraform_remote_state.middleware.outputs.cluster_secret_store_name
+      enabled                = true
+      clusterSecretStoreName = data.terraform_remote_state.middleware.outputs.cluster_secret_store_name
       secrets = {
         ado-pat = {
           aws = {
@@ -292,13 +294,13 @@ locals {
           }
           k8s = {
             secretName      = data.terraform_remote_state.middleware.outputs.ado_secret_name
-            type           = "Opaque"
+            type            = "Opaque"
             refreshInterval = var.secret_refresh_interval
           }
           data = {
             personalAccessToken = "personalAccessToken"
             organization        = "organization"
-            adourl             = "adourl"
+            adourl              = "adourl"
           }
         }
       }
@@ -343,15 +345,15 @@ resource "helm_release" "ado_agents" {
   timeout       = 600
 
   # Enable atomic operations for safe upgrades
-  atomic                = true
-  cleanup_on_fail      = true
-  disable_crd_hooks    = false
-  disable_webhooks     = false
-  force_update         = false
-  recreate_pods        = false
-  reset_values         = false
-  reuse_values         = false
-  skip_crds            = false
+  atomic            = true
+  cleanup_on_fail   = true
+  disable_crd_hooks = false
+  disable_webhooks  = false
+  force_update      = false
+  recreate_pods     = false
+  reset_values      = false
+  reuse_values      = false
+  skip_crds         = false
 
   # Set resource limits for Helm operations
   max_history = 10

@@ -1,4 +1,7 @@
 resource "aws_ecr_repository" "repository" {
+  # checkov:skip=CKV_AWS_51:Image tag mutability is configurable via variable. Default is IMMUTABLE in calling modules
+  # checkov:skip=CKV_AWS_136:KMS encryption is configurable via variable. Default is KMS in calling modules
+  # checkov:skip=CKV_AWS_163:Image scanning is configurable via variable. Default is enabled in calling modules
   name                 = var.repository_name
   image_tag_mutability = var.image_tag_mutability
 

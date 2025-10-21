@@ -1,0 +1,23 @@
+# ShellCheck configuration for deploy.sh
+#
+# This file configures ShellCheck static analysis for our deployment script.
+# See: https://www.shellcheck.net/wiki/
+
+# Enable all optional checks for maximum code quality
+enable=all
+
+# Disable only truly unavoidable checks:
+
+# SC2310: Function invoked in condition - set -e disabled
+# This is intentional - we need granular error control in conditionals
+disable=SC2310
+
+# SC2312: Consider invoking command separately to avoid masking return value
+# Command substitutions with pipes are intentional and widely used pattern
+disable=SC2312
+
+# SC2249: Consider adding default case
+# Not all case statements need a default - some explicitly handle all cases
+disable=SC2249
+
+# All other checks enabled - we'll fix the code to be squeaky clean!

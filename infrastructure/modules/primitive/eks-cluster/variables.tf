@@ -38,9 +38,13 @@ variable "additional_security_group_ids" {
 }
 
 variable "kms_key_arn" {
-  description = "ARN of the KMS key for encryption"
+  description = "ARN of the KMS key for cluster secrets encryption (required)"
   type        = string
-  default     = null
+
+  validation {
+    condition     = var.kms_key_arn != null && can(regex("^arn:aws:kms:", var.kms_key_arn))
+    error_message = "kms_key_arn is required and must be a valid KMS key ARN."
+  }
 }
 
 variable "enabled_cluster_log_types" {

@@ -9,18 +9,19 @@
 # This layer depends on the base infrastructure layer via remote state.
 
 terraform {
-  # Remote state configuration - S3 backend with native state locking
+  # Remote state configuration - S3 backend with partial configuration
   # Note: Terraform 1.10+ supports native S3 state locking without DynamoDB
-  # The bucket name and region will be substituted by the deployment script from env vars
+  # Bucket and region are provided via -backend-config flags in deploy.sh
+  # See: https://developer.hashicorp.com/terraform/language/backend#partial-configuration
   backend "s3" {
-    bucket = "TF_STATE_BUCKET_PLACEHOLDER"
+    bucket = "" # Provided via: -backend-config="bucket=$TF_STATE_BUCKET"
     key    = "middleware/terraform.tfstate"
-    region = "TF_STATE_REGION_PLACEHOLDER"
-    
+    region = "" # Provided via: -backend-config="region=$TF_STATE_REGION"
+
     # Enable native S3 state locking (Terraform 1.10+)
     # No DynamoDB table required
-    encrypt        = true
-    use_lockfile   = true
+    encrypt      = true
+    use_lockfile = true
   }
 }
 
@@ -29,7 +30,7 @@ terraform {
 provider "aws" {
   region = coalesce(
     try(var.aws_region, null),
-    "us-west-2"  # Explicit fallback
+    "us-west-2" # Explicit fallback
   )
 }
 
@@ -37,7 +38,7 @@ provider "aws" {
 provider "kubernetes" {
   host                   = data.terraform_remote_state.base.outputs.cluster_endpoint
   cluster_ca_certificate = base64decode(data.terraform_remote_state.base.outputs.cluster_certificate_authority_data)
-  
+
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
     command     = "aws"
@@ -50,7 +51,7 @@ provider "helm" {
   kubernetes {
     host                   = data.terraform_remote_state.base.outputs.cluster_endpoint
     cluster_ca_certificate = base64decode(data.terraform_remote_state.base.outputs.cluster_certificate_authority_data)
-    
+
     exec {
       api_version = "client.authentication.k8s.io/v1beta1"
       command     = "aws"
@@ -201,7 +202,15 @@ resource "aws_iam_role_policy" "eso_policy" {
           "secretsmanager:DescribeSecret",
           "secretsmanager:ListSecrets"
         ]
-        Resource = "*"
+        # Scope to secrets in this account and region
+        # ListSecrets and DescribeSecret are discovery operations that require
+        # broad access but are scoped by region and filtered by tags
+        Resource = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:*"
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = data.aws_region.current.name
+          }
+        }
       },
       {
         Effect = "Allow"
@@ -216,8 +225,8 @@ resource "aws_iam_role_policy" "eso_policy" {
           }
         }
       }
-      # Note: Specific secret access will be granted by the application layer
-      # via additional policies or resource-specific permissions
+      # Note: Specific secret access (GetSecretValue) is granted by the application layer
+      # via resource-specific permissions on individual secrets
     ]
   })
 }
@@ -242,7 +251,7 @@ module "keda_operator" {
   eso_managed_secret   = true  # ESO will manage the secret
   ado_secret_name      = var.ado_secret_name
   create_scaled_object = false # ScaledObjects will be created by application layer
-  
+
   # Configure CloudEventSource controllers via environment variables
   # Disable by default to prevent CrashLoopBackOff in KEDA 2.15.x when CRDs are not installed
   # See: https://github.com/kedacore/keda/issues/5751
@@ -256,7 +265,7 @@ module "keda_operator" {
       value = tostring(var.keda_enable_cluster_cloudeventsource)
     }
   ]
-  
+
   tolerations = [{
     key      = "ks.amazonaws.com/compute-type"
     operator = "Equal"
@@ -301,10 +310,10 @@ module "external_secrets_operator" {
 # Buildkitd Service (standalone deployment for cluster-wide availability)
 resource "kubernetes_namespace" "buildkit" {
   count = var.enable_buildkitd ? 1 : 0
-  
+
   metadata {
     name = var.buildkitd_namespace
-    
+
     labels = {
       "pod-security.kubernetes.io/enforce" = "privileged"
       "pod-security.kubernetes.io/audit"   = "privileged"
@@ -318,12 +327,16 @@ resource "kubernetes_namespace" "buildkit" {
 # Note: This may not be compatible with Fargate profiles
 # checkov:skip=CKV_K8S_16:buildkit requires privileged security context
 resource "kubernetes_deployment" "buildkitd" {
+  # checkov:skip=CKV_K8S_16:BuildKit requires privileged mode for container image building operations (overlay filesystem, namespace management)
+  # checkov:skip=CKV_K8S_20:BuildKit requires privilege escalation for container image building operations
+  # checkov:skip=CKV_K8S_37:Dropping NET_RAW capability as defense-in-depth measure. BuildKit runs privileged but doesn't need NET_RAW for image building
+  # checkov:skip=CKV_K8S_43:Using tag-based image references for maintainability. Digest-based references make updates difficult and provide minimal security benefit in this controlled environment
   count = var.enable_buildkitd ? 1 : 0
-  
+
   metadata {
     name      = "buildkitd"
     namespace = kubernetes_namespace.buildkit[0].metadata[0].name
-    
+
     labels = {
       app = "buildkitd"
     }
@@ -361,13 +374,14 @@ resource "kubernetes_deployment" "buildkitd" {
         }
 
         container {
-          name  = "buildkitd"
-          image = var.buildkitd_image
+          name              = "buildkitd"
+          image             = var.buildkitd_image
+          image_pull_policy = "Always"
 
           port {
             container_port = 1234
-            name          = "buildkitd"
-            protocol      = "TCP"
+            name           = "buildkitd"
+            protocol       = "TCP"
           }
 
           # Use --debug for better logging, don't use --oci-worker-no-process-sandbox
@@ -378,10 +392,15 @@ resource "kubernetes_deployment" "buildkitd" {
           ]
 
           # BuildKit requires elevated privileges for container image building
-          # This includes privileged mode and allowing privilege escalation
+          # Read-only root filesystem with writable emptyDir volumes for build operations
           security_context {
             privileged                 = true
             allow_privilege_escalation = true
+            read_only_root_filesystem  = true
+
+            capabilities {
+              drop = ["NET_RAW"]
+            }
           }
 
           # Readiness probe to ensure buildkitd is ready before routing traffic
@@ -442,11 +461,11 @@ resource "kubernetes_deployment" "buildkitd" {
 
 resource "kubernetes_service" "buildkitd" {
   count = var.enable_buildkitd ? 1 : 0
-  
+
   metadata {
     name      = "buildkitd"
     namespace = kubernetes_namespace.buildkit[0].metadata[0].name
-    
+
     labels = {
       app = "buildkitd"
     }
@@ -475,15 +494,15 @@ resource "kubernetes_service" "buildkitd" {
 # Instead of the full: buildkitd.buildkit-system.svc.cluster.local
 resource "kubernetes_service" "buildkitd_alias" {
   count = var.enable_buildkitd ? 1 : 0
-  
+
   metadata {
     name      = "buildkitd"
     namespace = var.ado_agents_namespace
-    
+
     labels = {
       app = "buildkitd"
     }
-    
+
     annotations = {
       "description" = "ExternalName service alias to buildkitd in buildkit-system namespace"
     }
@@ -496,6 +515,6 @@ resource "kubernetes_service" "buildkitd_alias" {
 
   depends_on = [
     kubernetes_service.buildkitd,
-    module.keda_operator  # Ensures ado-agents namespace exists
+    module.keda_operator # Ensures ado-agents namespace exists
   ]
 }

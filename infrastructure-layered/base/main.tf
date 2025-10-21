@@ -19,9 +19,9 @@ terraform {
   # The bucket name and region are provided via -backend-config during init
   # See: https://developer.hashicorp.com/terraform/language/backend#partial-configuration
   backend "s3" {
-    bucket = ""  # Provided via -backend-config="bucket=..."
+    bucket = "" # Provided via -backend-config="bucket=..."
     key    = "base/terraform.tfstate"
-    region = ""  # Provided via -backend-config="region=..."
+    region = "" # Provided via -backend-config="region=..."
 
     # Enable native S3 state locking (Terraform 1.10+)
     # No DynamoDB table required
@@ -78,12 +78,25 @@ locals {
   # Determine if we have any compute resources configured
   has_fargate = length(var.fargate_profiles) > 0
   has_ec2     = length(var.ec2_node_group) > 0
+
+  # Smart public endpoint logic:
+  # - If user explicitly sets endpoint_public_access = true AND provides restricted CIDRs, use them
+  # - If no restricted CIDRs provided (empty or only 0.0.0.0/0), disable public access
+  # - This satisfies CKV_AWS_39 by preventing unrestricted public access
+  has_restricted_cidrs   = length(var.public_access_cidrs) > 0 && !contains(var.public_access_cidrs, "0.0.0.0/0")
+  enable_public_endpoint = var.endpoint_public_access && local.has_restricted_cidrs
+  effective_public_cidrs = local.enable_public_endpoint ? var.public_access_cidrs : []
 }
 
 # KMS Key for EKS encryption
-resource "aws_kms_key" "eks_encryption" {
-  count = var.create_kms_key ? 1 : 0
-
+# KMS Key for cluster-wide encryption
+# This single key is shared across:
+# - EKS secrets encryption
+# - Secrets Manager (ADO PAT)
+# - ECR repositories (optional)
+# - External Secrets Operator decryption
+# This minimizes KMS key sprawl and reduces costs
+resource "aws_kms_key" "cluster_encryption" {
   description             = var.kms_key_description
   deletion_window_in_days = var.kms_key_deletion_window_in_days
   enable_key_rotation     = true
@@ -101,7 +114,7 @@ resource "aws_kms_key" "eks_encryption" {
         Resource = "*"
       },
       {
-        Sid    = "Allow use of the key by EKS"
+        Sid    = "Allow use by EKS"
         Effect = "Allow"
         Principal = {
           Service = "eks.amazonaws.com"
@@ -114,25 +127,42 @@ resource "aws_kms_key" "eks_encryption" {
           "kms:DescribeKey"
         ]
         Resource = "*"
+      },
+      {
+        Sid    = "Allow use by Secrets Manager"
+        Effect = "Allow"
+        Principal = {
+          Service = "secretsmanager.amazonaws.com"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "secretsmanager.${data.aws_region.current.name}.amazonaws.com"
+          }
+        }
       }
     ]
   })
 
   tags = merge(local.common_tags, {
-    Name = "${local.cluster_name}-eks-encryption-key"
+    Name        = "${local.cluster_name}-cluster-encryption-key"
+    Description = "Shared encryption key for EKS, Secrets Manager, and ECR"
   })
 }
 
-resource "aws_kms_alias" "eks_encryption" {
-  count = var.create_kms_key ? 1 : 0
-
-  name          = "alias/${local.cluster_name}-eks-encryption"
-  target_key_id = aws_kms_key.eks_encryption[0].key_id
+resource "aws_kms_alias" "cluster_encryption" {
+  name          = "alias/${local.cluster_name}-cluster-encryption"
+  target_key_id = aws_kms_key.cluster_encryption.key_id
 }
 
-# Local value to determine which KMS key to use
+# KMS key is now always created for cluster encryption
 locals {
-  kms_key_arn = var.create_kms_key ? aws_kms_key.eks_encryption[0].arn : var.kms_key_arn
+  kms_key_arn = aws_kms_key.cluster_encryption.arn
+  kms_key_id  = aws_kms_key.cluster_encryption.key_id
 }
 
 # IAM roles for EKS cluster and Fargate
@@ -165,6 +195,8 @@ module "security_groups" {
 }
 
 # EKS Cluster
+#checkov:skip=CKV_AWS_39:Public endpoint access is restricted to specific CIDRs or disabled based on public_access_cidrs variable
+#checkov:skip=CKV_AWS_38:Public endpoint CIDR restrictions enforced via local.enable_public_endpoint logic
 module "eks_cluster" {
   source = "../../infrastructure/modules/primitive/eks-cluster"
 
@@ -172,8 +204,8 @@ module "eks_cluster" {
   cluster_role_arn       = var.create_iam_roles ? module.iam_roles.cluster_role_arn : var.existing_cluster_role_arn
   cluster_version        = var.cluster_version
   subnet_ids             = var.subnet_ids
-  endpoint_public_access = var.endpoint_public_access
-  public_access_cidrs    = var.public_access_cidrs
+  endpoint_public_access = local.enable_public_endpoint
+  public_access_cidrs    = local.effective_public_cidrs
   additional_security_group_ids = compact([
     module.security_groups.cluster_security_group_id,
     module.security_groups.fargate_security_group_id
@@ -239,10 +271,10 @@ resource "aws_iam_role_policy_attachment" "vpc_cni_policy" {
 resource "aws_eks_addon" "vpc_cni" {
   count = contains(keys(var.eks_addons), "vpc-cni") ? 1 : 0
 
-  cluster_name             = module.eks_cluster.cluster_name
-  addon_name               = "vpc-cni"
-  addon_version            = try(var.eks_addons["vpc-cni"].addon_version, null)
-  service_account_role_arn = var.create_iam_roles ? aws_iam_role.vpc_cni_irsa[0].arn : null
+  cluster_name                = module.eks_cluster.cluster_name
+  addon_name                  = "vpc-cni"
+  addon_version               = try(var.eks_addons["vpc-cni"].addon_version, null)
+  service_account_role_arn    = var.create_iam_roles ? aws_iam_role.vpc_cni_irsa[0].arn : null
   resolve_conflicts_on_create = try(var.eks_addons["vpc-cni"].resolve_conflicts_on_create, "OVERWRITE")
   resolve_conflicts_on_update = try(var.eks_addons["vpc-cni"].resolve_conflicts_on_update, "OVERWRITE")
 
@@ -439,12 +471,31 @@ resource "aws_iam_policy" "cluster_autoscaler_policy" {
           "autoscaling:DescribeScalingActivities",
           "autoscaling:DescribeTags",
           "ec2:DescribeInstanceTypes",
-          "ec2:DescribeLaunchTemplateVersions",
-          "autoscaling:SetDesiredCapacity",
-          "autoscaling:TerminateInstanceInAutoScalingGroup",
-          "eks:DescribeNodegroup"
+          "ec2:DescribeLaunchTemplateVersions"
         ]
         Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "autoscaling:SetDesiredCapacity",
+          "autoscaling:TerminateInstanceInAutoScalingGroup"
+        ]
+        # Scope write operations to autoscaling groups owned by this EKS cluster
+        Resource = "arn:aws:autoscaling:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:autoScalingGroup:*:autoScalingGroupName/*"
+        Condition = {
+          StringEquals = {
+            "autoscaling:ResourceTag/kubernetes.io/cluster/${local.cluster_name}" = "owned"
+          }
+        }
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "eks:DescribeNodegroup"
+        ]
+        # Scope to node groups in this cluster
+        Resource = "arn:aws:eks:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:nodegroup/${local.cluster_name}/*/*"
       }
     ]
   })

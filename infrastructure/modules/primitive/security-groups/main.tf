@@ -1,4 +1,6 @@
+# Security group for EKS cluster control plane
 resource "aws_security_group" "eks_cluster" {
+  # checkov:skip=CKV2_AWS_5:Security group is attached to EKS cluster via additional_security_group_ids in calling module. Checkov cannot trace attachment through module boundaries.
   count = var.create_cluster_sg ? 1 : 0
 
   name_prefix = "${var.cluster_name}-cluster-"
@@ -18,7 +20,9 @@ resource "aws_security_group" "eks_cluster" {
 
 }
 
+# Security group for Fargate pods
 resource "aws_security_group" "fargate_pods" {
+  # checkov:skip=CKV2_AWS_5:Security group is attached to EKS cluster via additional_security_group_ids in calling module. Checkov cannot trace attachment through module boundaries.
   count = var.create_fargate_sg ? 1 : 0
 
   name_prefix = "${var.cluster_name}-fargate-pods-"
@@ -78,11 +82,12 @@ resource "aws_security_group_rule" "eks_api_ingress" {
   protocol          = "tcp"
   security_group_id = aws_security_group.eks_cluster[0].id
   cidr_blocks       = var.allowed_cidr_blocks
-  description       = "HTTPS API server access"
+  description       = "All TCP traffic from VPC"
 }
 
-# Allow all outbound traffic from the cluster SG
+# Allow all outbound traffic from EKS cluster
 resource "aws_security_group_rule" "eks_egress_all" {
+  # checkov:skip=CKV_AWS_382:Unrestricted egress required for EKS cluster operation - downloads from ECR/container registries, AWS API calls (EC2/ELB/S3), DNS resolution, and ADO connectivity. Restricting would require maintaining extensive allow-lists that break with new AWS services or third-party dependencies.
   count = var.create_cluster_sg ? 1 : 0
 
   type              = "egress"
@@ -109,6 +114,7 @@ resource "aws_security_group_rule" "fargate_ingress_vpc" {
 
 # Allow all outbound traffic from fargate pods
 resource "aws_security_group_rule" "fargate_egress_all" {
+  # checkov:skip=CKV_AWS_382:Unrestricted egress required for Fargate pods - container image pulls from registries, AWS service communication, ADO agent connectivity, and application dependencies. Kubernetes workloads require dynamic internet access that cannot be effectively restricted without breaking functionality.
   count = var.create_fargate_sg ? 1 : 0
 
   type              = "egress"

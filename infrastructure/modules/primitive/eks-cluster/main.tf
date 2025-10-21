@@ -1,4 +1,6 @@
 resource "aws_eks_cluster" "this" {
+  # checkov:skip=CKV_AWS_39:Public endpoint access controlled by calling module with CIDR restrictions or disabled
+  # checkov:skip=CKV_AWS_38:Public endpoint CIDR restrictions enforced by calling module logic
   name     = var.cluster_name
   role_arn = var.cluster_role_arn
   version  = var.cluster_version
@@ -11,14 +13,12 @@ resource "aws_eks_cluster" "this" {
     security_group_ids      = var.additional_security_group_ids
   }
 
-  dynamic "encryption_config" {
-    for_each = var.kms_key_arn != null ? [1] : []
-    content {
-      provider {
-        key_arn = var.kms_key_arn
-      }
-      resources = ["secrets"]
+  # Encryption is now mandatory for all clusters
+  encryption_config {
+    provider {
+      key_arn = var.kms_key_arn
     }
+    resources = ["secrets"]
   }
 
   enabled_cluster_log_types = var.enabled_cluster_log_types

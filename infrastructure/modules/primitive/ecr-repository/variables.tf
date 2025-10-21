@@ -6,7 +6,7 @@ variable "repository_name" {
 variable "image_tag_mutability" {
   description = "The tag mutability setting for the repository"
   type        = string
-  default     = "MUTABLE"
+  default     = "IMMUTABLE"
   validation {
     condition     = contains(["MUTABLE", "IMMUTABLE"], var.image_tag_mutability)
     error_message = "Image tag mutability must be either MUTABLE or IMMUTABLE."
@@ -16,7 +16,7 @@ variable "image_tag_mutability" {
 variable "encryption_type" {
   description = "Encryption type for the repository (AES256 or KMS)"
   type        = string
-  default     = "AES256"
+  default     = "KMS"
   validation {
     condition     = contains(["AES256", "KMS"], var.encryption_type)
     error_message = "Encryption type must be either AES256 or KMS."

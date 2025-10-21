@@ -26,8 +26,8 @@ public_access_cidrs    = ["136.226.0.0/16"] # Restrict to your VPC CIDR
 create_iam_roles = true # Set to false if using existing roles
 
 # KMS Configuration
-create_kms_key                  = true
-kms_key_description             = "EKS Cluster encryption key for ado-agent-cluster"
+# Note: KMS key is always created and shared across EKS, Secrets Manager, and ECR
+kms_key_description             = "Shared encryption key for ado-agent-cluster (EKS, Secrets Manager, ECR)"
 kms_key_deletion_window_in_days = 7
 
 # Fargate Configuration

@@ -22,21 +22,51 @@ variable "cluster_name" {
 }
 
 variable "cluster_version" {
-  description = "Kubernetes version for the EKS cluster"
+  description = <<-EOT
+    Kubernetes version for the EKS cluster.
+    
+    AWS EKS supports the 4 most recent minor versions. As of late 2024/early 2025:
+    - 1.31 (supported until ~Nov 2025)
+    - 1.32 (supported until ~Jan 2026) 
+    - 1.33 (supported until ~Mar 2026)
+    - 1.34 (supported until ~May 2026)
+    
+    Versions older than 1.30 should be avoided as they're near or past EOL.
+    For latest support info: https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
+  EOT
   type        = string
   default     = "1.33"
+
+  validation {
+    condition     = can(regex("^1\\.(3[1-9]|[4-9][0-9])$", var.cluster_version))
+    error_message = <<-EOT
+      EKS cluster version must be 1.31 or higher.
+      Older versions are either unsupported or approaching end-of-life.
+      
+      Current AWS-supported versions (as of Oct 2024): 1.31, 1.32, 1.33, 1.34+
+      Check current support: https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
+    EOT
+  }
 }
 
 variable "endpoint_public_access" {
-  description = "Whether the Amazon EKS public API server endpoint is enabled"
+  description = "Whether the Amazon EKS public API server endpoint is enabled. When true, requires specific CIDRs in public_access_cidrs. Defaults to false (private-only access)."
   type        = bool
   default     = false
 }
 
 variable "public_access_cidrs" {
-  description = "List of CIDR blocks that can access the Amazon EKS public API server endpoint"
+  description = "List of CIDR blocks that can access the Amazon EKS public API server endpoint. If empty or contains 0.0.0.0/0, public access will be disabled regardless of endpoint_public_access setting."
   type        = list(string)
-  default     = ["0.0.0.0/0"]
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for cidr in var.public_access_cidrs :
+      can(cidrhost(cidr, 0))
+    ])
+    error_message = "All entries in public_access_cidrs must be valid CIDR blocks."
+  }
 }
 
 variable "enabled_cluster_log_types" {
@@ -86,22 +116,11 @@ variable "existing_fargate_role_arn" {
 }
 
 # Security Configuration
-variable "create_kms_key" {
-  description = "Whether to create a KMS key for EKS cluster encryption"
-  type        = bool
-  default     = true
-}
-
-variable "kms_key_arn" {
-  description = "ARN of existing KMS key for EKS cluster encryption (if create_kms_key is false)"
-  type        = string
-  default     = null
-}
-
+# KMS key is now always created for shared cluster encryption
 variable "kms_key_description" {
-  description = "Description for the KMS key"
+  description = "Description for the shared cluster KMS key (used for EKS, Secrets Manager, ECR)"
   type        = string
-  default     = "EKS Cluster encryption key"
+  default     = "Shared cluster encryption key for EKS, Secrets Manager, and ECR"
 }
 
 variable "kms_key_deletion_window_in_days" {

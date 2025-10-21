@@ -75,13 +75,13 @@ output "fargate_security_group_id" {
 
 # KMS Information
 output "kms_key_arn" {
-  description = "ARN of the KMS key used for EKS encryption"
+  description = "ARN of the shared KMS key used for cluster encryption (EKS, Secrets Manager, ECR)"
   value       = local.kms_key_arn
 }
 
 output "kms_key_id" {
-  description = "ID of the KMS key used for EKS encryption"
-  value       = var.create_kms_key ? aws_kms_key.eks_encryption[0].key_id : null
+  description = "ID of the shared KMS key used for cluster encryption"
+  value       = local.kms_key_id
 }
 
 # Networking Information
