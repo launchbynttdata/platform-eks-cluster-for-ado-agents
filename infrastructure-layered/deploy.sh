@@ -36,7 +36,8 @@
 #   --auto-approve         Skip interactive prompts (non-interactive mode)
 #   --dry-run             Show what would be done without making changes
 #   --region REGION       AWS region (overrides env.hcl)
-#   --update-ado-secret   Update ADO PAT in AWS Secrets Manager (config layer only)
+#   --update-ado-secret   Prompt for and inject ADO credentials before application layer
+#                         (prevents KEDA authentication errors on initial deployment)
 #   --help                Show this help message
 #   --verbose             Enable verbose output
 
@@ -118,7 +119,8 @@ Options:
   --auto-approve         Skip interactive prompts
   --dry-run             Show what would be done without making changes
   --region REGION       Override AWS region from env.hcl
-  --update-ado-secret   Update ADO PAT in AWS Secrets Manager (config layer only)
+  --update-ado-secret   Prompt for and inject ADO credentials before application layer
+                        (prevents KEDA authentication errors on initial deployment)
   --help                Show this help message
   --verbose             Enable verbose output
 
@@ -130,8 +132,8 @@ Environment Variables:
   AWS_PROFILE         AWS profile to use (optional)
 
 Examples:
-  # Deploy all layers
-  ./deploy-tg.sh deploy
+  # Deploy all layers (recommended for initial deployment)
+  ./deploy-tg.sh deploy --update-ado-secret
 
   # Deploy only base layer
   ./deploy-tg.sh deploy --layer base
@@ -139,20 +141,20 @@ Examples:
   # Show plan for all layers
   ./deploy-tg.sh plan
 
-  # Deploy specific layer
-  ./deploy-tg.sh deploy --layer base
+  # Deploy application layer with credentials (prevents KEDA errors)
+  ./deploy-tg.sh deploy --layer application --update-ado-secret
 
   # Deploy config layer (post-deployment)
   ./deploy-tg.sh deploy --layer config
 
-  # Update ADO PAT in AWS Secrets Manager
+  # Update ADO credentials after initial deployment
   ./deploy-tg.sh deploy --layer config --update-ado-secret
 
   # Destroy all layers
   ./deploy-tg.sh destroy
 
   # Deploy with auto-approve (CI/CD)
-  ./deploy-tg.sh deploy --auto-approve
+  ./deploy-tg.sh deploy --auto-approve --update-ado-secret
 
 EOF
 }
@@ -424,6 +426,24 @@ show_layer_status() {
 deploy_all_layers() {
     log "Starting deployment of all layers..."
     
+    # If updating ADO secret, prompt for credentials BEFORE application layer
+    if [[ "${UPDATE_ADO_SECRET}" == "true" ]]; then
+        log_info "ADO secret update requested - collecting credentials before deployment..."
+        
+        # Check if ADO_PAT is set (safe for unbound variables)
+        if [[ -z "${ADO_PAT:-}" ]]; then
+            log_info "ADO_PAT not set - prompting for credentials..."
+            if ! prompt_for_ado_credentials; then
+                log_error "Failed to get ADO credentials"
+                return 1
+            fi
+        else
+            log_info "Using existing ADO_PAT from environment"
+        fi
+        
+        log_success "ADO credentials collected and will be injected after application layer deploys"
+    fi
+    
     local layers=("base" "middleware" "application")
     
     for layer in "${layers[@]}"; do
@@ -567,20 +587,40 @@ configure_kubectl() {
 # =============================================================================
 
 prompt_for_ado_credentials() {
-    log_info "=== Azure DevOps Configuration ==="
-    echo
+    log ""
+    log "Azure DevOps Credentials Required"
+    log "=================================="
+    log ""
+    log "To update the ADO PAT secret, provide credentials via environment variables or prompts."
+    log "The secret will be synced to Kubernetes via External Secrets Operator."
+    log ""
     
-    read -rp "Enter ADO Organization URL (e.g., https://dev.azure.com/yourorg): " ADO_ORG_URL
-    read -rsp "Enter ADO Personal Access Token: " ADO_PAT
-    echo
+    # Check for ADO_PAT environment variable first, then prompt
+    if [[ -z "${ADO_PAT:-}" ]]; then
+        log_info "ADO_PAT environment variable not set"
+        read -rsp "Enter Azure DevOps PAT Token: " ADO_PAT
+        echo ""
+    else
+        log_info "Using ADO_PAT from environment variable"
+    fi
+    
+    # Check for ADO_ORG_URL environment variable first, then prompt
+    if [[ -z "${ADO_ORG_URL:-}" ]]; then
+        log_info "ADO_ORG_URL environment variable not set"
+        read -rp "Enter Azure DevOps Organization URL (e.g., https://dev.azure.com/myorg): " ADO_ORG_URL
+    else
+        log_info "Using ADO_ORG_URL from environment variable"
+    fi
     
     if [[ -z "${ADO_ORG_URL}" || -z "${ADO_PAT}" ]]; then
-        log_error "ADO Organization URL and PAT are required"
+        log_error "Organization URL and PAT token are required"
+        log_error "Set via environment variables: ADO_PAT and ADO_ORG_URL"
         return 1
     fi
     
     export ADO_ORG_URL
     export ADO_PAT
+    log_success "Credentials received"
     return 0
 }
 
@@ -590,19 +630,53 @@ inject_ado_secret() {
     
     log_info "Updating ADO PAT in AWS Secrets Manager..."
     
-    if [[ -z "${ADO_PAT}" ]]; then
+    if [[ -z "${ADO_PAT:-}" ]]; then
         log_error "ADO_PAT not set. Run with credential prompting first."
         return 1
     fi
     
-    local secret_name="${cluster_name}-ado-pat"
+    if [[ -z "${ADO_ORG_URL:-}" ]]; then
+        log_error "ADO_ORG_URL not set. Run with credential prompting first."
+        return 1
+    fi
+    
+    # Get the secret name from application layer Terragrunt output
+    log_debug "Retrieving secret name from application layer outputs..."
+    local secret_name
+    secret_name=$(cd "${APPLICATION_LAYER_DIR}" && terragrunt output -json ado_pat_secret 2>/dev/null | jq -r '.name' 2>/dev/null || echo "")
+    
+    # Fallback to default if output not available
+    if [[ -z "${secret_name}" ]]; then
+        log_warning "Could not retrieve secret name from Terraform output, using default"
+        secret_name="ado-agent-pat"
+    fi
+    
+    log_debug "Using secret name: ${secret_name}"
+    
+    # Extract organization name from URL (remove https://dev.azure.com/ prefix and trailing slash)
+    local org_name
+    org_name=$(echo "${ADO_ORG_URL}" | sed 's|https://dev.azure.com/||' | sed 's|/$||')
     
     # Check if secret exists
     if aws secretsmanager describe-secret --secret-id "${secret_name}" --region "${region}" &>/dev/null; then
         log_info "Updating existing secret: ${secret_name}"
+        log_info "  Organization: ${org_name}"
+        log_info "  URL: ${ADO_ORG_URL}"
+        
+        # Create JSON structure matching Terraform expectations
+        local secret_json
+        secret_json=$(cat <<EOF
+{
+  "personalAccessToken": "${ADO_PAT}",
+  "organization": "${org_name}",
+  "adourl": "${ADO_ORG_URL}"
+}
+EOF
+)
+        
         if aws secretsmanager put-secret-value \
             --secret-id "${secret_name}" \
-            --secret-string "${ADO_PAT}" \
+            --secret-string "${secret_json}" \
             --region "${region}" >/dev/null; then
             log_success "ADO PAT updated in AWS Secrets Manager: ${secret_name}"
             return 0
@@ -621,7 +695,8 @@ create_cluster_secret_store() {
     local cluster_name="$1"
     local region="$2"
     local eso_role_arn="$3"
-    local eso_sa_name="external-secrets-sa"
+    local eso_sa_name="external-secrets"
+    local eso_namespace="external-secrets-system"
     
     log_info "Creating ClusterSecretStore for External Secrets Operator..."
     
@@ -653,7 +728,7 @@ spec:
         jwt:
           serviceAccountRef:
             name: ${eso_sa_name}
-            namespace: external-secrets
+            namespace: ${eso_namespace}
 EOF
     then
         log_error "Failed to create ClusterSecretStore"
@@ -694,7 +769,11 @@ deploy_config_layer() {
     local base_dir="$1"
     local update_ado_secret="${2:-false}"
     
-    log_section "Config Layer Deployment (Post-Deployment Configuration)"
+    log ""
+    log "=========================================="
+    log "Config Layer Deployment (Post-Deployment Configuration)"
+    log "=========================================="
+    log ""
     
     # Verify all Terraform layers are deployed
     log_info "Verifying prerequisite layers..."
@@ -756,11 +835,15 @@ deploy_config_layer() {
     if [[ "${update_ado_secret}" == "true" ]]; then
         log_info "ADO secret update requested..."
         
-        if [[ -z "${ADO_PAT}" ]]; then
+        # Check if ADO_PAT is set (safe for unbound variables)
+        if [[ -z "${ADO_PAT:-}" ]]; then
+            log_info "ADO_PAT not set - prompting for credentials..."
             if ! prompt_for_ado_credentials; then
                 log_error "Failed to get ADO credentials"
                 return 1
             fi
+        else
+            log_info "Using existing ADO_PAT from environment"
         fi
         
         if ! inject_ado_secret "${cluster_name}" "${region}"; then
@@ -863,9 +946,54 @@ main() {
                 if [[ "${TARGET_LAYER}" == "config" ]]; then
                     deploy_config_layer "${BASE_LAYER_DIR}" "${UPDATE_ADO_SECRET}"
                 else
+                    # If deploying application layer with ADO secret update, prompt first
+                    if [[ "${TARGET_LAYER}" == "application" && "${UPDATE_ADO_SECRET}" == "true" ]]; then
+                        log_info "ADO secret update requested for application layer - collecting credentials first..."
+                        
+                        # Check if ADO_PAT is set (safe for unbound variables)
+                        if [[ -z "${ADO_PAT:-}" ]]; then
+                            log_info "ADO_PAT not set - prompting for credentials..."
+                            if ! prompt_for_ado_credentials; then
+                                log_error "Failed to get ADO credentials"
+                                exit 1
+                            fi
+                        else
+                            log_info "Using existing ADO_PAT from environment"
+                        fi
+                        
+                        log_success "ADO credentials collected and will be injected after deployment"
+                    fi
+                    
                     local layer_dir
                     layer_dir=$(get_layer_dir "${TARGET_LAYER}")
                     apply_layer "${TARGET_LAYER}" "${layer_dir}"
+                    
+                    # If application layer with ADO secret update, inject the secret immediately
+                    if [[ "${TARGET_LAYER}" == "application" && "${UPDATE_ADO_SECRET}" == "true" ]]; then
+                        log_info "Injecting ADO secret after application layer deployment..."
+                        
+                        # Get cluster info from base layer
+                        cd "${BASE_LAYER_DIR}"
+                        local cluster_name region
+                        cluster_name=$(terragrunt output -raw cluster_name 2>/dev/null || echo "")
+                        region="${AWS_REGION_OVERRIDE:-}"
+                        if [[ -z "${region}" ]]; then
+                            region=$(aws configure get region 2>/dev/null || echo "us-west-2")
+                        fi
+                        
+                        if [[ -z "${cluster_name}" ]]; then
+                            log_error "Could not retrieve cluster name from base layer"
+                            exit 1
+                        fi
+                        
+                        if ! inject_ado_secret "${cluster_name}" "${region}"; then
+                            log_error "Failed to inject ADO secret"
+                            exit 1
+                        fi
+                        
+                        log_success "ADO secret injected successfully"
+                        log_info "You may need to restart KEDA operator: kubectl rollout restart deployment -n keda-system keda-operator"
+                    fi
                 fi
             else
                 deploy_all_layers
