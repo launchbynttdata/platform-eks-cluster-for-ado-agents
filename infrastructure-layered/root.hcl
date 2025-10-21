@@ -7,9 +7,10 @@
 # All child terragrunt.hcl files will inherit these settings automatically.
 
 locals {
-  # Load environment-specific configuration
+  # Load environment-specific configuration  
   # This allows switching between dev/staging/prod by changing env.hcl
-  env_vars = read_terragrunt_config(find_in_parent_folders("env.hcl"))
+  # Use find_in_parent_folders with fallback to current directory
+  env_vars = read_terragrunt_config(find_in_parent_folders("env.hcl", "${get_terragrunt_dir()}/env.hcl"))
   
   # Extract commonly used values
   environment  = local.env_vars.locals.environment

@@ -12,7 +12,7 @@
 
 # Include root configuration
 include "root" {
-  path = find_in_parent_folders()
+  path = find_in_parent_folders("root.hcl")
 }
 
 # Include common configuration helpers

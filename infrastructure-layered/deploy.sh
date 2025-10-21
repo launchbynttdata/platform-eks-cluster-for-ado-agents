@@ -56,7 +56,7 @@ readonly APPLICATION_LAYER_DIR="${LAYERS_DIR}/application"
 
 # Default configuration
 DEFAULT_COMMAND="deploy"
-AUTO_APPROVE=false
+AUTO_APPROVE=true  # Default to auto-approve for non-interactive deployments
 DRY_RUN=false
 VERBOSE=false
 TARGET_LAYER=""

@@ -261,7 +261,7 @@ locals {
 # Deploy ADO agents via Helm
 resource "helm_release" "ado_agents" {
   name       = "ado-agents"
-  repository = "${path.module}/../helm"
+  repository = "${path.module}/helm"
   chart      = "ado-agent-cluster"
   namespace  = data.terraform_remote_state.middleware.outputs.ado_agents_namespace
 
