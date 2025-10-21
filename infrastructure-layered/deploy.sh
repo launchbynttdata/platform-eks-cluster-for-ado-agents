@@ -297,7 +297,7 @@ validate_layer() {
         return 0
     fi
     
-    if ! terragrunt validate --terragrunt-non-interactive; then
+    if ! terragrunt validate --non-interactive; then
         log_error "Validation failed for ${layer} layer"
         return 1
     fi
@@ -324,7 +324,7 @@ plan_layer() {
         plan_args+=("--terragrunt-log-level" "debug")
     fi
     
-    if ! terragrunt plan --terragrunt-non-interactive "${plan_args[@]}"; then
+    if ! terragrunt plan --non-interactive "${plan_args[@]}"; then
         log_error "Plan failed for ${layer} layer"
         return 1
     fi
@@ -348,7 +348,7 @@ apply_layer() {
     
     local apply_args=()
     if [[ "${AUTO_APPROVE}" == "true" ]]; then
-        apply_args+=("--terragrunt-non-interactive")
+        apply_args+=("--non-interactive")
     fi
     if [[ "${VERBOSE}" == "true" ]]; then
         apply_args+=("--terragrunt-log-level" "debug")
@@ -378,7 +378,7 @@ destroy_layer() {
     
     local destroy_args=()
     if [[ "${AUTO_APPROVE}" == "true" ]]; then
-        destroy_args+=("--terragrunt-non-interactive")
+        destroy_args+=("--non-interactive")
     fi
     if [[ "${VERBOSE}" == "true" ]]; then
         destroy_args+=("--terragrunt-log-level" "debug")
@@ -408,9 +408,9 @@ show_layer_status() {
     fi
     
     # Check for state file
-    if terragrunt state list --terragrunt-non-interactive &>/dev/null; then
+    if terragrunt state list --non-interactive &>/dev/null; then
         local resource_count
-        resource_count=$(terragrunt state list --terragrunt-non-interactive 2>/dev/null | wc -l)
+        resource_count=$(terragrunt state list --non-interactive 2>/dev/null | wc -l)
         echo "  ✅ State file exists (${resource_count} resources)"
     else
         echo "  ❌ No state file found (not deployed)"
