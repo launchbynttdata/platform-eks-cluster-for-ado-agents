@@ -162,3 +162,15 @@ import: ## Import existing resource (requires RESOURCE and ID parameters)
 	else \
 		cd $(TERRAFORM_DIR) && terraform import $(RESOURCE) $(ID); \
 	fi
+
+.PHONY: clean
+clean: ## Remove all Terraform and Terragrunt cache and ephemeral files
+    @echo "Cleaning Terraform and Terragrunt cache files..."
+    @find . -type d -name ".terraform" -exec rm -rf {} + 2>/dev/null || true
+    @find . -type d -name ".terragrunt-cache" -exec rm -rf {} + 2>/dev/null || true
+    @find . -type f -name ".terraform.lock.hcl" -delete 2>/dev/null || true
+    @find . -type f -name "*.tfstate" -delete 2>/dev/null || true
+    @find . -type f -name "*.tfstate.backup" -delete 2>/dev/null || true
+    @find . -type f -name "*.tfplan" -delete 2>/dev/null || true
+    @find . -type f -name "crash.log" -delete 2>/dev/null || true
+    @echo "Clean complete!"
