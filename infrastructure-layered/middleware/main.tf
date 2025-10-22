@@ -393,10 +393,20 @@ resource "kubernetes_deployment" "buildkitd" {
             mount_path = "/var/lib/buildkit"
             name       = "buildkit-storage"
           }
+          
+          volume_mount {
+            mount_path = "/run"
+            name       = "run"
+          }
         }
 
         volume {
           name = "tmp"
+          empty_dir {}
+        }
+
+        volume {
+          name = "run"
           empty_dir {}
         }
 
