@@ -85,13 +85,18 @@ output: ## Show Terraform outputs
 	@echo "Showing Terraform outputs..."
 	cd $(TERRAFORM_DIR) && terraform output
 
-# Clean Terraform state and cache
+# Clean Terraform and Terragrunt state and cache
 .PHONY: clean
-clean: ## Clean Terraform state and cache files
-	@echo "Cleaning Terraform files..."
-	find $(TERRAFORM_DIR) -name ".terraform" -type d -exec rm -rf {} + 2>/dev/null || true
-	find $(TERRAFORM_DIR) -name "terraform.tfstate*" -type f -delete 2>/dev/null || true
-	find $(TERRAFORM_DIR) -name ".terraform.lock.hcl" -type f -delete 2>/dev/null || true
+clean: ## Remove all Terraform and Terragrunt cache and ephemeral files
+	@echo "Cleaning Terraform and Terragrunt cache files..."
+	@find . -depth -type d -name ".terraform" -exec rm -rf {} + 2>/dev/null || true
+	@find . -depth -type d -name ".terragrunt-cache" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type f -name ".terraform.lock.hcl" -exec rm -f {} + 2>/dev/null || true
+	@find . -type f -name "*.tfstate" -exec rm -f {} + 2>/dev/null || true
+	@find . -type f -name "*.tfstate.backup" -exec rm -f {} + 2>/dev/null || true
+	@find . -type f -name "*.tfplan" -exec rm -f {} + 2>/dev/null || true
+	@find . -type f -name "crash.log" -exec rm -f {} + 2>/dev/null || true
+	@echo "Clean complete!"
 
 # Run all tests (comprehensive test suite)
 .PHONY: test
@@ -162,15 +167,3 @@ import: ## Import existing resource (requires RESOURCE and ID parameters)
 	else \
 		cd $(TERRAFORM_DIR) && terraform import $(RESOURCE) $(ID); \
 	fi
-
-.PHONY: clean
-clean: ## Remove all Terraform and Terragrunt cache and ephemeral files
-    @echo "Cleaning Terraform and Terragrunt cache files..."
-    @find . -type d -name ".terraform" -exec rm -rf {} + 2>/dev/null || true
-    @find . -type d -name ".terragrunt-cache" -exec rm -rf {} + 2>/dev/null || true
-    @find . -type f -name ".terraform.lock.hcl" -delete 2>/dev/null || true
-    @find . -type f -name "*.tfstate" -delete 2>/dev/null || true
-    @find . -type f -name "*.tfstate.backup" -delete 2>/dev/null || true
-    @find . -type f -name "*.tfplan" -delete 2>/dev/null || true
-    @find . -type f -name "crash.log" -delete 2>/dev/null || true
-    @echo "Clean complete!"
