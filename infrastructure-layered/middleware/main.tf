@@ -393,7 +393,7 @@ resource "kubernetes_deployment" "buildkitd" {
             mount_path = "/var/lib/buildkit"
             name       = "buildkit-storage"
           }
-          
+
           volume_mount {
             mount_path = "/run"
             name       = "run"
@@ -458,7 +458,7 @@ resource "kubernetes_service" "buildkitd_alias" {
   count = var.enable_buildkitd ? 1 : 0
 
   metadata {
-    name      = "buildkitd"
+    name      = "buildkit"
     namespace = var.ado_agents_namespace
 
     labels = {
