@@ -59,7 +59,7 @@ remote_state {
     
     # Dynamic key based on layer path
     # Example: base/terraform.tfstate, middleware/terraform.tfstate
-    key = "${path_relative_to_include()}/terraform.tfstate"
+    key = "${local.environment}/${path_relative_to_include()}/terraform.tfstate"
     
     # Region from environment variable or env.hcl
     region = get_env("TF_STATE_REGION", local.aws_region)
