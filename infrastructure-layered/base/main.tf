@@ -198,8 +198,20 @@ module "eks_cluster" {
   depends_on = [module.iam_roles]
 }
 
+# # Create OIDC provider for IRSA
+# resource "aws_iam_openid_connect_provider" "eks" {
+#   client_id_list  = ["sts.amazonaws.com"]
+#   thumbprint_list = ["9e99a48a9960b14926bb7f3b02e22da2b0ab7280"] # EKS OIDC root CA thumbprint
+#   url             = module.eks_cluster.cluster_oidc_issuer_url
+
+#   tags = local.common_tags
+# }
 # Create OIDC provider for IRSA
-resource "aws_iam_openid_connect_provider" "eks" {
+module "eks_cluster_oidc" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source = "terraform.registry.launch.nttdata.com/module_primitive/iam_openid_connect_provider/aws"
+  version = "~> 0.1"
+
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = ["9e99a48a9960b14926bb7f3b02e22da2b0ab7280"] # EKS OIDC root CA thumbprint
   url             = module.eks_cluster.cluster_oidc_issuer_url
@@ -220,12 +232,12 @@ resource "aws_iam_role" "vpc_cni_irsa" {
         Action = "sts:AssumeRoleWithWebIdentity"
         Effect = "Allow"
         Principal = {
-          Federated = aws_iam_openid_connect_provider.eks.arn
+          Federated = module.eks_cluster_oidc.arn
         }
         Condition = {
           StringEquals = {
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = "system:serviceaccount:kube-system:aws-node"
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
+            "${replace(module.eks_cluster_oidc.url, "https://", "")}:sub" = "system:serviceaccount:kube-system:aws-node"
+            "${replace(module.eks_cluster_oidc.url, "https://", "")}:aud" = "sts.amazonaws.com"
           }
         }
       }
@@ -256,7 +268,7 @@ resource "aws_eks_addon" "vpc_cni" {
 
   depends_on = [
     module.eks_cluster,
-    aws_iam_openid_connect_provider.eks,
+    module.eks_cluster_oidc,
     aws_iam_role_policy_attachment.vpc_cni_policy
   ]
 
@@ -416,12 +428,12 @@ resource "aws_iam_role" "cluster_autoscaler_role" {
         Action = "sts:AssumeRoleWithWebIdentity"
         Effect = "Allow"
         Principal = {
-          Federated = aws_iam_openid_connect_provider.eks.arn
+          Federated = module.eks_cluster_oidc.arn
         }
         Condition = {
           StringEquals = {
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = "system:serviceaccount:${var.cluster_autoscaler_namespace}:cluster-autoscaler"
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
+            "${replace(module.eks_cluster_oidc.url, "https://", "")}:sub" = "system:serviceaccount:${var.cluster_autoscaler_namespace}:cluster-autoscaler"
+            "${replace(module.eks_cluster_oidc.url, "https://", "")}:aud" = "sts.amazonaws.com"
           }
         }
       }

@@ -12,58 +12,53 @@ setup() {
     export DRY_RUN="true"
     export VERBOSE="false"
     
-    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+    # Store script directory for use in tests
+    local SCRIPT_DIR_LOCAL="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+    export TEST_SCRIPT_DIR="${SCRIPT_DIR_LOCAL}"
+    
     TEST_DEPLOY_SH="${BATS_TMPDIR}/deploy.sh"
-    sed '/^main /,$d' "${SCRIPT_DIR}/deploy.sh" > "${TEST_DEPLOY_SH}"
+    sed '/^main /,$d' "${TEST_SCRIPT_DIR}/deploy.sh" > "${TEST_DEPLOY_SH}"
     source "${TEST_DEPLOY_SH}"
 }
 
 teardown() {
     rm -f "${BATS_TMPDIR}/deploy.sh"
+    unset TEST_SCRIPT_DIR
 }
 
 # Test: Layer directory structure
 @test "base layer directory exists" {
-    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
-    [ -d "${SCRIPT_DIR}/base" ]
+    [ -d "${TEST_SCRIPT_DIR}/base" ]
 }
 
 @test "middleware layer directory exists" {
-    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
-    [ -d "${SCRIPT_DIR}/middleware" ]
+    [ -d "${TEST_SCRIPT_DIR}/middleware" ]
 }
 
 @test "application layer directory exists" {
-    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
-    [ -d "${SCRIPT_DIR}/application" ]
+    [ -d "${TEST_SCRIPT_DIR}/application" ]
 }
 
 @test "base layer has terragrunt.hcl" {
-    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
-    [ -f "${SCRIPT_DIR}/base/terragrunt.hcl" ]
+    [ -f "${TEST_SCRIPT_DIR}/base/terragrunt.hcl" ]
 }
 
 @test "middleware layer has terragrunt.hcl" {
-    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
-    [ -f "${SCRIPT_DIR}/middleware/terragrunt.hcl" ]
+    [ -f "${TEST_SCRIPT_DIR}/middleware/terragrunt.hcl" ]
 }
 
 @test "application layer has terragrunt.hcl" {
-    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
-    [ -f "${SCRIPT_DIR}/application/terragrunt.hcl" ]
+    [ -f "${TEST_SCRIPT_DIR}/application/terragrunt.hcl" ]
 }
 
-@test "root terragrunt.hcl exists" {
-    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
-    [ -f "${SCRIPT_DIR}/terragrunt.hcl" ]
+@test "root.hcl exists" {
+    [ -f "${TEST_SCRIPT_DIR}/root.hcl" ]
 }
 
 @test "env.hcl configuration exists" {
-    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
-    [ -f "${SCRIPT_DIR}/env.hcl" ]
+    [ -f "${TEST_SCRIPT_DIR}/env.hcl" ]
 }
 
 @test "common.hcl configuration exists" {
-    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
-    [ -f "${SCRIPT_DIR}/common.hcl" ]
+    [ -f "${TEST_SCRIPT_DIR}/common.hcl" ]
 }

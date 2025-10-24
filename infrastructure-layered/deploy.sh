@@ -109,6 +109,7 @@ Usage: ${0##*/} [OPTIONS] [COMMAND]
 
 Commands:
   deploy        Deploy all layers in order (default)
+  init          Initialize Terragrunt/Terraform (download modules)
   plan          Show deployment plan for all layers
   validate      Validate configurations
   destroy       Destroy all layers in reverse order
@@ -132,6 +133,12 @@ Environment Variables:
   AWS_PROFILE         AWS profile to use (optional)
 
 Examples:
+  # Initialize all layers (download external modules)
+  ./deploy-tg.sh init
+
+  # Initialize specific layer
+  ./deploy-tg.sh init --layer base
+
   # Deploy all layers (recommended for initial deployment)
   ./deploy-tg.sh deploy --update-ado-secret
 
@@ -276,6 +283,77 @@ get_layer_dir() {
     esac
 }
 
+init_layer() {
+    local layer="$1"
+    local layer_dir="$2"
+    local force="${3:-false}"
+    
+    log_info "Initializing ${layer} layer..."
+    
+    cd "${layer_dir}"
+    
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        log_info "[DRY-RUN] Would initialize ${layer} layer"
+        return 0
+    fi
+    
+    # Check if initialization is needed
+    local needs_init=false
+    
+    if [[ "${force}" == "true" ]]; then
+        log_debug "Force initialization requested"
+        needs_init=true
+    elif [[ ! -d "${layer_dir}/.terragrunt-cache" ]]; then
+        log_debug "Terragrunt cache not found - initialization needed"
+        needs_init=true
+    elif [[ ! -d "${layer_dir}/.terraform" ]]; then
+        log_debug "Terraform directory not found - initialization needed"
+        needs_init=true
+    else
+        # Check if .terraform/modules exists and has content (for external modules)
+        if [[ -d "${layer_dir}/.terraform/modules" ]]; then
+            local module_count
+            module_count=$(find "${layer_dir}/.terraform/modules" -type f -name "*.tf" 2>/dev/null | wc -l | tr -d ' ')
+            if [[ "${module_count}" -eq 0 ]]; then
+                log_debug "Terraform modules directory is empty - initialization needed"
+                needs_init=true
+            fi
+        fi
+        
+        # Check if .terragrunt-cache contains proper Terraform modules
+        if [[ -d "${layer_dir}/.terragrunt-cache" ]]; then
+            # Look for module manifests in terragrunt cache
+            local cache_modules
+            cache_modules=$(find "${layer_dir}/.terragrunt-cache" -type f -name "modules.json" 2>/dev/null | wc -l | tr -d ' ')
+            if [[ "${cache_modules}" -eq 0 ]]; then
+                log_debug "Terragrunt cache exists but no module manifests found - initialization needed"
+                needs_init=true
+            fi
+        fi
+    fi
+    
+    if [[ "${needs_init}" == "false" ]]; then
+        log_info "Layer ${layer} already initialized, skipping init"
+        return 0
+    fi
+    
+    log_info "Running terragrunt init for ${layer} layer..."
+    
+    local init_args=("--non-interactive")
+    if [[ "${VERBOSE}" == "true" ]]; then
+        init_args+=("--terragrunt-log-level" "debug")
+    fi
+    
+    # Run terragrunt init with upgrade to ensure latest module versions
+    if ! terragrunt init -upgrade "${init_args[@]}"; then
+        log_error "Initialization failed for ${layer} layer"
+        return 1
+    fi
+    
+    log_success "Initialization completed for ${layer} layer"
+    return 0
+}
+
 validate_layer() {
     local layer="$1"
     local layer_dir="$2"
@@ -321,6 +399,12 @@ plan_layer() {
         return 0
     fi
     
+    # Ensure layer is initialized before planning
+    if ! init_layer "${layer}" "${layer_dir}"; then
+        log_error "Failed to initialize ${layer} layer before planning"
+        return 1
+    fi
+    
     local plan_args=()
     if [[ "${VERBOSE}" == "true" ]]; then
         plan_args+=("--terragrunt-log-level" "debug")
@@ -346,6 +430,12 @@ apply_layer() {
     if [[ "${DRY_RUN}" == "true" ]]; then
         log_info "[DRY-RUN] Would apply ${layer} layer"
         return 0
+    fi
+    
+    # Ensure layer is initialized before applying
+    if ! init_layer "${layer}" "${layer_dir}"; then
+        log_error "Failed to initialize ${layer} layer before applying"
+        return 1
     fi
     
     local apply_args=()
@@ -470,6 +560,26 @@ deploy_all_layers() {
     done
     
     log_success "All layers deployed successfully!"
+    return 0
+}
+
+init_all_layers() {
+    log "Initializing all layers..."
+    
+    local layers=("base" "middleware" "application")
+    
+    for layer in "${layers[@]}"; do
+        local layer_dir
+        layer_dir=$(get_layer_dir "${layer}")
+        
+        if ! init_layer "${layer}" "${layer_dir}" "true"; then
+            log_error "Initialization failed for ${layer} layer"
+            return 1
+        fi
+        echo
+    done
+    
+    log_success "All layers initialized successfully"
     return 0
 }
 
@@ -885,7 +995,7 @@ main() {
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            deploy|plan|validate|destroy|status)
+            deploy|init|plan|validate|destroy|status)
                 command="$1"
                 shift
                 ;;
@@ -1032,6 +1142,19 @@ main() {
                 destroy_layer "${TARGET_LAYER}" "${layer_dir}"
             else
                 destroy_all_layers
+            fi
+            ;;
+        init)
+            if [[ -n "${TARGET_LAYER}" ]]; then
+                if [[ "${TARGET_LAYER}" == "config" ]]; then
+                    log_info "Config layer is kubectl-based and does not require initialization"
+                    exit 0
+                fi
+                local layer_dir
+                layer_dir=$(get_layer_dir "${TARGET_LAYER}")
+                init_layer "${TARGET_LAYER}" "${layer_dir}" "true"
+            else
+                init_all_layers
             fi
             ;;
         status)

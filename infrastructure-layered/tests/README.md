@@ -29,6 +29,7 @@ bats -t tests/test_utils.bats
 
 - `test_utils.bats` - Unit tests for utility functions (logging, layer directory resolution, etc.)
 - `test_validation.bats` - Integration tests for deployment validation logic and Terragrunt configuration
+- `test_init.bats` - Unit tests for initialization functionality (init_layer, module detection, automatic initialization)
 - (Future) `test_terragrunt.bats` - Tests for Terragrunt wrapper functions
 - (Future) `test_kubectl.bats` - Tests for kubectl configuration and cluster interaction
 
@@ -87,17 +88,27 @@ The Terragrunt-based script follows shell best practices and should have minimal
 ## Test Coverage
 
 ### Currently Tested
+
 - ✅ get_layer_dir function for all layers (base, middleware, application, config)
 - ✅ Logging functions (log_info, log_success, log_warning, log_error, log_debug)
 - ✅ Layer directory structure validation
 - ✅ Terragrunt configuration file existence
 - ✅ env.hcl and common.hcl configuration files
+- ✅ init_layer function (initialization detection and execution)
+- ✅ init_all_layers function (batch initialization)
+- ✅ Automatic initialization in plan_layer and apply_layer
+- ✅ Module detection logic (cache, directories, manifests)
+- ✅ Force initialization flag
+- ✅ Dry-run mode for initialization
+- ✅ Verbose output for initialization
+- ✅ Init command in CLI
 
 ### Needs Testing
-- ⚠️ Terragrunt initialization and plan operations
+
 - ⚠️ kubectl configuration and cluster connectivity
 - ⚠️ Config layer deployment (ClusterSecretStore creation)
 - ⚠️ ADO secret injection to AWS Secrets Manager
+- ⚠️ Real Terragrunt init execution (integration tests)
 - ⚠️ Error recovery and rollback logic
 - ⚠️ Dry-run mode verification
 - ⚠️ Auto-approve functionality

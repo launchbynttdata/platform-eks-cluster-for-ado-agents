@@ -38,7 +38,7 @@ output "cluster_security_group_id" {
 # OIDC Provider Information
 output "oidc_provider_arn" {
   description = "ARN of the EKS OIDC identity provider"
-  value       = aws_iam_openid_connect_provider.eks.arn
+  value       = module.eks_cluster_oidc.arn
 }
 
 output "cluster_oidc_issuer_url" {

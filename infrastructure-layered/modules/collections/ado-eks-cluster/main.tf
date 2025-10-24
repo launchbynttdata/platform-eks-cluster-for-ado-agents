@@ -156,19 +156,32 @@ module "eks_cluster" {
 }
 
 # Create OIDC provider for IRSA
-resource "aws_iam_openid_connect_provider" "eks" {
+module "eks_cluster_oidc" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source = "terraform.registry.launch.nttdata.com/module_primitive/iam_openid_connect_provider/aws"
+  version = "~> 0.1"
+
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = ["9e99a48a9960b14926bb7f3b02e22da2b0ab7280"] # EKS OIDC root CA thumbprint
   url             = module.eks_cluster.cluster_oidc_issuer_url
 
   tags = local.common_tags
 }
+# resource "aws_iam_openid_connect_provider" "eks" {
+#   client_id_list  = ["sts.amazonaws.com"]
+#   thumbprint_list = ["9e99a48a9960b14926bb7f3b02e22da2b0ab7280"] # EKS OIDC root CA thumbprint
+#   url             = module.eks_cluster.cluster_oidc_issuer_url
+
+#   tags = local.common_tags
+# }
 
 # KEDA Operator Role (created after OIDC provider for IRSA)
-resource "aws_iam_role" "keda_operator_role" {
-  count = var.create_iam_roles ? 1 : 0
-  name  = "${local.cluster_name}-keda-operator-role"
-
+module "keda_operator_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+  count  = var.create_iam_roles ? 1 : 0
+  name   = "${local.cluster_name}-keda-operator-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -176,95 +189,106 @@ resource "aws_iam_role" "keda_operator_role" {
         Action = "sts:AssumeRoleWithWebIdentity"
         Effect = "Allow"
         Principal = {
-          Federated = aws_iam_openid_connect_provider.eks.arn
+          Federated = module.eks_cluster_oidc.arn
         }
         Condition = {
           StringEquals = {
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = "system:serviceaccount:${var.keda_namespace}:keda-operator"
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
+            "${replace(module.eks_cluster_oidc.url, "https://", "")}:sub" = "system:serviceaccount:${var.keda_namespace}:keda-operator"
+            "${replace(module.eks_cluster_oidc.url, "https://", "")}:aud" = "sts.amazonaws.com"
           }
         }
       }
     ]
   })
-
   tags = local.common_tags
 }
+
+# resource "aws_iam_role" "keda_operator_role" {
+#   count = var.create_iam_roles ? 1 : 0
+#   name  = "${local.cluster_name}-keda-operator-role"
+
+#   assume_role_policy = jsonencode({
+#     Version = "2012-10-17"
+#     Statement = [
+#       {
+#         Action = "sts:AssumeRoleWithWebIdentity"
+#         Effect = "Allow"
+#         Principal = {
+#           Federated = aws_iam_openid_connect_provider.eks.arn
+#         }
+#         Condition = {
+#           StringEquals = {
+#             "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = "system:serviceaccount:${var.keda_namespace}:keda-operator"
+#             "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
+#           }
+#         }
+#       }
+#     ]
+#   })
+
+#   tags = local.common_tags
+# }
 
 # KEDA Role Policy for CloudWatch, SQS, and Secrets Manager access
-resource "aws_iam_role_policy" "keda_operator_policy" {
-  count = var.create_iam_roles ? 1 : 0
-  name  = "${local.cluster_name}-keda-operator-policy"
-  role  = aws_iam_role.keda_operator_role[0].id
+module "keda_operator_policy" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue",
-          "secretsmanager:DescribeSecret"
-        ]
-        Resource = [
-          aws_secretsmanager_secret.ado_pat.arn
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
-          "logs:DescribeLogStreams"
-        ]
-        Resource = [
-          "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/eks/${local.cluster_name}/*",
-          "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:keda-operator-*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:GetQueueAttributes",
-          "sqs:GetQueueUrl"
-        ]
-        Resource = "arn:aws:sqs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:ListQueues"
-        ]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "aws:RequestedRegion" = data.aws_region.current.name
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "cloudwatch:GetMetricStatistics",
-          "cloudwatch:ListMetrics"
-        ]
-        Resource = "*"
-        Condition = {
-          StringEquals = {
-            "aws:RequestedRegion" = data.aws_region.current.name
-          }
-        }
-      }
-    ]
-  })
+  policy_name = "${local.cluster_name}-keda-operator-policy"
+
+  policy_statement = {
+    secrets_manager = {
+      sid       = "AllowSecretsManagerAccess"
+      actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+      resources = [aws_secretsmanager_secret.ado_pat.arn]
+    }
+    cloudwatch_logs = {
+      sid     = "AllowCloudWatchLogs"
+      actions = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"]
+      resources = [
+        "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/eks/${local.cluster_name}/*",
+        "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:keda-operator-*"
+      ]
+    }
+    sqs_queue_access = {
+      sid       = "AllowSQSQueueAccess"
+      actions   = ["sqs:GetQueueAttributes", "sqs:GetQueueUrl"]
+      resources = ["arn:aws:sqs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*"]
+    }
+    sqs_list_queues = {
+      sid       = "AllowSQSListQueues"
+      actions   = ["sqs:ListQueues"]
+      resources = ["*"]
+    }
+    cloudwatch_metrics = {
+      sid       = "AllowCloudWatchMetrics"
+      actions   = ["cloudwatch:GetMetricStatistics", "cloudwatch:ListMetrics"]
+      resources = ["*"]
+    }
+  }
+
+  tags = local.common_tags
 }
 
-# External Secrets Operator Role (created after OIDC provider for IRSA)
-resource "aws_iam_role" "eso_role" {
-  count = var.create_iam_roles ? 1 : 0
-  name  = "${local.cluster_name}-external-secrets-role"
+# Attach KEDA policy to KEDA role
+module "keda_operator_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
 
+  role_name  = module.keda_operator_role[0].role_name
+  policy_arn = module.keda_operator_policy[0].policy_arn
+}
+
+module "eso_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+  count  = var.create_iam_roles ? 1 : 0
+  name   = "${local.cluster_name}-external-secrets-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -272,76 +296,118 @@ resource "aws_iam_role" "eso_role" {
         Action = "sts:AssumeRoleWithWebIdentity"
         Effect = "Allow"
         Principal = {
-          Federated = aws_iam_openid_connect_provider.eks.arn
+          Federated = module.eks_cluster_oidc.arn
         }
         Condition = {
           StringEquals = {
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = "system:serviceaccount:${var.eso_namespace}:external-secrets"
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
+            "${replace(module.eks_cluster_oidc.url, "https://", "")}:sub" = "system:serviceaccount:${var.eso_namespace}:external-secrets"
+            "${replace(module.eks_cluster_oidc.url, "https://", "")}:aud" = "sts.amazonaws.com"
           }
         }
       }
     ]
   })
-
   tags = local.common_tags
 }
+
+# # External Secrets Operator Role (created after OIDC provider for IRSA)
+# resource "aws_iam_role" "eso_role" {
+#   count = var.create_iam_roles ? 1 : 0
+#   name  = "${local.cluster_name}-external-secrets-role"
+
+#   assume_role_policy = jsonencode({
+#     Version = "2012-10-17"
+#     Statement = [
+#       {
+#         Action = "sts:AssumeRoleWithWebIdentity"
+#         Effect = "Allow"
+#         Principal = {
+#           Federated = module.eks_cluster_oidc.arn
+#         }
+#         Condition = {
+#           StringEquals = {
+#             "${replace(module.eks_cluster_oidc.url, "https://", "")}:sub" = "system:serviceaccount:${var.eso_namespace}:external-secrets"
+#             "${replace(module.eks_cluster_oidc.url, "https://", "")}:aud" = "sts.amazonaws.com"
+#           }
+#         }
+#       }
+#     ]
+#   })
+
+#   tags = local.common_tags
+# }
 
 # External Secrets Operator Policy for Secrets Manager access
 # This policy is scoped to the ado-pat secret specifically
 # To add additional secrets, add their ARNs to the Resource array below
-resource "aws_iam_role_policy" "eso_policy" {
-  count = var.create_iam_roles ? 1 : 0
-  name  = "${local.cluster_name}-external-secrets-policy"
-  role  = aws_iam_role.eso_role[0].id
+module "eso_policy" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue",
-          "secretsmanager:DescribeSecret"
-        ]
-        # Currently scoped to ado-pat secret only
-        # To add additional secrets, add their ARNs to this array:
-        # Example: [
-        #   aws_secretsmanager_secret.ado_pat.arn,
-        #   "arn:aws:secretsmanager:region:account:secret:another-secret-name/*"
-        # ]
-        Resource = [
-          aws_secretsmanager_secret.ado_pat.arn
-        ]
-      }
-    ]
-  })
+  policy_name = "${local.cluster_name}-external-secrets-policy"
+
+  policy_statement = {
+    secrets_manager = {
+      sid     = "AllowSecretsManagerAccess"
+      actions = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+      # Currently scoped to ado-pat secret only
+      # To add additional secrets, add their ARNs to this array:
+      # Example: [
+      #   aws_secretsmanager_secret.ado_pat.arn,
+      #   "arn:aws:secretsmanager:region:account:secret:another-secret-name/*"
+      # ]
+      resources = [aws_secretsmanager_secret.ado_pat.arn]
+    }
+  }
+
+  tags = local.common_tags
+}
+
+# Attach ESO policy to ESO role
+module "eso_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
+
+  role_name  = module.eso_role[0].name
+  policy_arn = module.eso_policy[0].policy_arn
 }
 
 # ADO Agent Execution Roles (created after OIDC provider for IRSA)
-resource "aws_iam_role" "ado_agent_execution_roles" {
+module "ado_agent_execution_roles" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
   for_each = var.create_ado_execution_roles && var.create_iam_roles ? var.ado_execution_roles : {}
 
   name = "${local.cluster_name}-ado-agent-${each.key}-role"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Effect = "Allow"
-        Principal = {
-          Federated = aws_iam_openid_connect_provider.eks.arn
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRoleWithWebIdentity"]
+      principals = [
+        {
+          type        = "Federated"
+          identifiers = [module.eks_cluster_oidc.arn]
         }
-        Condition = {
-          StringEquals = {
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = "system:serviceaccount:${each.value.namespace}:${each.value.service_account_name}"
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
-          }
+      ]
+      conditions = [
+        {
+          test     = "StringEquals"
+          variable = "${replace(module.eks_cluster_oidc.url, "https://", "")}:sub"
+          values   = ["system:serviceaccount:${each.value.namespace}:${each.value.service_account_name}"]
+        },
+        {
+          test     = "StringEquals"
+          variable = "${replace(module.eks_cluster_oidc.url, "https://", "")}:aud"
+          values   = ["sts.amazonaws.com"]
         }
-      }
-    ]
-  })
+      ]
+    }
+  ]
 
   tags = merge(local.common_tags, {
     Role = "ADO-Agent-${title(each.key)}"
@@ -349,31 +415,36 @@ resource "aws_iam_role" "ado_agent_execution_roles" {
 }
 
 # ADO Agent Execution Role Policies
-resource "aws_iam_role_policy" "ado_agent_execution_policies" {
+module "ado_agent_execution_policies" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  version = "~> 0.1"
   for_each = var.create_ado_execution_roles && var.create_iam_roles ? var.ado_execution_roles : {}
 
-  name = "${local.cluster_name}-ado-agent-${each.key}-policy"
-  role = aws_iam_role.ado_agent_execution_roles[each.key].id
+  policy_name = "${local.cluster_name}-ado-agent-${each.key}-policy"
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      for permission in each.value.permissions : merge(
-        {
-          Effect   = permission.effect
-          Action   = permission.actions
-          Resource = permission.resources
-        },
-        permission.condition != null ? {
-          Condition = {
-            "${permission.condition.test}" = {
-              "${permission.condition.variable}" = permission.condition.values
-            }
-          }
-        } : {}
-      )
-    ]
+  policy_statement = {
+    for idx, permission in each.value.permissions : "statement_${idx}" => {
+      sid       = try(permission.sid, null)
+      actions   = permission.actions
+      resources = permission.resources
+    }
+  }
+
+  tags = merge(local.common_tags, {
+    Role = "ADO-Agent-${title(each.key)}"
   })
+}
+
+# Attach ADO agent policies to ADO agent roles
+module "ado_agent_execution_policy_attachments" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  for_each = var.create_ado_execution_roles && var.create_iam_roles ? var.ado_execution_roles : {}
+
+  role_name  = module.ado_agent_execution_roles[each.key].name
+  policy_arn = module.ado_agent_execution_policies[each.key].policy_arn
 }
 
 # VPC Endpoints (optional)
@@ -495,7 +566,7 @@ module "keda_operator" {
   keda_version         = var.keda_version
 
   service_account_annotations = {
-    "eks.amazonaws.com/role-arn" = var.create_iam_roles ? aws_iam_role.keda_operator_role[0].arn : ""
+    "eks.amazonaws.com/role-arn" = var.create_iam_roles ? module.keda_operator_role[0].arn : ""
   }
 
   create_ado_secret    = var.create_ado_secret
@@ -512,7 +583,8 @@ module "keda_operator" {
   depends_on = [
     module.eks_cluster,
     module.fargate_profile,
-    aws_iam_openid_connect_provider.eks
+    # aws_iam_openid_connect_provider.eks
+    module.keda_operator_role
   ]
 }
 
@@ -528,7 +600,7 @@ module "external_secrets_operator" {
   aws_region       = data.aws_region.current.name
 
   service_account_annotations = {
-    "eks.amazonaws.com/role-arn" = var.create_iam_roles ? aws_iam_role.eso_role[0].arn : ""
+    "eks.amazonaws.com/role-arn" = var.create_iam_roles ? module.eso_role[0].arn : ""
   }
 
   # Webhook configuration - disabled by default for Fargate compatibility
@@ -560,7 +632,8 @@ module "external_secrets_operator" {
   depends_on = [
     module.eks_cluster,
     module.fargate_profile,
-    aws_iam_openid_connect_provider.eks,
+    # aws_iam_openid_connect_provider.eks,
+    module.eks_cluster_oidc,
     module.keda_operator # Ensure KEDA creates the ADO namespace before ESO tries to use it
   ]
 }
@@ -571,7 +644,7 @@ module "ec2_nodes" {
 
   node_group_name = each.key
   cluster_name    = module.eks_cluster.cluster_name
-  node_role_arn   = aws_iam_role.ec2_node_group_role.arn
+  node_role_arn   = module.ec2_node_group_role.arn
   subnet_ids      = var.subnet_ids
   instance_types  = try(each.value.instance_types, ["t3.medium"])
   disk_size       = try(each.value.disk_size, 50)
@@ -610,8 +683,10 @@ module "ec2_nodes" {
   )
 }
 
-resource "aws_iam_role" "ec2_node_group_role" {
-  name = "eks-buildkit-nodes"
+module "ec2_node_group_role" {
+  source = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+  name   = "eks-buildkit-nodes"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -622,9 +697,25 @@ resource "aws_iam_role" "ec2_node_group_role" {
   })
 }
 
-resource "aws_iam_role_policy_attachment" "ec2_node_group_policies" {
-  for_each   = toset(var.ec2_node_group_policies)
-  role       = aws_iam_role.ec2_node_group_role.name
+# resource "aws_iam_role" "ec2_node_group_role" {
+#   name = "eks-buildkit-nodes"
+#   assume_role_policy = jsonencode({
+#     Version = "2012-10-17"
+#     Statement = [{
+#       Effect    = "Allow"
+#       Principal = { Service = "ec2.amazonaws.com" }
+#       Action    = "sts:AssumeRole"
+#     }]
+#   })
+# }
+
+module "ec2_node_group_policy_attachments" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  for_each = toset(var.ec2_node_group_policies)
+
+  role_name  = module.ec2_node_group_role.name
   policy_arn = each.value
 }
 
@@ -646,11 +737,11 @@ resource "aws_iam_role_policy_attachment" "ec2_node_group_policies" {
 #     }]
 # }
 
-# Cluster Autoscaler IAM Role (only created if autoscaler is enabled)
-resource "aws_iam_role" "cluster_autoscaler_role" {
-  count = var.enable_cluster_autoscaler ? 1 : 0
-  name  = "${local.cluster_name}-cluster-autoscaler-role"
-
+module "cluster_autoscaler_role" {
+  source = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+  count  = var.enable_cluster_autoscaler ? 1 : 0
+  name   = "${local.cluster_name}-cluster-autoscaler-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -658,50 +749,83 @@ resource "aws_iam_role" "cluster_autoscaler_role" {
         Action = "sts:AssumeRoleWithWebIdentity"
         Effect = "Allow"
         Principal = {
-          Federated = aws_iam_openid_connect_provider.eks.arn
+          Federated = module.eks_cluster_oidc.arn
         }
         Condition = {
           StringEquals = {
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = "system:serviceaccount:${var.cluster_autoscaler_namespace}:cluster-autoscaler"
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
+            "${replace(module.eks_cluster_oidc.url, "https://", "")}:sub" = "system:serviceaccount:${var.cluster_autoscaler_namespace}:cluster-autoscaler"
+            "${replace(module.eks_cluster_oidc.url, "https://", "")}:aud" = "sts.amazonaws.com"
           }
         }
       }
     ]
   })
+  tags = local.common_tags
+}
+
+# # Cluster Autoscaler IAM Role (only created if autoscaler is enabled)
+# resource "aws_iam_role" "cluster_autoscaler_role" {
+#   count = var.enable_cluster_autoscaler ? 1 : 0
+#   name  = "${local.cluster_name}-cluster-autoscaler-role"
+
+#   assume_role_policy = jsonencode({
+#     Version = "2012-10-17"
+#     Statement = [
+#       {
+#         Action = "sts:AssumeRoleWithWebIdentity"
+#         Effect = "Allow"
+#         Principal = {
+#           Federated = module.eks_cluster_oidc.arn
+#         }
+#         Condition = {
+#           StringEquals = {
+#             "${replace(module.eks_cluster_oidc.url, "https://", "")}:sub" = "system:serviceaccount:${var.cluster_autoscaler_namespace}:cluster-autoscaler"
+#             "${replace(module.eks_cluster_oidc.url, "https://", "")}:aud" = "sts.amazonaws.com"
+#           }
+#         }
+#       }
+#     ]
+#   })
+
+#   tags = local.common_tags
+# }
+
+module "cluster_autoscaler_policy" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  version = "~> 0.1"
+  count   = var.enable_cluster_autoscaler ? 1 : 0
+
+  policy_name = "${local.cluster_name}-cluster-autoscaler-policy"
+
+  policy_statement = {
+    autoscaling_and_ec2 = {
+      sid = "AllowAutoscalingAndEC2Actions"
+      actions = [
+        "autoscaling:DescribeAutoScalingGroups",
+        "autoscaling:DescribeAutoScalingInstances",
+        "autoscaling:DescribeLaunchConfigurations",
+        "autoscaling:DescribeScalingActivities",
+        "autoscaling:DescribeTags",
+        "ec2:DescribeInstanceTypes",
+        "ec2:DescribeLaunchTemplateVersions",
+        "autoscaling:SetDesiredCapacity",
+        "autoscaling:TerminateInstanceInAutoScalingGroup",
+        "eks:DescribeNodegroup"
+      ]
+      resources = ["*"]
+    }
+  }
 
   tags = local.common_tags
 }
 
-resource "aws_iam_policy" "cluster_autoscaler_policy" {
-  count = var.enable_cluster_autoscaler ? 1 : 0
-  name  = "${local.cluster_name}-cluster-autoscaler-policy"
+module "cluster_autoscaler_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  count   = var.enable_cluster_autoscaler ? 1 : 0
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "autoscaling:DescribeAutoScalingGroups",
-          "autoscaling:DescribeAutoScalingInstances",
-          "autoscaling:DescribeLaunchConfigurations",
-          "autoscaling:DescribeScalingActivities",
-          "autoscaling:DescribeTags",
-          "ec2:DescribeInstanceTypes",
-          "ec2:DescribeLaunchTemplateVersions",
-          "autoscaling:SetDesiredCapacity",
-          "autoscaling:TerminateInstanceInAutoScalingGroup",
-          "eks:DescribeNodegroup"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "cluster_autoscaler_policy_attachment" {
-  count      = var.enable_cluster_autoscaler ? 1 : 0
-  policy_arn = aws_iam_policy.cluster_autoscaler_policy[0].arn
-  role       = aws_iam_role.cluster_autoscaler_role[0].name
+  role_name  = module.cluster_autoscaler_role[0].name
+  policy_arn = module.cluster_autoscaler_policy[0].policy_arn
 }

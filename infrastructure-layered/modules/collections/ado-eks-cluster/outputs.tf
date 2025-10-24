@@ -40,7 +40,7 @@ output "cluster_oidc_issuer_url" {
 
 output "oidc_provider_arn" {
   description = "ARN of the OIDC provider for IRSA"
-  value       = aws_iam_openid_connect_provider.eks.arn
+  value       = module.eks_cluster_oidc.arn
 }
 
 # IAM Role outputs
@@ -56,7 +56,7 @@ output "fargate_role_arn" {
 
 output "keda_role_arn" {
   description = "ARN of the KEDA operator role"
-  value       = var.create_iam_roles ? aws_iam_role.keda_operator_role[0].arn : null
+  value       = var.create_iam_roles ? module.keda_operator_role[0].arn : null
 }
 
 # Security Group outputs
@@ -152,7 +152,7 @@ output "kms_key_alias" {
 # External Secrets Operator outputs
 output "eso_role_arn" {
   description = "ARN of the External Secrets Operator IAM role"
-  value       = var.create_iam_roles && var.install_eso ? aws_iam_role.eso_role[0].arn : null
+  value       = var.create_iam_roles && var.install_eso ? module.eso_role[0].arn : null
 }
 
 output "eso_namespace" {
@@ -168,19 +168,19 @@ output "eso_cluster_secret_store_name" {
 # ADO Agent Execution Roles outputs
 output "ado_agent_execution_role_arns" {
   description = "ARNs of the ADO agent execution IAM roles"
-  value       = var.create_ado_execution_roles && var.create_iam_roles ? { for k, v in aws_iam_role.ado_agent_execution_roles : k => v.arn } : {}
+  value       = var.create_ado_execution_roles && var.create_iam_roles ? { for k, v in module.ado_agent_execution_roles : k => v.arn } : {}
 }
 
 output "ado_agent_execution_role_names" {
   description = "Names of the ADO agent execution IAM roles"
-  value       = var.create_ado_execution_roles && var.create_iam_roles ? { for k, v in aws_iam_role.ado_agent_execution_roles : k => v.name } : {}
+  value       = var.create_ado_execution_roles && var.create_iam_roles ? { for k, v in module.ado_agent_execution_roles : k => v.name } : {}
 }
 
 output "ado_agent_service_account_annotations" {
   description = "Service account annotations for ADO agent roles (for Kubernetes ServiceAccount configuration)"
   value = var.create_ado_execution_roles && var.create_iam_roles ? {
     for role_name, role_config in var.ado_execution_roles : role_config.service_account_name => {
-      "eks.amazonaws.com/role-arn" = aws_iam_role.ado_agent_execution_roles[role_name].arn
+      "eks.amazonaws.com/role-arn" = module.ado_agent_execution_roles[role_name].arn
     }
   } : {}
 }
@@ -188,12 +188,12 @@ output "ado_agent_service_account_annotations" {
 # Cluster Autoscaler outputs
 output "cluster_autoscaler_role_arn" {
   description = "ARN of the cluster autoscaler IAM role"
-  value       = var.enable_cluster_autoscaler ? aws_iam_role.cluster_autoscaler_role[0].arn : null
+  value       = var.enable_cluster_autoscaler ? module.cluster_autoscaler_role[0].arn : null
 }
 
 output "cluster_autoscaler_role_name" {
   description = "Name of the cluster autoscaler IAM role"
-  value       = var.enable_cluster_autoscaler ? aws_iam_role.cluster_autoscaler_role[0].name : null
+  value       = var.enable_cluster_autoscaler ? module.cluster_autoscaler_role[0].name : null
 }
 
 output "cluster_autoscaler_enabled" {
