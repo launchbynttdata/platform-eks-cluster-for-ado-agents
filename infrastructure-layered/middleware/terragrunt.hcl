@@ -38,7 +38,7 @@ terraform {
   # Validate kubectl access before applying
   before_hook "validate_kubectl" {
     commands = ["apply"]
-    execute  = ["bash", "-c", "kubectl cluster-info --context ${dependency.base.outputs.cluster_name} 2>/dev/null || echo '⚠️  Warning: kubectl not configured. Run: aws eks update-kubeconfig --name ${dependency.base.outputs.cluster_name}'"]
+    execute  = ["bash", "-c", "kubectl cluster-info --context ${dependency.base.outputs.cluster_name} 2>/dev/null || (echo '⚠️  Warning: kubectl not configured.'; aws eks update-kubeconfig --region ${dependency.base.outputs.aws_region} --name ${dependency.base.outputs.cluster_name}; kubectl cluster-info --context ${dependency.base.outputs.cluster_name})"]
   }
 }
 
@@ -71,6 +71,7 @@ dependency "base" {
 inputs = {
   # Remote state configuration
   remote_state_bucket = get_env("TF_STATE_BUCKET")
+  remote_state_environment = local.env.locals.environment
   base_state_key      = "base/terraform.tfstate"
 
   

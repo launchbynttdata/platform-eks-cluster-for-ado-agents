@@ -46,12 +46,12 @@ output "oidc_provider_arn" {
 # IAM Role outputs
 output "cluster_role_arn" {
   description = "ARN of the EKS cluster service role"
-  value       = var.create_iam_roles ? module.iam_roles.cluster_role_arn : var.existing_cluster_role_arn
+  value       = var.create_iam_roles ? module.eks_cluster_role[0].role_arn : var.existing_cluster_role_arn
 }
 
 output "fargate_role_arn" {
   description = "ARN of the Fargate pod execution role"
-  value       = var.create_iam_roles ? module.iam_roles.fargate_role_arn : var.existing_fargate_role_arn
+  value       = var.create_iam_roles ? module.fargate_pod_execution_role[0].role_arn : var.existing_fargate_role_arn
 }
 
 output "keda_role_arn" {

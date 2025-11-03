@@ -73,57 +73,57 @@ locals {
 # - ECR repositories (optional)
 # - External Secrets Operator decryption
 # This minimizes KMS key sprawl and reduces costs
-resource "aws_kms_key" "cluster_encryption" {
+module "cluster_encryption_key" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/kms_key/aws"
+  version = "~> 0.1"
+
   description             = var.kms_key_description
   deletion_window_in_days = var.kms_key_deletion_window_in_days
   enable_key_rotation     = true
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "Enable IAM User Permissions"
-        Effect = "Allow"
-        Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-        }
-        Action   = "kms:*"
-        Resource = "*"
-      },
-      {
-        Sid    = "Allow use by EKS"
-        Effect = "Allow"
-        Principal = {
-          Service = "eks.amazonaws.com"
-        }
-        Action = [
-          "kms:Encrypt",
-          "kms:Decrypt",
-          "kms:ReEncrypt*",
-          "kms:GenerateDataKey*",
-          "kms:DescribeKey"
-        ]
-        Resource = "*"
-      },
-      {
-        Sid    = "Allow use by Secrets Manager"
-        Effect = "Allow"
-        Principal = {
-          Service = "secretsmanager.amazonaws.com"
-        }
-        Action = [
-          "kms:Decrypt",
-          "kms:GenerateDataKey"
-        ]
-        Resource = "*"
-        Condition = {
-          StringEquals = {
-            "kms:ViaService" = "secretsmanager.${data.aws_region.current.name}.amazonaws.com"
-          }
+  policy = {
+    allow_root_account = {
+      sid    = "Enable IAM User Permissions"
+      effect = "Allow"
+      principals = {
+        AWS = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+      }
+      actions   = ["kms:*"]
+      resources = ["*"]
+    }
+    allow_eks_service = {
+      sid    = "Allow use by EKS"
+      effect = "Allow"
+      principals = {
+        Service = ["eks.amazonaws.com"]
+      }
+      actions = [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncrypt*",
+        "kms:GenerateDataKey*",
+        "kms:DescribeKey"
+      ]
+      resources = ["*"]
+    }
+    allow_secrets_manager = {
+      sid    = "Allow use by Secrets Manager"
+      effect = "Allow"
+      principals = {
+        Service = ["secretsmanager.amazonaws.com"]
+      }
+      actions = [
+        "kms:Decrypt",
+        "kms:GenerateDataKey"
+      ]
+      resources = ["*"]
+      conditions = {
+        StringEquals = {
+          "kms:ViaService" = ["secretsmanager.${data.aws_region.current.name}.amazonaws.com"]
         }
       }
-    ]
-  })
+    }
+  }
 
   tags = merge(local.common_tags, {
     Name = "${local.cluster_name}-cluster-encryption-key"
@@ -132,28 +132,90 @@ resource "aws_kms_key" "cluster_encryption" {
 
 resource "aws_kms_alias" "cluster_encryption" {
   name          = "alias/${local.cluster_name}-cluster-encryption"
-  target_key_id = aws_kms_key.cluster_encryption.key_id
+  target_key_id = module.cluster_encryption_key.key_id
 }
 
 # KMS key is now always created for cluster encryption
 locals {
-  kms_key_arn = aws_kms_key.cluster_encryption.arn
-  kms_key_id  = aws_kms_key.cluster_encryption.key_id
+  kms_key_arn = module.cluster_encryption_key.arn
+  kms_key_id  = module.cluster_encryption_key.key_id
 }
 
-# IAM roles for EKS cluster and Fargate
-# REVIEW: Using existing primitive modules for consistency
-module "iam_roles" {
-  source = "./modules/primitive/iam-roles"
+# IAM roles for EKS control plane and Fargate
+module "eks_cluster_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
 
-  cluster_name        = local.cluster_name
-  create_cluster_role = var.create_iam_roles
-  create_fargate_role = var.create_iam_roles
-  create_keda_role    = false # KEDA role will be created in middleware layer
-  keda_namespace      = ""    # Not needed in base layer
-  ado_pat_secret_arn  = ""    # Secret will be created in application layer
+  name = "${local.cluster_name}-cluster-role"
+
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRole"]
+      principals = [
+        {
+          type        = "Service"
+          identifiers = ["eks.amazonaws.com"]
+        }
+      ]
+    }
+  ]
 
   tags = local.common_tags
+}
+
+module "eks_cluster_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
+
+  role_name  = module.eks_cluster_role[0].role_name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+}
+
+module "eks_vpc_resource_controller_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
+
+  role_name  = module.eks_cluster_role[0].role_name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController"
+}
+
+module "fargate_pod_execution_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
+
+  name = "${local.cluster_name}-fargate-pod-execution-role"
+
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRole"]
+      principals = [
+        {
+          type        = "Service"
+          identifiers = ["eks-fargate-pods.amazonaws.com"]
+        }
+      ]
+    }
+  ]
+
+  tags = local.common_tags
+}
+
+module "fargate_pod_execution_role_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
+
+  role_name  = module.fargate_pod_execution_role[0].role_name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSFargatePodExecutionRolePolicy"
 }
 
 # Security groups
@@ -177,7 +239,7 @@ module "eks_cluster" {
   source = "./modules/primitive/eks-cluster"
 
   cluster_name           = local.cluster_name
-  cluster_role_arn       = var.create_iam_roles ? module.iam_roles.cluster_role_arn : var.existing_cluster_role_arn
+  cluster_role_arn       = var.create_iam_roles ? module.eks_cluster_role[0].role_arn : var.existing_cluster_role_arn
   cluster_version        = var.cluster_version
   subnet_ids             = var.subnet_ids
   endpoint_public_access = local.enable_public_endpoint
@@ -195,7 +257,11 @@ module "eks_cluster" {
 
   tags = local.common_tags
 
-  depends_on = [module.iam_roles]
+  depends_on = [
+    module.eks_cluster_role,
+    module.eks_cluster_policy_attachment,
+    module.eks_vpc_resource_controller_attachment
+  ]
 }
 
 # # Create OIDC provider for IRSA
@@ -220,39 +286,50 @@ module "eks_cluster_oidc" {
 }
 
 # IAM Role for VPC CNI using IRSA
-resource "aws_iam_role" "vpc_cni_irsa" {
-  count = var.create_iam_roles ? 1 : 0
+module "vpc_cni_irsa_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
 
   name = "${local.cluster_name}-vpc-cni-irsa-role"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Effect = "Allow"
-        Principal = {
-          Federated = module.eks_cluster_oidc.arn
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRoleWithWebIdentity"]
+      principals = [
+        {
+          type        = "Federated"
+          identifiers = [module.eks_cluster_oidc.arn]
         }
-        Condition = {
-          StringEquals = {
-            "${replace(module.eks_cluster_oidc.url, "https://", "")}:sub" = "system:serviceaccount:kube-system:aws-node"
-            "${replace(module.eks_cluster_oidc.url, "https://", "")}:aud" = "sts.amazonaws.com"
-          }
+      ]
+      conditions = [
+        {
+          test     = "StringEquals"
+          variable = "${replace(module.eks_cluster_oidc.url, "https://", "")}:sub"
+          values   = ["system:serviceaccount:kube-system:aws-node"]
+        },
+        {
+          test     = "StringEquals"
+          variable = "${replace(module.eks_cluster_oidc.url, "https://", "")}:aud"
+          values   = ["sts.amazonaws.com"]
         }
-      }
-    ]
-  })
+      ]
+    }
+  ]
 
   tags = local.common_tags
 }
 
 # Attach AWS managed policy for VPC CNI
-resource "aws_iam_role_policy_attachment" "vpc_cni_policy" {
-  count = var.create_iam_roles ? 1 : 0
+module "vpc_cni_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
 
+  role_name  = module.vpc_cni_irsa_role[0].role_name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-  role       = aws_iam_role.vpc_cni_irsa[0].name
 }
 
 # VPC CNI Addon (deployed before compute resources)
@@ -262,14 +339,14 @@ resource "aws_eks_addon" "vpc_cni" {
   cluster_name                = module.eks_cluster.cluster_name
   addon_name                  = "vpc-cni"
   addon_version               = try(var.eks_addons["vpc-cni"].addon_version, null)
-  service_account_role_arn    = var.create_iam_roles ? aws_iam_role.vpc_cni_irsa[0].arn : null
+  service_account_role_arn    = var.create_iam_roles ? module.vpc_cni_irsa_role[0].role_arn : null
   resolve_conflicts_on_create = try(var.eks_addons["vpc-cni"].resolve_conflicts_on_create, "OVERWRITE")
   resolve_conflicts_on_update = try(var.eks_addons["vpc-cni"].resolve_conflicts_on_update, "OVERWRITE")
 
   depends_on = [
     module.eks_cluster,
     module.eks_cluster_oidc,
-    aws_iam_role_policy_attachment.vpc_cni_policy
+  module.vpc_cni_policy_attachment
   ]
 
   tags = local.common_tags
@@ -301,7 +378,7 @@ module "fargate_profile" {
 
   cluster_name           = module.eks_cluster.cluster_name
   profile_name           = "${local.cluster_name}-${each.key}-fargate-profile"
-  pod_execution_role_arn = var.create_iam_roles ? module.iam_roles.fargate_role_arn : var.existing_fargate_role_arn
+  pod_execution_role_arn = var.create_iam_roles ? module.fargate_pod_execution_role[0].role_arn : var.existing_fargate_role_arn
   subnet_ids             = var.subnet_ids
   selectors              = each.value.selectors
 
@@ -310,7 +387,7 @@ module "fargate_profile" {
   # Wait for IAM roles, cluster, and VPC CNI addon to be ready
   depends_on = [
     module.eks_cluster,
-    module.iam_roles,
+  module.fargate_pod_execution_role,
     aws_eks_addon.vpc_cni
   ]
 }
@@ -347,7 +424,7 @@ module "ec2_nodes" {
 
   node_group_name = each.key
   cluster_name    = module.eks_cluster.cluster_name
-  node_role_arn   = aws_iam_role.ec2_node_group_role[0].arn
+  node_role_arn   = module.ec2_node_group_role[0].role_arn
   subnet_ids      = var.subnet_ids
   instance_types  = try(each.value.instance_types, ["t3.medium"])
   disk_size       = try(each.value.disk_size, 50)
@@ -389,110 +466,131 @@ module "ec2_nodes" {
   depends_on = [
     module.eks_cluster,
     aws_eks_addon.vpc_cni,
-    aws_iam_role.ec2_node_group_role
+    module.ec2_node_group_role
   ]
 }
 
 # IAM Role for EC2 Node Groups
-resource "aws_iam_role" "ec2_node_group_role" {
-  count = length(var.ec2_node_group) > 0 ? 1 : 0
+module "ec2_node_group_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+  count   = length(var.ec2_node_group) > 0 ? 1 : 0
 
   name = "${local.cluster_name}-eks-node-group-role"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Service = "ec2.amazonaws.com" }
-      Action    = "sts:AssumeRole"
-    }]
-  })
+
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRole"]
+      principals = [
+        {
+          type        = "Service"
+          identifiers = ["ec2.amazonaws.com"]
+        }
+      ]
+    }
+  ]
 
   tags = local.common_tags
 }
 
-resource "aws_iam_role_policy_attachment" "ec2_node_group_policies" {
-  for_each   = length(var.ec2_node_group) > 0 ? toset(var.ec2_node_group_policies) : []
-  role       = aws_iam_role.ec2_node_group_role[0].name
+module "ec2_node_group_policy_attachments" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  for_each = length(var.ec2_node_group) > 0 ? toset(var.ec2_node_group_policies) : []
+
+  role_name  = module.ec2_node_group_role[0].role_name
   policy_arn = each.value
 }
 
 # Cluster Autoscaler IAM Role (only created if autoscaler is enabled)
-resource "aws_iam_role" "cluster_autoscaler_role" {
-  count = var.enable_cluster_autoscaler ? 1 : 0
-  name  = "${local.cluster_name}-cluster-autoscaler-role"
+module "cluster_autoscaler_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+  count   = var.enable_cluster_autoscaler ? 1 : 0
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Effect = "Allow"
-        Principal = {
-          Federated = module.eks_cluster_oidc.arn
+  name = "${local.cluster_name}-cluster-autoscaler-role"
+
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRoleWithWebIdentity"]
+      principals = [
+        {
+          type        = "Federated"
+          identifiers = [module.eks_cluster_oidc.arn]
         }
-        Condition = {
-          StringEquals = {
-            "${replace(module.eks_cluster_oidc.url, "https://", "")}:sub" = "system:serviceaccount:${var.cluster_autoscaler_namespace}:cluster-autoscaler"
-            "${replace(module.eks_cluster_oidc.url, "https://", "")}:aud" = "sts.amazonaws.com"
-          }
+      ]
+      conditions = [
+        {
+          test     = "StringEquals"
+          variable = "${replace(module.eks_cluster_oidc.url, "https://", "")}:sub"
+          values   = ["system:serviceaccount:${var.cluster_autoscaler_namespace}:cluster-autoscaler"]
+        },
+        {
+          test     = "StringEquals"
+          variable = "${replace(module.eks_cluster_oidc.url, "https://", "")}:aud"
+          values   = ["sts.amazonaws.com"]
         }
-      }
-    ]
-  })
+      ]
+    }
+  ]
 
   tags = local.common_tags
 }
 
-resource "aws_iam_policy" "cluster_autoscaler_policy" {
-  count = var.enable_cluster_autoscaler ? 1 : 0
-  name  = "${local.cluster_name}-cluster-autoscaler-policy"
+module "cluster_autoscaler_policy" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  version = "~> 0.1"
+  count   = var.enable_cluster_autoscaler ? 1 : 0
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "autoscaling:DescribeAutoScalingGroups",
-          "autoscaling:DescribeAutoScalingInstances",
-          "autoscaling:DescribeLaunchConfigurations",
-          "autoscaling:DescribeScalingActivities",
-          "autoscaling:DescribeTags",
-          "ec2:DescribeInstanceTypes",
-          "ec2:DescribeLaunchTemplateVersions"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "autoscaling:SetDesiredCapacity",
-          "autoscaling:TerminateInstanceInAutoScalingGroup"
-        ]
-        # Scope write operations to autoscaling groups owned by this EKS cluster
-        Resource = "arn:aws:autoscaling:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:autoScalingGroup:*:autoScalingGroupName/*"
-        Condition = {
-          StringEquals = {
-            "autoscaling:ResourceTag/kubernetes.io/cluster/${local.cluster_name}" = "owned"
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "eks:DescribeNodegroup"
-        ]
-        # Scope to node groups in this cluster
-        Resource = "arn:aws:eks:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:nodegroup/${local.cluster_name}/*/*"
-      }
-    ]
-  })
+  policy_name = "${local.cluster_name}-cluster-autoscaler-policy"
+
+  policy_statement = {
+    describe_operations = {
+      sid       = "DescribeClusterCompute"
+      actions   = [
+        "autoscaling:DescribeAutoScalingGroups",
+        "autoscaling:DescribeAutoScalingInstances",
+        "autoscaling:DescribeLaunchConfigurations",
+        "autoscaling:DescribeScalingActivities",
+        "autoscaling:DescribeTags",
+        "ec2:DescribeInstanceTypes",
+        "ec2:DescribeLaunchTemplateVersions"
+      ]
+      resources = ["*"]
+    }
+    manage_asg = {
+      sid       = "ManageClusterAsg"
+      actions   = [
+        "autoscaling:SetDesiredCapacity",
+        "autoscaling:TerminateInstanceInAutoScalingGroup"
+      ]
+      # Primitive IAM policy module lacks condition support; resource scope keeps parity with prior policy
+      resources = [
+        "arn:aws:autoscaling:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:autoScalingGroup:*:autoScalingGroupName/*"
+      ]
+    }
+    describe_nodegroup = {
+      sid       = "DescribeEksNodegroups"
+      actions   = ["eks:DescribeNodegroup"]
+      resources = [
+        "arn:aws:eks:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:nodegroup/${local.cluster_name}/*/*"
+      ]
+    }
+  }
 
   tags = local.common_tags
 }
 
-resource "aws_iam_role_policy_attachment" "cluster_autoscaler_policy_attachment" {
-  count      = var.enable_cluster_autoscaler ? 1 : 0
-  policy_arn = aws_iam_policy.cluster_autoscaler_policy[0].arn
-  role       = aws_iam_role.cluster_autoscaler_role[0].name
+module "cluster_autoscaler_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  count   = var.enable_cluster_autoscaler ? 1 : 0
+
+  role_name  = module.cluster_autoscaler_role[0].role_name
+  policy_arn = module.cluster_autoscaler_policy[0].policy_arn
 }

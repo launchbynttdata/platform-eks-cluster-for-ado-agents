@@ -42,42 +42,41 @@ data "aws_route_tables" "private" {
 # KMS Key for EKS encryption (optional)
 data "aws_caller_identity" "current" {}
 
-resource "aws_kms_key" "eks_encryption" {
-  count = var.create_kms_key ? 1 : 0
+module "eks_encryption_key" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/kms_key/aws"
+  version = "~> 0.1"
+  count   = var.create_kms_key ? 1 : 0
 
   description             = var.kms_key_description
   deletion_window_in_days = var.kms_key_deletion_window_in_days
   enable_key_rotation     = true
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "Enable IAM User Permissions"
-        Effect = "Allow"
-        Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-        }
-        Action   = "kms:*"
-        Resource = "*"
-      },
-      {
-        Sid    = "Allow use of the key by EKS"
-        Effect = "Allow"
-        Principal = {
-          Service = "eks.amazonaws.com"
-        }
-        Action = [
-          "kms:Encrypt",
-          "kms:Decrypt",
-          "kms:ReEncrypt*",
-          "kms:GenerateDataKey*",
-          "kms:DescribeKey"
-        ]
-        Resource = "*"
+  policy = {
+    allow_root_account = {
+      sid       = "Enable IAM User Permissions"
+      effect    = "Allow"
+      principals = {
+        AWS = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
       }
-    ]
-  })
+      actions   = ["kms:*"]
+      resources = ["*"]
+    }
+    allow_eks_service = {
+      sid    = "Allow use of the key by EKS"
+      effect = "Allow"
+      principals = {
+        Service = ["eks.amazonaws.com"]
+      }
+      actions = [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncrypt*",
+        "kms:GenerateDataKey*",
+        "kms:DescribeKey"
+      ]
+      resources = ["*"]
+    }
+  }
 
   tags = merge(local.common_tags, {
     Name = "${local.cluster_name}-eks-encryption-key"
@@ -88,31 +87,89 @@ resource "aws_kms_alias" "eks_encryption" {
   count = var.create_kms_key ? 1 : 0
 
   name          = "alias/${local.cluster_name}-eks-encryption"
-  target_key_id = aws_kms_key.eks_encryption[0].key_id
+  target_key_id = module.eks_encryption_key[0].key_id
 }
 
 # Local value to determine which KMS key to use
 locals {
-  kms_key_arn = var.create_kms_key ? aws_kms_key.eks_encryption[0].arn : var.kms_key_arn
+  kms_key_arn = var.create_kms_key ? module.eks_encryption_key[0].arn : var.kms_key_arn
 }
 
-# IAM roles for EKS
-module "iam_roles" {
-  source = "../../primitive/iam-roles"
+# IAM roles for EKS control plane and Fargate
+module "eks_cluster_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
 
-  cluster_name        = local.cluster_name
-  create_cluster_role = var.create_iam_roles
-  create_fargate_role = var.create_iam_roles
-  create_keda_role    = false # KEDA role created separately after OIDC provider
-  keda_namespace      = var.keda_namespace
-  ado_pat_secret_arn  = aws_secretsmanager_secret.ado_pat.arn
+  name = "${local.cluster_name}-cluster-role"
+
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRole"]
+      principals = [
+        {
+          type        = "Service"
+          identifiers = ["eks.amazonaws.com"]
+        }
+      ]
+    }
+  ]
 
   tags = local.common_tags
-  # This needs investigation -- we need to understand why the create_keda_role = false is set above and if it can be removed by
-  # forcing the dependency here.
-  # depends_on = [
-  #   aws_iam_openid_connect_provider.eks
-  # ]
+}
+
+module "eks_cluster_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
+
+  role_name  = module.eks_cluster_role[0].role_name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+}
+
+module "eks_vpc_resource_controller_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
+
+  role_name  = module.eks_cluster_role[0].role_name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController"
+}
+
+module "fargate_pod_execution_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
+
+  name = "${local.cluster_name}-fargate-pod-execution-role"
+
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRole"]
+      principals = [
+        {
+          type        = "Service"
+          identifiers = ["eks-fargate-pods.amazonaws.com"]
+        }
+      ]
+    }
+  ]
+
+  tags = local.common_tags
+}
+
+module "fargate_pod_execution_role_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  count   = var.create_iam_roles ? 1 : 0
+
+  role_name  = module.fargate_pod_execution_role[0].role_name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSFargatePodExecutionRolePolicy"
 }
 
 # Security groups
@@ -134,7 +191,7 @@ module "eks_cluster" {
   source = "../../primitive/eks-cluster"
 
   cluster_name           = local.cluster_name
-  cluster_role_arn       = var.create_iam_roles ? module.iam_roles.cluster_role_arn : var.existing_cluster_role_arn
+  cluster_role_arn       = var.create_iam_roles ? module.eks_cluster_role[0].role_arn : var.existing_cluster_role_arn
   cluster_version        = var.cluster_version
   subnet_ids             = var.subnet_ids
   endpoint_public_access = var.endpoint_public_access
@@ -152,7 +209,11 @@ module "eks_cluster" {
 
   tags = local.common_tags
 
-  depends_on = [module.iam_roles]
+  depends_on = [
+    module.eks_cluster_role,
+    module.eks_cluster_policy_attachment,
+    module.eks_vpc_resource_controller_attachment
+  ]
 }
 
 # Create OIDC provider for IRSA
@@ -469,7 +530,7 @@ module "fargate_profile" {
 
   cluster_name           = module.eks_cluster.cluster_name
   profile_name           = "${local.cluster_name}-apps-fargate-profile"
-  pod_execution_role_arn = var.create_iam_roles ? module.iam_roles.fargate_role_arn : var.existing_fargate_role_arn
+  pod_execution_role_arn = var.create_iam_roles ? module.fargate_pod_execution_role[0].role_arn : var.existing_fargate_role_arn
   subnet_ids             = var.subnet_ids
   selectors              = var.fargate_profile_selectors
 
@@ -477,7 +538,7 @@ module "fargate_profile" {
 
   depends_on = [
     module.eks_cluster,
-    module.iam_roles
+    module.fargate_pod_execution_role
   ]
 }
 
@@ -487,7 +548,7 @@ module "fargate_profile_system" {
   count = length(var.fargate_system_profile_selectors) > 0 ? 1 : 0
   cluster_name           = module.eks_cluster.cluster_name
   profile_name           = "${local.cluster_name}-system-fargate-profile"
-  pod_execution_role_arn = var.create_iam_roles ? module.iam_roles.fargate_role_arn : var.existing_fargate_role_arn
+  pod_execution_role_arn = var.create_iam_roles ? module.fargate_pod_execution_role[0].role_arn : var.existing_fargate_role_arn
   subnet_ids             = var.subnet_ids
 
   # selectors = [
@@ -505,7 +566,7 @@ module "fargate_profile_system" {
 
   depends_on = [
     module.eks_cluster,
-    module.iam_roles
+    module.fargate_pod_execution_role
   ]
 }
 

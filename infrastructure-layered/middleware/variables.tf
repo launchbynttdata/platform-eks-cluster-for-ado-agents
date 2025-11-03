@@ -16,6 +16,12 @@ variable "remote_state_bucket" {
   type        = string
 }
 
+variable "remote_state_environment" {
+  description = "Environment prefix for remote state keys (matches env.hcl environment)"
+  type        = string
+  default     = ""
+}
+
 variable "base_state_key" {
   description = "S3 key for base layer Terraform state"
   type        = string

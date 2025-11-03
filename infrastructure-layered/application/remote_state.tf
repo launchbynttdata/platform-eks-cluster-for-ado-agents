@@ -4,11 +4,15 @@
 # The application layer depends on both base and middleware layers.
 
 # Base infrastructure layer state (EKS cluster, networking, IAM)
+locals {
+  remote_state_prefix = var.remote_state_environment != "" ? "${var.remote_state_environment}/" : ""
+}
+
 data "terraform_remote_state" "base" {
   backend = "s3"
   config = {
     bucket = var.remote_state_bucket
-    key    = "base/terraform.tfstate"
+    key    = "${local.remote_state_prefix}base/terraform.tfstate"
     region = var.remote_state_region
   }
 }
@@ -18,7 +22,7 @@ data "terraform_remote_state" "middleware" {
   backend = "s3"
   config = {
     bucket = var.remote_state_bucket
-    key    = "middleware/terraform.tfstate"
+    key    = "${local.remote_state_prefix}middleware/terraform.tfstate"
     region = var.remote_state_region
   }
 }
@@ -32,4 +36,10 @@ variable "remote_state_bucket" {
 variable "remote_state_region" {
   description = "AWS region for remote state bucket"
   type        = string
+}
+
+variable "remote_state_environment" {
+  description = "Environment prefix for remote state keys (matches env.hcl environment)"
+  type        = string
+  default     = ""
 }

@@ -49,22 +49,22 @@ output "cluster_oidc_issuer_url" {
 # IAM Role Information
 output "cluster_role_arn" {
   description = "ARN of the EKS cluster service role"
-  value       = var.create_iam_roles ? module.iam_roles.cluster_role_arn : var.existing_cluster_role_arn
+  value       = var.create_iam_roles ? module.eks_cluster_role[0].role_arn : var.existing_cluster_role_arn
 }
 
 output "fargate_role_arn" {
   description = "ARN of the Fargate pod execution role"
-  value       = var.create_iam_roles ? module.iam_roles.fargate_role_arn : var.existing_fargate_role_arn
+  value       = var.create_iam_roles ? module.fargate_pod_execution_role[0].role_arn : var.existing_fargate_role_arn
 }
 
 output "cluster_role_name" {
   description = "Name of the EKS cluster service role"
-  value       = var.create_iam_roles ? module.iam_roles.cluster_role_name : null
+  value       = var.create_iam_roles ? module.eks_cluster_role[0].role_name : null
 }
 
 output "fargate_role_name" {
   description = "Name of the Fargate pod execution role"
-  value       = var.create_iam_roles ? module.iam_roles.fargate_role_name : null
+  value       = var.create_iam_roles ? module.fargate_pod_execution_role[0].role_name : null
 }
 
 # Security Group Information
@@ -114,13 +114,13 @@ output "ec2_node_group_ids" {
 
 output "ec2_node_group_role_arn" {
   description = "ARN of the EC2 node group IAM role"
-  value       = length(var.ec2_node_group) > 0 ? aws_iam_role.ec2_node_group_role[0].arn : null
+  value       = length(var.ec2_node_group) > 0 ? module.ec2_node_group_role[0].role_arn : null
 }
 
 # Cluster Autoscaler
 output "cluster_autoscaler_role_arn" {
   description = "ARN of the cluster autoscaler IAM role"
-  value       = var.enable_cluster_autoscaler ? aws_iam_role.cluster_autoscaler_role[0].arn : null
+  value       = var.enable_cluster_autoscaler ? module.cluster_autoscaler_role[0].role_arn : null
 }
 
 output "cluster_autoscaler_namespace" {

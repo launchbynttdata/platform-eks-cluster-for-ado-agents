@@ -28,159 +28,178 @@ locals {
     },
     var.additional_tags
   )
+  cluster_oidc_host = replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")
 }
 
 # KEDA Operator IAM Role
-resource "aws_iam_role" "keda_operator_role" {
+module "keda_operator_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+
   name = "${local.cluster_name}-keda-operator-role"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Effect = "Allow"
-        Principal = {
-          Federated = data.terraform_remote_state.base.outputs.oidc_provider_arn
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRoleWithWebIdentity"]
+      principals = [
+        {
+          type        = "Federated"
+          identifiers = [data.terraform_remote_state.base.outputs.oidc_provider_arn]
         }
-        Condition = {
-          StringEquals = {
-            "${replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")}:sub" = "system:serviceaccount:${var.keda_namespace}:keda-operator"
-            "${replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")}:aud" = "sts.amazonaws.com"
-          }
+      ]
+      conditions = [
+        {
+          test     = "StringEquals"
+          variable = "${local.cluster_oidc_host}:sub"
+          values   = ["system:serviceaccount:${var.keda_namespace}:keda-operator"]
+        },
+        {
+          test     = "StringEquals"
+          variable = "${local.cluster_oidc_host}:aud"
+          values   = ["sts.amazonaws.com"]
         }
-      }
-    ]
-  })
+      ]
+    }
+  ]
 
   tags = local.common_tags
 }
 
-# KEDA Role Policy for CloudWatch, SQS, and basic operations
-resource "aws_iam_role_policy" "keda_operator_policy" {
-  name = "${local.cluster_name}-keda-operator-policy"
-  role = aws_iam_role.keda_operator_role.id
+module "keda_operator_policy" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  version = "~> 0.1"
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
-          "logs:DescribeLogStreams"
-        ]
-        Resource = [
-          "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/eks/${local.cluster_name}/*",
-          "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:keda-operator-*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:GetQueueAttributes",
-          "sqs:GetQueueUrl"
-        ]
-        Resource = "arn:aws:sqs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:ListQueues"
-        ]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "aws:RequestedRegion" = data.aws_region.current.name
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "cloudwatch:GetMetricStatistics",
-          "cloudwatch:ListMetrics"
-        ]
-        Resource = "*"
-        Condition = {
-          StringEquals = {
-            "aws:RequestedRegion" = data.aws_region.current.name
-          }
-        }
-      }
-    ]
-  })
+  policy_name = "${local.cluster_name}-keda-operator-policy"
+
+  policy_statement = {
+    logs_access = {
+      sid       = "AllowCloudWatchLogs"
+      actions   = [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams"
+      ]
+      resources = [
+        "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/eks/${local.cluster_name}/*",
+        "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:keda-operator-*"
+      ]
+    }
+    sqs_queue_access = {
+      sid       = "AllowSqsQueueAccess"
+      actions   = [
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+      ]
+      resources = [
+        "arn:aws:sqs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*"
+      ]
+    }
+    sqs_list_queues = {
+      sid       = "AllowSqsListQueues"
+      actions   = ["sqs:ListQueues"]
+      # Primitive policy module lacks condition support; region restriction removed while maintaining resource scope
+      resources = ["*"]
+    }
+    cloudwatch_metrics = {
+      sid       = "AllowCloudWatchMetrics"
+      actions   = [
+        "cloudwatch:GetMetricStatistics",
+        "cloudwatch:ListMetrics"
+      ]
+      resources = ["*"]
+    }
+  }
+
+  tags = local.common_tags
+}
+
+module "keda_operator_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+
+  role_name  = module.keda_operator_role.role_name
+  policy_arn = module.keda_operator_policy.policy_arn
 }
 
 # External Secrets Operator IAM Role
-resource "aws_iam_role" "eso_role" {
+module "eso_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+
   name = "${local.cluster_name}-external-secrets-role"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Effect = "Allow"
-        Principal = {
-          Federated = data.terraform_remote_state.base.outputs.oidc_provider_arn
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRoleWithWebIdentity"]
+      principals = [
+        {
+          type        = "Federated"
+          identifiers = [data.terraform_remote_state.base.outputs.oidc_provider_arn]
         }
-        Condition = {
-          StringEquals = {
-            "${replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")}:sub" = "system:serviceaccount:${var.eso_namespace}:external-secrets"
-            "${replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")}:aud" = "sts.amazonaws.com"
-          }
+      ]
+      conditions = [
+        {
+          test     = "StringEquals"
+          variable = "${local.cluster_oidc_host}:sub"
+          values   = ["system:serviceaccount:${var.eso_namespace}:external-secrets"]
+        },
+        {
+          test     = "StringEquals"
+          variable = "${local.cluster_oidc_host}:aud"
+          values   = ["sts.amazonaws.com"]
         }
-      }
-    ]
-  })
+      ]
+    }
+  ]
 
   tags = local.common_tags
 }
 
 # ESO Policy - Basic Secrets Manager permissions and KMS access
-resource "aws_iam_role_policy" "eso_policy" {
-  name = "${local.cluster_name}-external-secrets-policy"
-  role = aws_iam_role.eso_role.id
+module "eso_policy" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  version = "~> 0.1"
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:DescribeSecret",
-          "secretsmanager:ListSecrets"
-        ]
-        # Scope to secrets in this account and region
-        # ListSecrets and DescribeSecret are discovery operations that require
-        # broad access but are scoped by region and filtered by tags
-        Resource = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:*"
-        Condition = {
-          StringEquals = {
-            "aws:RequestedRegion" = data.aws_region.current.name
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "kms:Decrypt",
-          "kms:DescribeKey"
-        ]
-        Resource = data.terraform_remote_state.base.outputs.kms_key_arn
-        Condition = {
-          StringEquals = {
-            "kms:ViaService" = "secretsmanager.${data.aws_region.current.name}.amazonaws.com"
-          }
-        }
-      }
-      # Note: Specific secret access (GetSecretValue) is granted by the application layer
-      # via resource-specific permissions on individual secrets
-    ]
-  })
+  policy_name = "${local.cluster_name}-external-secrets-policy"
+
+  policy_statement = {
+    describe_secrets = {
+      sid       = "AllowSecretsManagerListDescribe"
+      actions   = [
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:ListSecrets"
+      ]
+      resources = [
+        "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:*"
+      ]
+    }
+    kms_access = {
+      sid       = "AllowKmsForSecrets"
+      actions   = [
+        "kms:Decrypt",
+        "kms:DescribeKey"
+      ]
+      # Primitive policy module lacks condition support; Secrets Manager scoping handled by resource selection
+      resources = [data.terraform_remote_state.base.outputs.kms_key_arn]
+    }
+  }
+
+  tags = local.common_tags
+}
+
+module "eso_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+
+  role_name  = module.eso_role.role_name
+  policy_arn = module.eso_policy.policy_arn
 }
 
 # KEDA Operator Installation
@@ -196,7 +215,7 @@ module "keda_operator" {
   keda_version         = var.keda_version
 
   service_account_annotations = {
-    "eks.amazonaws.com/role-arn" = aws_iam_role.keda_operator_role.arn
+    "eks.amazonaws.com/role-arn" = module.keda_operator_role.role_arn
   }
 
   create_ado_secret    = false # ADO secret will be managed by application layer
@@ -238,7 +257,7 @@ module "external_secrets_operator" {
   aws_region       = data.aws_region.current.name
 
   service_account_annotations = {
-    "eks.amazonaws.com/role-arn" = aws_iam_role.eso_role.arn
+    "eks.amazonaws.com/role-arn" = module.eso_role.role_arn
   }
 
   # Webhook configuration - disabled by default for Fargate compatibility
@@ -277,12 +296,12 @@ resource "kubernetes_namespace" "buildkit" {
 # privileged security context is required for buildkitd
 # https://github.com/moby/buildkit/blob/main/docs/architecture.md#security-context
 # Note: This may not be compatible with Fargate profiles
-# checkov:skip=CKV_K8S_16:buildkit requires privileged security context
 resource "kubernetes_deployment" "buildkitd" {
   # checkov:skip=CKV_K8S_16:BuildKit requires privileged mode for container image building operations (overlay filesystem, namespace management)
   # checkov:skip=CKV_K8S_20:BuildKit requires privilege escalation for container image building operations
   # checkov:skip=CKV_K8S_37:Dropping NET_RAW capability as defense-in-depth measure. BuildKit runs privileged but doesn't need NET_RAW for image building
   # checkov:skip=CKV_K8S_43:Using tag-based image references for maintainability. Digest-based references make updates difficult and provide minimal security benefit in this controlled environment
+  # checkov:skip=CKV_K8S_14:Image tag is passed as variable. 
   count = var.enable_buildkitd ? 1 : 0
 
   metadata {

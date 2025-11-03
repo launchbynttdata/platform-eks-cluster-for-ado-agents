@@ -10,7 +10,7 @@ output "keda_namespace" {
 
 output "keda_operator_role_arn" {
   description = "ARN of the KEDA operator IAM role"
-  value       = aws_iam_role.keda_operator_role.arn
+  value       = module.keda_operator_role.role_arn
 }
 
 output "keda_installed" {
@@ -31,7 +31,7 @@ output "eso_service_account_name" {
 
 output "eso_role_arn" {
   description = "ARN of the External Secrets Operator IAM role"
-  value       = aws_iam_role.eso_role.arn
+  value       = module.eso_role.role_arn
 }
 
 output "eso_installed" {

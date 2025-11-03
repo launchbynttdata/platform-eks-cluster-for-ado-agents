@@ -125,6 +125,7 @@ inputs = {
   # Remote state bucket (for middleware and application layers)
   remote_state_bucket = get_env("TF_STATE_BUCKET")
   remote_state_region = get_env("TF_STATE_REGION", local.aws_region)
+  remote_state_environment = local.environment
   
   # Common tags
   additional_tags = local.common_tags

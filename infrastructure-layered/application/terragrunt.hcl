@@ -45,7 +45,7 @@ terraform {
   # Validate kubectl access before applying
   before_hook "validate_kubectl" {
     commands = ["apply"]
-    execute  = ["bash", "-c", "kubectl cluster-info --context ${dependency.base.outputs.cluster_name} 2>/dev/null || echo '⚠️  Warning: kubectl not configured.'"]
+    execute  = ["bash", "-c", "kubectl cluster-info --context ${dependency.base.outputs.cluster_name} 2>/dev/null || (echo '⚠️  Warning: kubectl not configured.'; aws eks update-kubeconfig --name ${dependency.base.outputs.cluster_name}; kubectl cluster-info --context ${dependency.base.outputs.cluster_name})"]
   }
   
   # Show agent status after deployment
@@ -108,8 +108,7 @@ inputs = {
   ado_agents_namespace      = dependency.middleware.outputs.ado_agents_namespace
   
   # Remote state configuration (for compatibility)
-  base_state_key       = "base/terraform.tfstate"
-  middleware_state_key = "middleware/terraform.tfstate"
+  remote_state_environment = local.env.locals.environment
   
   # Azure DevOps Configuration
   ado_org                 = local.env.locals.ado_org
