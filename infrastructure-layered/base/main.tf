@@ -219,17 +219,136 @@ module "fargate_pod_execution_role_policy_attachment" {
 }
 
 # Security groups
-module "security_groups" {
-  source = "./modules/primitive/security-groups"
+module "cluster_security_group" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/security_group/aws"
+  version = "~> 0.1"
 
-  cluster_name        = local.cluster_name
-  vpc_id              = var.vpc_id
-  vpc_cidr            = data.aws_vpc.selected.cidr_block
-  create_cluster_sg   = true
-  create_fargate_sg   = true
-  allowed_cidr_blocks = [data.aws_vpc.selected.cidr_block]
+  name                  = join("-", [local.cluster_name, "cluster"])
+  description           = "Security group for EKS cluster ${local.cluster_name}"
+  vpc_id                = var.vpc_id
 
-  tags = local.common_tags
+  tags = merge(
+    local.common_tags,
+    {
+      Name = "${local.cluster_name}-cluster-sg"
+      Type = "EKS-Cluster"
+    }
+  )
+}
+
+module "cluster_security_group_ingress_vpc" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/vpc_security_group_ingress_rule/aws"
+  version = "~> 0.1"
+
+  security_group_id = module.cluster_security_group.id
+  description       = "Allow HTTPS access from VPC"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  cidr_ipv4         = data.aws_vpc.selected.cidr_block
+  tags = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-sg-api" })
+}
+
+module "cluster_security_group_egress_all" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  # checkov:skip=CKV_AWS_382:Unrestricted egress required for EKS control plane to reach AWS APIs and registries.
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/vpc_security_group_egress_rule/aws"
+  version = "~> 0.1"
+
+  security_group_id = module.cluster_security_group.id
+  description       = "Allow all outbound traffic"
+  ip_protocol       = "-1"
+  cidr_ipv4         = "0.0.0.0/0"
+  tags = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-sg-egress" })
+}
+
+module "fargate_security_group" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/security_group/aws"
+  version = "~> 0.1"
+
+  name                  = join("-", [local.cluster_name, "fargate-pods"])
+  description           = "Security group for Fargate pods in EKS cluster ${local.cluster_name}"
+  vpc_id                = var.vpc_id
+
+  tags = merge(
+    local.common_tags,
+    {
+      Name = "${local.cluster_name}-fargate-pods-sg"
+      Type = "EKS-Fargate-Pods"
+    }
+  )
+}
+
+module "fargate_security_group_ingress_from_vpc" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/vpc_security_group_ingress_rule/aws"
+  version = "~> 0.1"
+
+  security_group_id = module.fargate_security_group.id
+  description       = "Allow all TCP traffic from VPC"
+  ip_protocol       = "tcp"
+  from_port         = 0
+  to_port           = 65535
+  cidr_ipv4         = data.aws_vpc.selected.cidr_block
+  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-vpc" })
+}
+
+module "fargate_security_group_egress_all" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  # checkov:skip=CKV_AWS_382:Unrestricted egress required for Fargate workloads to reach registries, AWS APIs, and associated services.
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/vpc_security_group_egress_rule/aws"
+  version = "~> 0.1"
+
+  security_group_id = module.fargate_security_group.id
+  description       = "Allow all outbound traffic"
+  ip_protocol       = "-1"
+  cidr_ipv4         = "0.0.0.0/0"
+  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-egress" })
+}
+
+module "fargate_security_group_egress_https" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/vpc_security_group_egress_rule/aws"
+  version = "~> 0.1"
+
+  security_group_id = module.fargate_security_group.id
+  description       = "Explicit HTTPS outbound for ADO API"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  cidr_ipv4         = "0.0.0.0/0"
+  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-https" })
+}
+
+module "fargate_security_group_ingress_from_cluster" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/vpc_security_group_ingress_rule/aws"
+  version = "~> 0.1"
+
+  security_group_id            = module.fargate_security_group.id
+  referenced_security_group_id = module.cluster_security_group.id
+  description                  = "Allow communication from EKS cluster to Fargate pods"
+  ip_protocol                  = "tcp"
+  from_port                    = 0
+  to_port                      = 65535
+  tags = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-to-fargate" })
+}
+
+module "cluster_security_group_ingress_from_fargate" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/vpc_security_group_ingress_rule/aws"
+  version = "~> 0.1"
+
+  security_group_id            = module.cluster_security_group.id
+  referenced_security_group_id = module.fargate_security_group.id
+  description                  = "Allow Fargate pods to communicate with EKS cluster API"
+  ip_protocol                  = "tcp"
+  from_port                    = 443
+  to_port                      = 443
+  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-to-cluster" })
 }
 
 # EKS Cluster
@@ -245,8 +364,8 @@ module "eks_cluster" {
   endpoint_public_access = local.enable_public_endpoint
   public_access_cidrs    = local.effective_public_cidrs
   additional_security_group_ids = compact([
-    module.security_groups.cluster_security_group_id,
-    module.security_groups.fargate_security_group_id
+    module.cluster_security_group.id,
+    module.fargate_security_group.id
   ])
 
   kms_key_arn               = local.kms_key_arn
@@ -275,7 +394,7 @@ module "eks_cluster" {
 # Create OIDC provider for IRSA
 module "eks_cluster_oidc" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
-  source = "terraform.registry.launch.nttdata.com/module_primitive/iam_openid_connect_provider/aws"
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_openid_connect_provider/aws"
   version = "~> 0.1"
 
   client_id_list  = ["sts.amazonaws.com"]
@@ -346,7 +465,7 @@ resource "aws_eks_addon" "vpc_cni" {
   depends_on = [
     module.eks_cluster,
     module.eks_cluster_oidc,
-  module.vpc_cni_policy_attachment
+    module.vpc_cni_policy_attachment
   ]
 
   tags = local.common_tags
@@ -361,7 +480,7 @@ module "vpc_endpoints" {
   vpc_id                    = var.vpc_id
   subnet_ids                = var.subnet_ids
   route_table_ids           = data.aws_route_tables.private.ids
-  security_group_ids        = [module.security_groups.fargate_security_group_id]
+  security_group_ids        = [module.fargate_security_group.id]
   endpoint_services         = var.vpc_endpoint_services
   exclude_endpoint_services = var.exclude_vpc_endpoint_services
 
@@ -387,7 +506,7 @@ module "fargate_profile" {
   # Wait for IAM roles, cluster, and VPC CNI addon to be ready
   depends_on = [
     module.eks_cluster,
-  module.fargate_pod_execution_role,
+    module.fargate_pod_execution_role,
     aws_eks_addon.vpc_cni
   ]
 }
@@ -496,8 +615,8 @@ module "ec2_node_group_role" {
 
 module "ec2_node_group_policy_attachments" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
-  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
-  version = "~> 0.1"
+  source   = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version  = "~> 0.1"
   for_each = length(var.ec2_node_group) > 0 ? toset(var.ec2_node_group_policies) : []
 
   role_name  = module.ec2_node_group_role[0].role_name
@@ -550,8 +669,8 @@ module "cluster_autoscaler_policy" {
 
   policy_statement = {
     describe_operations = {
-      sid       = "DescribeClusterCompute"
-      actions   = [
+      sid = "DescribeClusterCompute"
+      actions = [
         "autoscaling:DescribeAutoScalingGroups",
         "autoscaling:DescribeAutoScalingInstances",
         "autoscaling:DescribeLaunchConfigurations",
@@ -563,8 +682,8 @@ module "cluster_autoscaler_policy" {
       resources = ["*"]
     }
     manage_asg = {
-      sid       = "ManageClusterAsg"
-      actions   = [
+      sid = "ManageClusterAsg"
+      actions = [
         "autoscaling:SetDesiredCapacity",
         "autoscaling:TerminateInstanceInAutoScalingGroup"
       ]
@@ -574,8 +693,8 @@ module "cluster_autoscaler_policy" {
       ]
     }
     describe_nodegroup = {
-      sid       = "DescribeEksNodegroups"
-      actions   = ["eks:DescribeNodegroup"]
+      sid     = "DescribeEksNodegroups"
+      actions = ["eks:DescribeNodegroup"]
       resources = [
         "arn:aws:eks:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:nodegroup/${local.cluster_name}/*/*"
       ]

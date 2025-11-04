@@ -20,12 +20,12 @@ output "registry_ids" {
 
 output "pull_policy_arn" {
   description = "ARN of the ECR pull policy"
-  value       = var.create_iam_policies && length(var.ecr_repositories) > 0 ? module.ecr_iam_policies[0].pull_policy_arn : ""
+  value       = var.create_iam_policies && length(var.ecr_repositories) > 0 ? module.ecr_pull_policy[0].policy_arn : ""
 }
 
 output "bastion_policy_arn" {
   description = "ARN of the ECR bastion policy"
-  value       = var.create_iam_policies && length(var.ecr_repositories) > 0 ? module.ecr_iam_policies[0].bastion_policy_arn : ""
+  value       = var.create_iam_policies && length(var.ecr_repositories) > 0 ? module.ecr_bastion_policy[0].policy_arn : ""
 }
 
 # Backward compatibility outputs for single repository

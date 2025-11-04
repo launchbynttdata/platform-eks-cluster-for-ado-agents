@@ -100,7 +100,7 @@ variable "eso_webhook_failure_policy" {
   description = "ESO webhook failure policy (Ignore or Fail)"
   type        = string
   default     = "Ignore"
-  
+
   validation {
     condition     = contains(["Ignore", "Fail"], var.eso_webhook_failure_policy)
     error_message = "eso_webhook_failure_policy must be either 'Ignore' or 'Fail'."

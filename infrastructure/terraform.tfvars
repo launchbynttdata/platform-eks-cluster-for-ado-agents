@@ -89,7 +89,7 @@ ecr_repositories = {
 }
 
 # Cluster Autoscaler Configuration
-enable_cluster_autoscaler = true
+enable_cluster_autoscaler  = true
 cluster_autoscaler_version = "v1.33.0"
 
 fargate_profile_selectors = [

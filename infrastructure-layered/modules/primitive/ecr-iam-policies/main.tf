@@ -1,4 +1,3 @@
-# Minimal IAM policy that can be attached to roles which need to pull images from ECR repos
 data "aws_iam_policy_document" "ecr_pull_policy" {
   count = var.create_pull_policy ? 1 : 0
 
@@ -37,7 +36,6 @@ resource "aws_iam_policy" "ecr_pull_policy" {
   tags   = var.tags
 }
 
-# Comprehensive ECR policy for bastion host (push and pull permissions)
 data "aws_iam_policy_document" "ecr_bastion_policy" {
   count = var.create_bastion_policy ? 1 : 0
 
@@ -82,7 +80,6 @@ resource "aws_iam_policy" "ecr_bastion_policy" {
   tags   = var.tags
 }
 
-# Attach the pull policy to the Fargate execution role
 resource "aws_iam_role_policy_attachment" "ecr_pull_to_fargate" {
   count = var.attach_pull_to_fargate && var.create_pull_policy ? 1 : 0
 
@@ -90,7 +87,6 @@ resource "aws_iam_role_policy_attachment" "ecr_pull_to_fargate" {
   policy_arn = aws_iam_policy.ecr_pull_policy[0].arn
 }
 
-# Attach the bastion policy to the bastion host role
 resource "aws_iam_role_policy_attachment" "ecr_bastion_policy" {
   count = var.attach_bastion_policy && var.create_bastion_policy ? 1 : 0
 

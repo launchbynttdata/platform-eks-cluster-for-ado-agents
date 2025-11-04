@@ -75,8 +75,8 @@ module "keda_operator_policy" {
 
   policy_statement = {
     logs_access = {
-      sid       = "AllowCloudWatchLogs"
-      actions   = [
+      sid = "AllowCloudWatchLogs"
+      actions = [
         "logs:CreateLogGroup",
         "logs:CreateLogStream",
         "logs:PutLogEvents",
@@ -88,8 +88,8 @@ module "keda_operator_policy" {
       ]
     }
     sqs_queue_access = {
-      sid       = "AllowSqsQueueAccess"
-      actions   = [
+      sid = "AllowSqsQueueAccess"
+      actions = [
         "sqs:GetQueueAttributes",
         "sqs:GetQueueUrl"
       ]
@@ -98,14 +98,14 @@ module "keda_operator_policy" {
       ]
     }
     sqs_list_queues = {
-      sid       = "AllowSqsListQueues"
-      actions   = ["sqs:ListQueues"]
+      sid     = "AllowSqsListQueues"
+      actions = ["sqs:ListQueues"]
       # Primitive policy module lacks condition support; region restriction removed while maintaining resource scope
       resources = ["*"]
     }
     cloudwatch_metrics = {
-      sid       = "AllowCloudWatchMetrics"
-      actions   = [
+      sid = "AllowCloudWatchMetrics"
+      actions = [
         "cloudwatch:GetMetricStatistics",
         "cloudwatch:ListMetrics"
       ]
@@ -170,8 +170,8 @@ module "eso_policy" {
 
   policy_statement = {
     describe_secrets = {
-      sid       = "AllowSecretsManagerListDescribe"
-      actions   = [
+      sid = "AllowSecretsManagerListDescribe"
+      actions = [
         "secretsmanager:DescribeSecret",
         "secretsmanager:ListSecrets"
       ]
@@ -180,8 +180,8 @@ module "eso_policy" {
       ]
     }
     kms_access = {
-      sid       = "AllowKmsForSecrets"
-      actions   = [
+      sid = "AllowKmsForSecrets"
+      actions = [
         "kms:Decrypt",
         "kms:DescribeKey"
       ]

@@ -62,12 +62,15 @@ output "keda_role_arn" {
 # Security Group outputs
 output "additional_security_group_ids" {
   description = "List of additional security group IDs attached to the cluster"
-  value       = module.security_groups.security_group_ids
+  value = compact([
+    module.cluster_security_group.security_group_id,
+    module.fargate_security_group.security_group_id
+  ])
 }
 
 output "fargate_security_group_id" {
   description = "ID of the Fargate pods security group"
-  value       = module.security_groups.fargate_security_group_id
+  value       = module.fargate_security_group.security_group_id
 }
 
 # Fargate Profile outputs

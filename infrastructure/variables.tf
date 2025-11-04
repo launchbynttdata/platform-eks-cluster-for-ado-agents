@@ -107,7 +107,7 @@ variable "eks_addons" {
       version = "v1.20.1-eksbuild.1" # Compatible with 1.33 (no change needed)
     }
     metrics-server = {
-      version = "v0.8.0-eksbuild.2" # Updated from v0.6.2-eksbuild.1
+      version              = "v0.8.0-eksbuild.2" # Updated from v0.6.2-eksbuild.1
       configuration_values = ""
     }
     # NOTE: kube-proxy and aws-ebs-csi-driver removed - incompatible with Fargate
@@ -345,7 +345,7 @@ variable "ado_execution_roles" {
   description = "Configuration for ADO agent execution roles"
   type = map(object({
     service_account_name = string
-    namespace = string
+    namespace            = string
     permissions = list(object({
       effect    = string
       actions   = list(string)
@@ -360,7 +360,7 @@ variable "ado_execution_roles" {
   default = {
     dev-build = {
       service_account_name = "ado-agent-dev-build"
-      namespace = "ado-agents"
+      namespace            = "ado-agents"
       permissions = [
         {
           effect = "Allow"
@@ -394,9 +394,9 @@ variable "ado_execution_roles" {
         }
       ]
     }
-  buildkit = {
+    buildkit = {
       service_account_name = "buildkit"
-      namespace = "build"
+      namespace            = "build"
       permissions = [
         {
           effect = "Allow"
@@ -432,7 +432,7 @@ variable "ado_execution_roles" {
     }
     iac = {
       service_account_name = "ado-agent-iac"
-      namespace = "ado-agents"
+      namespace            = "ado-agents"
       permissions = [
         {
           effect = "Allow"
@@ -473,9 +473,9 @@ variable "ec2_node_group" {
   }))
   default = {
     buildkit-nodes = {
-      cluster_name    = "" # to be filled in by the module
-      node_role_arn   = "" # to be filled in by the module
-      subnet_ids      = [] # to be filled in by the module
+      cluster_name  = "" # to be filled in by the module
+      node_role_arn = "" # to be filled in by the module
+      subnet_ids    = [] # to be filled in by the module
       # Default values, can be overridden
       desired_capacity = 1
       max_capacity     = 3
@@ -487,16 +487,16 @@ variable "ec2_node_group" {
       ]
     },
     system-nodes = {
-      cluster_name    = "" # to be filled in by the module
-      node_role_arn   = "" # to be filled in by the module
-      subnet_ids      = [] # to be filled in by the module
+      cluster_name  = "" # to be filled in by the module
+      node_role_arn = "" # to be filled in by the module
+      subnet_ids    = [] # to be filled in by the module
       # Default values, can be overridden
       desired_capacity = 1
       max_capacity     = 3
       min_capacity     = 0
       instance_types   = ["t3a.medium"]
       disk_size        = 20
-      taints           = [] 
+      taints           = []
     }
   }
 }
@@ -523,14 +523,14 @@ variable "cluster_autoscaler_namespace" {
 variable "cluster_autoscaler_settings" {
   description = "Configuration settings for cluster autoscaler"
   type = object({
-    scale_down_enabled           = optional(bool, true)
-    scale_down_delay_after_add   = optional(string, "10m")
-    scale_down_unneeded_time     = optional(string, "10m")
-    max_node_provision_time      = optional(string, "15m")
-    expander                     = optional(string, "least-waste")
-    skip_nodes_with_system_pods  = optional(bool, false)
+    scale_down_enabled            = optional(bool, true)
+    scale_down_delay_after_add    = optional(string, "10m")
+    scale_down_unneeded_time      = optional(string, "10m")
+    max_node_provision_time       = optional(string, "15m")
+    expander                      = optional(string, "least-waste")
+    skip_nodes_with_system_pods   = optional(bool, false)
     skip_nodes_with_local_storage = optional(bool, false)
-    balance_similar_node_groups  = optional(bool, true)
+    balance_similar_node_groups   = optional(bool, true)
   })
   default = {}
 }
@@ -544,7 +544,7 @@ variable "fargate_profile_selectors" {
 variable "fargate_system_profile_selectors" {
   description = "List of maps defining Fargate profile selectors"
   type        = list(object({ namespace = string, labels = optional(map(string), {}) }))
-  default     = [
+  default = [
     # {
     #   namespace = "kube-system"
     #   labels = {

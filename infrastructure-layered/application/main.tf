@@ -26,6 +26,44 @@ locals {
     },
     var.additional_tags
   )
+  cluster_oidc_host = replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")
+  eso_role_name     = split("/", data.terraform_remote_state.middleware.outputs.eso_role_arn)[1]
+
+  ado_execution_policy_statements = {
+    for role_key, role_cfg in var.ado_execution_roles :
+    role_key => {
+      for idx, permission in role_cfg.permissions :
+      format("stmt_%02d", idx + 1) => (
+        permission.effect == "Allow"
+        ? merge(
+          {
+            sid = format(
+              "Allow%s%02d",
+              replace(replace(upper(role_key), "-", ""), "_", ""),
+              idx + 1
+            )
+            actions   = permission.actions
+            resources = permission.resources
+          },
+          permission.condition == null
+          ? {}
+          : {
+            conditions = [
+              {
+                test     = permission.condition.test
+                variable = permission.condition.variable
+                values   = permission.condition.values
+              }
+            ]
+          }
+        )
+        : error(
+          "ADO execution role \"${role_key}\" permission index ${idx} uses effect \"${permission.effect}\".",
+          "The primitive IAM policy module only supports Allow statements."
+        )
+      )
+    }
+  }
 }
 
 # ECR Repositories for ADO agent images
@@ -76,29 +114,39 @@ resource "aws_secretsmanager_secret_version" "ado_pat" {
 }
 
 # ADO Agent Execution Roles (IRSA)
-resource "aws_iam_role" "ado_agent_execution_roles" {
+module "ado_agent_execution_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
   for_each = var.ado_execution_roles
+  source   = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version  = "~> 0.1"
 
   name = "${local.cluster_name}-ado-agent-${each.key}-role"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Effect = "Allow"
-        Principal = {
-          Federated = data.terraform_remote_state.base.outputs.oidc_provider_arn
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRoleWithWebIdentity"]
+      principals = [
+        {
+          type        = "Federated"
+          identifiers = [data.terraform_remote_state.base.outputs.oidc_provider_arn]
         }
-        Condition = {
-          StringEquals = {
-            "${replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")}:sub" = "system:serviceaccount:${each.value.namespace}:${each.value.service_account_name}"
-            "${replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")}:aud" = "sts.amazonaws.com"
-          }
+      ]
+      conditions = [
+        {
+          test     = "StringEquals"
+          variable = "${local.cluster_oidc_host}:sub"
+          values = [
+            "system:serviceaccount:${each.value.namespace}:${each.value.service_account_name}"
+          ]
+        },
+        {
+          test     = "StringEquals"
+          variable = "${local.cluster_oidc_host}:aud"
+          values   = ["sts.amazonaws.com"]
         }
-      }
-    ]
-  })
+      ]
+    }
+  ]
 
   tags = merge(local.common_tags, {
     Role      = "ADO-Agent-${title(each.key)}"
@@ -106,52 +154,61 @@ resource "aws_iam_role" "ado_agent_execution_roles" {
   })
 }
 
-# ADO Agent Execution Role Policies
-resource "aws_iam_role_policy" "ado_agent_execution_policies" {
+# Managed policies for ADO agent execution roles
+module "ado_agent_execution_policy" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
   for_each = var.ado_execution_roles
+  source   = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  version  = "~> 0.1"
 
-  name = "${local.cluster_name}-ado-agent-${each.key}-policy"
-  role = aws_iam_role.ado_agent_execution_roles[each.key].id
+  policy_name      = "${local.cluster_name}-ado-agent-${each.key}-policy"
+  policy_statement = local.ado_execution_policy_statements[each.key]
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      for permission in each.value.permissions : merge(
-        {
-          Effect   = permission.effect
-          Action   = permission.actions
-          Resource = permission.resources
-        },
-        permission.condition != null ? {
-          Condition = {
-            "${permission.condition.test}" = {
-              "${permission.condition.variable}" = permission.condition.values
-            }
-          }
-        } : {}
-      )
-    ]
+  tags = merge(local.common_tags, {
+    Role      = "ADO-Agent-${title(each.key)}"
+    Component = "ado-agent"
   })
 }
 
-# Grant ESO access to ADO PAT secret
-resource "aws_iam_role_policy" "eso_ado_secret_access" {
-  name = "${local.cluster_name}-eso-ado-secret-access"
-  role = split("/", data.terraform_remote_state.middleware.outputs.eso_role_arn)[1]
+module "ado_agent_execution_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  for_each = var.ado_execution_roles
+  source   = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version  = "~> 0.1"
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue",
-          "secretsmanager:DescribeSecret"
-        ]
-        Resource = aws_secretsmanager_secret.ado_pat.arn
-      }
-    ]
-  })
+  role_name  = module.ado_agent_execution_role[each.key].role_name
+  policy_arn = module.ado_agent_execution_policy[each.key].policy_arn
+}
+
+# Grant ESO access to ADO PAT secret via managed policy
+module "eso_ado_secret_access_policy" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  version = "~> 0.1"
+
+  policy_name = "${local.cluster_name}-eso-ado-secret-access"
+
+  policy_statement = {
+    secret_access = {
+      sid = "AllowAdoPatSecretAccess"
+      actions = [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DescribeSecret"
+      ]
+      resources = [aws_secretsmanager_secret.ado_pat.arn]
+    }
+  }
+
+  tags = local.common_tags
+}
+
+module "eso_ado_secret_access_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+
+  role_name  = local.eso_role_name
+  policy_arn = module.eso_ado_secret_access_policy.policy_arn
 }
 
 # Prepare Helm values for ADO agent deployment
@@ -193,7 +250,7 @@ locals {
 
           serviceAccount = {
             name    = pool_config.service_account_name
-            roleArn = aws_iam_role.ado_agent_execution_roles[pool_name].arn
+            roleArn = module.ado_agent_execution_role[pool_name].role_arn
           }
 
           resources = pool_config.resources
@@ -270,9 +327,8 @@ resource "helm_release" "ado_agents" {
   # Ensure dependencies are ready
   depends_on = [
     aws_secretsmanager_secret_version.ado_pat,
-    aws_iam_role.ado_agent_execution_roles,
-    aws_iam_role_policy.ado_agent_execution_policies,
-    aws_iam_role_policy.eso_ado_secret_access
+    module.ado_agent_execution_policy_attachment,
+    module.eso_ado_secret_access_policy_attachment
   ]
 
   # Wait for resources to be ready

@@ -12,7 +12,7 @@ resource "aws_eks_node_group" "this" {
     var.tags,
     { "Name" = var.node_group_name },
     var.enable_cluster_autoscaler ? {
-      "k8s.io/cluster-autoscaler/enabled"     = "true"
+      "k8s.io/cluster-autoscaler/enabled"             = "true"
       "k8s.io/cluster-autoscaler/${var.cluster_name}" = "owned"
     } : {},
     var.cluster_autoscaler_tags

@@ -32,7 +32,7 @@ output "cluster_certificate_authority_data" {
 
 output "cluster_security_group_id" {
   description = "Security group ID attached to the EKS cluster"
-  value       = module.security_groups.cluster_security_group_id
+  value       = module.cluster_security_group.id
 }
 
 # OIDC Provider Information
@@ -70,7 +70,7 @@ output "fargate_role_name" {
 # Security Group Information
 output "fargate_security_group_id" {
   description = "Security group ID for Fargate pods"
-  value       = module.security_groups.fargate_security_group_id
+  value       = module.fargate_security_group.id
 }
 
 # KMS Information

@@ -142,7 +142,7 @@ resource "kubernetes_manifest" "cluster_secret_store" {
 
   # Wait for CRDs to be available before creating this resource
   computed_fields = ["metadata.resourceVersion"]
-  
+
   depends_on = [
     time_sleep.wait_for_crds
   ]

@@ -193,7 +193,7 @@ variable "create_vpc_endpoints" {
 variable "vpc_endpoint_services" {
   description = "List of AWS services to create VPC endpoints for"
   type        = list(string)
-  default = []
+  default     = []
 }
 
 variable "exclude_vpc_endpoint_services" {
@@ -259,7 +259,7 @@ variable "ado_execution_roles" {
   description = "Configuration for ADO agent execution roles"
   type = map(object({
     service_account_name = string
-    namespace = string
+    namespace            = string
     permissions = list(object({
       effect    = string
       actions   = list(string)
@@ -277,7 +277,7 @@ variable "ado_execution_roles" {
 variable "ec2_node_group_policies" {
   description = "Additional IAM policies to attach to the EC2 node group role"
   type        = list(string)
-  default = []
+  default     = []
 }
 
 variable "ec2_node_group" {
@@ -319,14 +319,14 @@ variable "cluster_autoscaler_namespace" {
 variable "cluster_autoscaler_settings" {
   description = "Configuration settings for cluster autoscaler"
   type = object({
-    scale_down_enabled           = optional(bool, true)
-    scale_down_delay_after_add   = optional(string, "10m")
-    scale_down_unneeded_time     = optional(string, "10m")
-    max_node_provision_time      = optional(string, "15m")
-    expander                     = optional(string, "least-waste")
-    skip_nodes_with_system_pods  = optional(bool, false)
+    scale_down_enabled            = optional(bool, true)
+    scale_down_delay_after_add    = optional(string, "10m")
+    scale_down_unneeded_time      = optional(string, "10m")
+    max_node_provision_time       = optional(string, "15m")
+    expander                      = optional(string, "least-waste")
+    skip_nodes_with_system_pods   = optional(bool, false)
     skip_nodes_with_local_storage = optional(bool, false)
-    balance_similar_node_groups  = optional(bool, true)
+    balance_similar_node_groups   = optional(bool, true)
   })
   default = {}
 }

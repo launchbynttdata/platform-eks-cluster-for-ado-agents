@@ -8,7 +8,7 @@ module "ado_eks_cluster" {
   # Cluster Configuration
   cluster_name    = var.cluster_name
   cluster_version = var.cluster_version
-  eks_addons     = var.eks_addons
+  eks_addons      = var.eks_addons
   fargate_profile_selectors = concat(var.fargate_profile_selectors, [
     {
       namespace = var.keda_namespace
@@ -69,8 +69,8 @@ module "ado_eks_cluster" {
   create_vpc_endpoints          = var.create_vpc_endpoints
   vpc_endpoint_services         = var.vpc_endpoint_services
   exclude_vpc_endpoint_services = var.exclude_vpc_endpoint_services
-  ec2_node_group               = var.ec2_node_group
-  ec2_node_group_policies      = var.ec2_node_group_policies
+  ec2_node_group                = var.ec2_node_group
+  ec2_node_group_policies       = var.ec2_node_group_policies
 
   # Cluster Autoscaler Configuration
   enable_cluster_autoscaler    = var.enable_cluster_autoscaler
