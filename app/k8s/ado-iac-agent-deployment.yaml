@@ -22,17 +22,17 @@ spec:
         - name: AZP_ORG
           valueFrom:
             secretKeyRef:
-              name: ado-pat
+              name: ado-agent-pat
               key: organization
         - name: AZP_URL
           valueFrom:
             secretKeyRef:
-              name: ado-pat
+              name: ado-agent-pat
               key: adourl
         - name: AZP_TOKEN
           valueFrom:
             secretKeyRef:
-              name: ado-pat
+              name: ado-agent-pat
               key: personalAccessToken
         - name: AZP_POOL
           value: "batch-poc-eks-agent-iac-pool"

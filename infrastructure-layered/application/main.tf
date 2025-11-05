@@ -95,7 +95,7 @@ resource "aws_secretsmanager_secret" "ado_pat" {
     {
       Purpose    = "ADO-Integration"
       ManagedBy  = "terraform"
-      SecretType = "ado-pat"
+  SecretType = "ado-agent-pat"
     }
   )
 }
@@ -213,6 +213,9 @@ module "eso_ado_secret_access_policy_attachment" {
 
 # Prepare Helm values for ADO agent deployment
 locals {
+  ado_secret_name          = data.terraform_remote_state.middleware.outputs.ado_secret_name
+  ado_external_secret_name = "${local.ado_secret_name}-secret"
+
   helm_values = {
     global = {
       namespace   = data.terraform_remote_state.middleware.outputs.ado_agents_namespace
@@ -239,7 +242,7 @@ locals {
 
           ado = {
             poolName   = pool_config.ado_pool_name
-            secretName = data.terraform_remote_state.middleware.outputs.ado_secret_name
+            secretName = local.ado_secret_name
           }
 
           image = {
@@ -280,13 +283,13 @@ locals {
       enabled                = true
       clusterSecretStoreName = data.terraform_remote_state.middleware.outputs.cluster_secret_store_name
       secrets = {
-        ado-pat = {
+        "${local.ado_external_secret_name}" = {
           aws = {
             secretName = aws_secretsmanager_secret.ado_pat.name
             region     = data.aws_region.current.name
           }
           k8s = {
-            secretName      = data.terraform_remote_state.middleware.outputs.ado_secret_name
+            secretName      = local.ado_secret_name
             type            = "Opaque"
             refreshInterval = var.secret_refresh_interval
           }

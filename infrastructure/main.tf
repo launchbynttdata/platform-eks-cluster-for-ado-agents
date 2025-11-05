@@ -1,3 +1,7 @@
+locals {
+  ado_secret_name = var.ado_secret_name != null && trimspace(var.ado_secret_name) != "" ? var.ado_secret_name : var.ado_pat_secret_name
+}
+
 # Data sources
 # data "aws_region" "current" {}
 
@@ -59,7 +63,7 @@ module "ado_eks_cluster" {
   ado_pat_secret_name  = var.ado_pat_secret_name
   secret_recovery_days = var.secret_recovery_days
   create_ado_secret    = var.create_ado_secret
-  ado_secret_name      = var.ado_secret_name
+  ado_secret_name      = local.ado_secret_name
 
   # ADO Agent Execution Roles
   create_ado_execution_roles = var.create_ado_execution_roles

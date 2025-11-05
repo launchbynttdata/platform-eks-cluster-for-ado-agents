@@ -9,6 +9,11 @@ locals {
     },
     var.tags
   )
+  ado_secret_name = var.ado_secret_name != null && trimspace(var.ado_secret_name) != "" ? var.ado_secret_name : var.ado_pat_secret_name
+}
+
+locals {
+  ado_external_secret_name = "${local.ado_secret_name}-secret"
 }
 
 # Data sources
@@ -527,7 +532,7 @@ module "eso_role" {
 # }
 
 # External Secrets Operator Policy for Secrets Manager access
-# This policy is scoped to the ado-pat secret specifically
+# This policy is scoped to the ADO PAT secret specifically
 # To add additional secrets, add their ARNs to the Resource array below
 module "eso_policy" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
@@ -541,7 +546,7 @@ module "eso_policy" {
     secrets_manager = {
       sid     = "AllowSecretsManagerAccess"
       actions = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
-      # Currently scoped to ado-pat secret only
+  # Currently scoped to the ADO PAT secret only
       # To add additional secrets, add their ARNs to this array:
       # Example: [
       #   aws_secretsmanager_secret.ado_pat.arn,
@@ -760,7 +765,7 @@ module "keda_operator" {
 
   create_ado_secret    = var.create_ado_secret
   eso_managed_secret   = var.eso_create_ado_external_secret
-  ado_secret_name      = var.ado_secret_name
+  ado_secret_name      = local.ado_secret_name
   create_scaled_object = false # Will be created separately with actual deployment
   tolerations = [{
     key      = "ks.amazonaws.com/compute-type"
@@ -804,9 +809,9 @@ module "external_secrets_operator" {
   # Create ExternalSecret for ADO PAT
   create_external_secrets = var.create_external_secrets # Set to false initially, then true for custom resources
   external_secrets = var.eso_create_ado_external_secret ? {
-    "ado-pat-secret" = {
+    "${local.ado_external_secret_name}" = {
       namespace        = var.ado_agents_namespace
-      secret_name      = var.ado_secret_name
+      secret_name      = local.ado_secret_name
       aws_secret_name  = aws_secretsmanager_secret.ado_pat.name
       refresh_interval = "1h"
       secret_type      = "Opaque"

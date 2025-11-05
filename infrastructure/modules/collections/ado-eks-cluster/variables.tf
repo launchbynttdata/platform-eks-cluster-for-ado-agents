@@ -162,7 +162,7 @@ variable "ado_pat_value" {
 variable "ado_pat_secret_name" {
   description = "Name of the AWS Secret containing the ADO Personal Access Token"
   type        = string
-  default     = "ado-pat"
+  default     = "ado-agent-pat"
 }
 
 variable "secret_recovery_days" {
@@ -180,7 +180,7 @@ variable "create_ado_secret" {
 variable "ado_secret_name" {
   description = "Name of the Kubernetes secret for ADO PAT"
   type        = string
-  default     = "ado-pat"
+  default     = null
 }
 
 # VPC Endpoints Configuration

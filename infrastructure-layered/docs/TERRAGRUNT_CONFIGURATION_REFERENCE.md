@@ -214,13 +214,12 @@ keda_enable_cluster_cloudeventsource = false
 
 ```hcl
 ado_agents_namespace = "ado-agents"
-ado_secret_name      = "ado-pat"
 ```
 
 | Variable | Type | Required | Description |
 |----------|------|----------|-------------|
 | `ado_agents_namespace` | string | No | Namespace for ADO agents (default: ado-agents) |
-| `ado_secret_name` | string | No | Name of ADO PAT secret (default: ado-pat) |
+| `ado_secret_name` | string | No | Name of ADO PAT Kubernetes secret (defaults to `ado_pat_secret_name` when omitted) |
 
 ### External Secrets Operator
 

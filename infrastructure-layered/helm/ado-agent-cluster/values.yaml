@@ -96,22 +96,7 @@ agentPools:
 externalSecrets:
   enabled: true
   clusterSecretStoreName: "aws-secrets-manager"  # From middleware layer
-  secrets:
-    ado-pat:
-      # AWS Secret Manager configuration
-      aws:
-        secretName: ""  # Will be set by Terraform
-        region: us-west-2
-      # Kubernetes secret configuration
-      k8s:
-        secretName: "ado-pat"
-        type: Opaque
-        refreshInterval: "1h"
-      # Data mapping from AWS secret to K8s secret
-      data:
-        personalAccessToken: "personalAccessToken"
-        organization: "organization"
-        adourl: "adourl"
+  secrets: {}
 
 # Common labels applied to all resources
 commonLabels:

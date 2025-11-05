@@ -169,7 +169,11 @@ variable "ado_execution_roles" {
             "ecr:GetAuthorizationToken",
             "ecr:BatchCheckLayerAvailability",
             "ecr:GetDownloadUrlForLayer",
-            "ecr:BatchGetImage"
+            "ecr:BatchGetImage",
+            "ecr:PutImage",
+            "ecr:InitiateLayerUpload",
+            "ecr:UploadLayerPart",
+            "ecr:CompleteLayerUpload"
           ]
           resources = ["*"]
         }

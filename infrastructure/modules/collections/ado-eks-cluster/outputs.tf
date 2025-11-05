@@ -101,6 +101,11 @@ output "ado_pat_secret_name" {
   value       = aws_secretsmanager_secret.ado_pat.name
 }
 
+output "ado_secret_name" {
+  description = "Name of the Kubernetes secret for ADO PAT"
+  value       = local.ado_secret_name
+}
+
 # KEDA outputs
 output "keda_namespace" {
   description = "Name of the KEDA namespace"

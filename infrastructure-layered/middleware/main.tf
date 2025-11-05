@@ -29,6 +29,7 @@ locals {
     var.additional_tags
   )
   cluster_oidc_host = replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")
+  ado_secret_name   = var.ado_secret_name
 }
 
 # KEDA Operator IAM Role
@@ -220,7 +221,7 @@ module "keda_operator" {
 
   create_ado_secret    = false # ADO secret will be managed by application layer
   eso_managed_secret   = true  # ESO will manage the secret
-  ado_secret_name      = var.ado_secret_name
+  ado_secret_name      = local.ado_secret_name
   create_scaled_object = false # ScaledObjects will be created by application layer
 
   # Configure CloudEventSource controllers via environment variables

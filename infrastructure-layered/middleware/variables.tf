@@ -68,7 +68,7 @@ variable "ado_agents_namespace" {
 variable "ado_secret_name" {
   description = "Name of the Kubernetes secret for ADO PAT"
   type        = string
-  default     = "ado-pat"
+  default     = null
 }
 
 # External Secrets Operator Configuration

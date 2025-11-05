@@ -84,7 +84,7 @@ inputs = {
   
   # ADO Agent Configuration
   ado_agents_namespace = local.env.locals.ado_agents_namespace
-  ado_secret_name      = local.env.locals.ado_secret_name
+  ado_secret_name      = try(local.env.locals.ado_secret_name, local.env.locals.ado_pat_secret_name)
   
   # External Secrets Operator Configuration
   install_eso                = local.env.locals.install_eso

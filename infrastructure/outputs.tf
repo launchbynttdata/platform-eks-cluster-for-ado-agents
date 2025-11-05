@@ -99,6 +99,11 @@ output "ado_pat_secret_name" {
   value       = module.ado_eks_cluster.ado_pat_secret_name
 }
 
+output "ado_secret_name" {
+  description = "Name of the Kubernetes secret for ADO PAT"
+  value       = module.ado_eks_cluster.ado_secret_name
+}
+
 # KEDA outputs
 output "keda_namespace" {
   description = "Name of the KEDA namespace"

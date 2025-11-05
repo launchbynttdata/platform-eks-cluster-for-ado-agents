@@ -158,7 +158,7 @@ variable "eso_managed_secret" {
 variable "ado_secret_name" {
   description = "Name of the Kubernetes secret for ADO PAT"
   type        = string
-  default     = "ado-pat"
+  default     = "ado-agent-pat"
 }
 
 variable "create_scaled_object" {

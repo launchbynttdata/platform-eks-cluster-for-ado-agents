@@ -14,6 +14,25 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Helper to read terraform outputs without failing the script when terraform state is unavailable
+tf_output_or_empty() {
+    local name=$1
+    terraform output -raw "$name" 2>/dev/null || true
+}
+
+# Resolve secret names dynamically, allowing overrides via environment variables
+ADO_PAT_SECRET_NAME=${ADO_PAT_SECRET_NAME:-$(tf_output_or_empty ado_pat_secret_name)}
+if [ -z "$ADO_PAT_SECRET_NAME" ]; then
+    ADO_PAT_SECRET_NAME="ado-agent-pat"
+fi
+
+ADO_SECRET_NAME=${ADO_SECRET_NAME:-$(tf_output_or_empty ado_secret_name)}
+if [ -z "$ADO_SECRET_NAME" ]; then
+    ADO_SECRET_NAME="$ADO_PAT_SECRET_NAME"
+fi
+
+ADO_EXTERNAL_SECRET_NAME=${ADO_EXTERNAL_SECRET_NAME:-${ADO_SECRET_NAME}-secret}
+
 # Function to print colored output
 print_status() {
     local status=$1
@@ -132,21 +151,21 @@ check_cluster_secret_store() {
 check_external_secret() {
     print_status "INFO" "Checking ExternalSecret for ADO PAT..."
     
-    if kubectl get externalsecret ado-pat-secret -n ado-agents &> /dev/null; then
-        print_status "OK" "ExternalSecret 'ado-pat-secret' exists in ado-agents namespace"
+    if kubectl get externalsecret "$ADO_EXTERNAL_SECRET_NAME" -n ado-agents &> /dev/null; then
+        print_status "OK" "ExternalSecret '${ADO_EXTERNAL_SECRET_NAME}' exists in ado-agents namespace"
         
         # Check status
-        local ready=$(kubectl get externalsecret ado-pat-secret -n ado-agents -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+        local ready=$(kubectl get externalsecret "$ADO_EXTERNAL_SECRET_NAME" -n ado-agents -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
         
         if [ "$ready" = "True" ]; then
             print_status "OK" "ExternalSecret is ready and syncing"
         else
             print_status "FAIL" "ExternalSecret is not ready"
-            kubectl describe externalsecret ado-pat-secret -n ado-agents
+            kubectl describe externalsecret "$ADO_EXTERNAL_SECRET_NAME" -n ado-agents
             return 1
         fi
     else
-        print_status "FAIL" "ExternalSecret 'ado-pat-secret' not found in ado-agents namespace"
+        print_status "FAIL" "ExternalSecret '${ADO_EXTERNAL_SECRET_NAME}' not found in ado-agents namespace"
         return 1
     fi
 }
@@ -156,7 +175,7 @@ check_synced_secret() {
     print_status "INFO" "Checking synced Kubernetes secret..."
     
     # Get the secret name from ExternalSecret
-    local secret_name=$(kubectl get externalsecret ado-pat-secret -n ado-agents -o jsonpath='{.spec.target.name}')
+    local secret_name=$(kubectl get externalsecret "$ADO_EXTERNAL_SECRET_NAME" -n ado-agents -o jsonpath='{.spec.target.name}')
     
     if [ -z "$secret_name" ]; then
         print_status "FAIL" "Cannot determine target secret name from ExternalSecret"
@@ -209,7 +228,7 @@ EOF
     kubectl wait --for=condition=Ready pod/$test_pod_name -n external-secrets-system --timeout=60s
 
     # Test AWS Secrets Manager access
-    local secret_arn=$(kubectl exec $test_pod_name -n external-secrets-system -- aws secretsmanager describe-secret --secret-id ado-pat --query 'ARN' --output text 2>/dev/null || echo "")
+    local secret_arn=$(kubectl exec $test_pod_name -n external-secrets-system -- aws secretsmanager describe-secret --secret-id "$ADO_PAT_SECRET_NAME" --query 'ARN' --output text 2>/dev/null || echo "")
     
     # Cleanup test pod
     kubectl delete pod $test_pod_name -n external-secrets-system --wait=false

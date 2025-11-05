@@ -15,7 +15,7 @@ The initial config layer implementation used hardcoded values:
 - ESO ServiceAccount: `external-secrets` (hardcoded)
 - ClusterSecretStore name: `aws-secrets-manager` (hardcoded)
 - ADO agents namespace: `ado-agents` (hardcoded)
-- ADO secret name: `ado-pat` (hardcoded)
+- ADO secret name: `ado-agent-pat` (hardcoded)
 
 **Issues:**
 - Breaks if infrastructure is deployed with different variable values
@@ -114,7 +114,7 @@ deploy_config_layer() {
     # Get ESO configuration for later use in messages
     local css_name=$(get_eso_config_from_tf "cluster_secret_store_name" "aws-secrets-manager")
     local ado_namespace=$(get_eso_config_from_tf "ado_agents_namespace" "ado-agents")
-    local ado_secret=$(get_eso_config_from_tf "ado_secret_name" "ado-pat")
+   local ado_secret=$(get_eso_config_from_tf "ado_secret_name" "ado-agent-pat")
     
     # ...
     
@@ -140,7 +140,7 @@ The config layer now dynamically reads from these Terraform outputs:
 | ESO ServiceAccount | `eso_service_account_name` | `external-secrets` |
 | ClusterSecretStore Name | `cluster_secret_store_name` | `aws-secrets-manager` |
 | ADO Agents Namespace | `ado_agents_namespace` | `ado-agents` |
-| ADO Secret Name | `ado_secret_name` | `ado-pat` |
+| ADO Secret Name | `ado_secret_name` | `ado-agent-pat` |
 | Cluster Name | `cluster_name` | (AWS EKS list) |
 | AWS Region | `aws_region` | (from environment) |
 
@@ -189,7 +189,7 @@ Next Steps:
   
   2. Verify ExternalSecret syncs:
      kubectl get externalsecret -n ado-agents
-     kubectl get secret -n ado-agents ado-pat
+   kubectl get secret -n ado-agents ado-agent-pat
 ```
 
 ## Testing
