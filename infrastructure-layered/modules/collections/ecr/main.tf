@@ -74,7 +74,8 @@ locals {
 }
 
 module "ecr_pull_policy" {
-  source = "git::https://github.com/launchbynttdata/tf-aws-module_primitive-iam_policy.git?ref=0.3.0"
+  source = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  version = "~> 0.1"
   count  = local.iam_policies_enabled ? 1 : 0
 
   policy_name      = "${var.cluster_name}-ecr-pull"
@@ -85,7 +86,8 @@ module "ecr_pull_policy" {
 }
 
 module "ecr_bastion_policy" {
-  source = "git::https://github.com/launchbynttdata/tf-aws-module_primitive-iam_policy.git?ref=0.3.0"
+  source = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  version = "~> 0.1"
   count  = local.iam_policies_enabled ? 1 : 0
 
   policy_name      = "${var.cluster_name}-ecr-bastion"
@@ -96,7 +98,8 @@ module "ecr_bastion_policy" {
 }
 
 module "ecr_pull_policy_attachment" {
-  source = "git::https://github.com/launchbynttdata/tf-aws-module_primitive-iam_role_policy_attachment.git?ref=0.1.0"
+  source = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
   count  = local.iam_policies_enabled && var.attach_pull_to_fargate && var.fargate_role_name != "" ? 1 : 0
 
   role_name  = var.fargate_role_name
@@ -104,7 +107,8 @@ module "ecr_pull_policy_attachment" {
 }
 
 module "ecr_bastion_policy_attachment" {
-  source = "git::https://github.com/launchbynttdata/tf-aws-module_primitive-iam_role_policy_attachment.git?ref=0.1.0"
+  source = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
   count  = local.iam_policies_enabled && var.attach_bastion_policy && var.bastion_role_name != "" ? 1 : 0
 
   role_name  = var.bastion_role_name
