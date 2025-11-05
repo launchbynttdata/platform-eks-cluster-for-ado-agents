@@ -45,7 +45,7 @@ terraform {
   # Validate kubectl access before applying
   before_hook "validate_kubectl" {
     commands = ["apply"]
-    execute  = ["bash", "-c", "kubectl cluster-info --context ${dependency.base.outputs.cluster_name} 2>/dev/null || (echo '⚠️  Warning: kubectl not configured.'; aws eks update-kubeconfig --name ${dependency.base.outputs.cluster_name}; kubectl cluster-info --context ${dependency.base.outputs.cluster_name})"]
+    execute  = ["bash", "-c", "kubectl cluster-info --context ${dependency.base.outputs.cluster_name} 2>/dev/null || (echo '⚠️  Warning: kubectl not configured.'; aws eks update-kubeconfig --alias ${dependency.base.outputs.cluster_name} --name ${dependency.base.outputs.cluster_name}; kubectl cluster-info --context ${dependency.base.outputs.cluster_name})"]
   }
   
   # Show agent status after deployment
