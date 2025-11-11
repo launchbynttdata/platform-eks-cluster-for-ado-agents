@@ -301,8 +301,29 @@ locals {
         }
       }
       
-      node_selector = {}
-      tolerations   = []
+      node_selector = {
+        "workload-type"                      = "agent"
+      }
+      tolerations   = [
+        {
+          key      = "workload-type"
+          operator = "Equal"
+          value    = "agent"
+          effect   = "NoSchedule"
+        },
+        {
+          key      = "node-role.kubernetes.io/ado-agent"
+          operator = "Equal"
+          value    = "true"
+          effect   = "NoSchedule"
+        },
+        {
+          key      = "aws.amazon.com/fargate"
+          operator = "Equal"
+          value    = "true"
+          effect   = "NoSchedule"
+        }
+      ]
     }
     
     iac = {
@@ -326,8 +347,28 @@ locals {
         }
       }
       
-      node_selector = {}
-      tolerations   = []
+      node_selector = {
+        "workload-type"                      = "agent"
+      }
+      tolerations   = [
+        {
+          key      = "workload-type"
+          operator = "Equal"
+          value    = "agent"
+          effect   = "NoSchedule"
+        },
+        {
+          key      = "node-role.kubernetes.io/ado-agent"
+          operator = "Equal"
+          value    = "true"
+          effect   = "NoSchedule"
+        },
+        {
+          key      = "aws.amazon.com/fargate"
+          operator = "Equal"
+          value    = "true"
+          effect   = "NoSchedule"
+        }
     }
   }
   
