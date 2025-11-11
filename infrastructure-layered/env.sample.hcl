@@ -60,20 +60,7 @@ locals {
   # Set to {} to disable Fargate and use only EC2 node groups
   fargate_profiles = {
     apps = {
-      selectors = [
-        {
-          namespace = "keda-system"
-          labels    = {}
-        },
-        {
-          namespace = "external-secrets"
-          labels    = {}
-        },
-        {
-          namespace = "ado-agents"
-          labels    = {}
-        }
-      ]
+      selectors = []
     }
     # Uncomment to enable Fargate for CoreDNS
     # system = {
@@ -118,25 +105,57 @@ locals {
   # EC2 Node Groups (optional - leave empty {} if using only Fargate)
   ec2_node_groups = {
     # Uncomment to enable EC2 nodes for buildkit or other workloads
-    # "buildkit-nodes" = {
-    #   instance_types = ["t3.medium", "t3.large"]
-    #   disk_size      = 100
-    #   ami_type       = "AL2_x86_64"
-    #   capacity_type  = "ON_DEMAND"
-    #   desired_size   = 1
-    #   max_size       = 5
-    #   min_size       = 0
-    #   labels = {
-    #     "workload-type" = "buildkit"
-    #   }
-    #   taints = [
-    #     {
-    #       key    = "workload-type"
-    #       value  = "buildkit"
-    #       effect = "NoSchedule"
-    #     }
-    #   ]
-    # }
+    "buildkit-nodes" = {
+      instance_types = ["t3a.xlarge"]
+      disk_size      = 100
+      ami_type       = "AL2_x86_64"
+      capacity_type  = "ON_DEMAND"
+      desired_size   = 1
+      max_size       = 5
+      min_size       = 0
+      labels = {
+        "workload-type" = "buildkit"
+      }
+      taints = [
+        {
+          key    = "workload-type"
+          value  = "buildkit"
+          effect = "NoSchedule"
+        }
+      ]
+    },
+    "agent-nodes" = {
+      instance_types = ["t3a.xlarge"]
+      disk_size      = 100
+      ami_type       = "AL2_x86_64"
+      capacity_type  = "ON_DEMAND"
+      desired_size   = 1
+      max_size       = 5
+      min_size       = 0
+      labels = {
+        "workload-type" = "agent"
+      }
+      taints = [
+        {
+          key    = "node-role.kubernetes.io/ado-agent"
+          value  = "true"
+          effect = "NoSchedule"
+        }
+      ]
+    },
+    "system-nodes" = {
+      instance_types = ["t3a.medium"]
+      disk_size      = 50
+      ami_type       = "AL2_x86_64"
+      capacity_type  = "ON_DEMAND"
+      desired_size   = 1
+      max_size       = 3
+      min_size       = 0
+      labels = {
+        "workload-type" = "system"
+      }
+      taints = []
+    }
   }
   
   # =============================================================================
