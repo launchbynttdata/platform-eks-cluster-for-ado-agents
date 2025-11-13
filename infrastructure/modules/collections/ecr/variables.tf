@@ -8,6 +8,7 @@ variable "ecr_repositories" {
     scan_on_push            = optional(bool, true)
     lifecycle_untagged_days = optional(number, 7)
     keep_tagged_count       = optional(number, 10)
+    image_tag_mutability_filter = optional(list(string), [])
   }))
   default = {}
 }

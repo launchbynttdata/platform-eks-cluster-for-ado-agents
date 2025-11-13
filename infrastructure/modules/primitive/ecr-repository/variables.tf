@@ -13,6 +13,12 @@ variable "image_tag_mutability" {
   }
 }
 
+variable "image_tag_mutability_filter" {
+  description = "Filter for image tags to apply the mutability setting (e.g., 'release-*')"
+  type        = list(string)
+  default     = []
+}
+
 variable "encryption_type" {
   description = "Encryption type for the repository (AES256 or KMS)"
   type        = string

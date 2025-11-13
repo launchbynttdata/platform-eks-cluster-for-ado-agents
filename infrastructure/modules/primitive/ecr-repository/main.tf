@@ -14,6 +14,15 @@ resource "aws_ecr_repository" "repository" {
     scan_on_push = var.scan_on_push
   }
 
+  # This is only supported in the AWS provider 6.0.0 and later
+  # dynamic "image_tag_mutability_filter" {
+  #   for_each = length(var.image_tag_mutability_filter) > 0 ? [1] : []
+  #   content {
+  #     filter = var.image_tag_mutability_filter
+  #     filter_type = "WILDCARD"
+  #   }
+  # }
+
   tags = var.tags
 }
 

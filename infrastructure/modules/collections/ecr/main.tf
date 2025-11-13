@@ -11,6 +11,7 @@ module "ecr_repositories" {
   scan_on_push            = each.value.scan_on_push
   lifecycle_untagged_days = each.value.lifecycle_untagged_days
   keep_tagged_count       = each.value.keep_tagged_count
+  image_tag_mutability_filter = each.value.image_tag_mutability_filter
   tags                    = var.tags
 }
 
