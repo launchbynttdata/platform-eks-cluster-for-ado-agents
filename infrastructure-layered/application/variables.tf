@@ -53,7 +53,7 @@ variable "ecr_repositories" {
       }
       lifecycle_policy_text = "" # Empty string will use default policy from locals
     }
-    ado-agent-iac = {
+    ado-iac-agent = {
       image_tag_mutability = "IMMUTABLE"
       image_scanning_configuration = {
         scan_on_push = true
@@ -179,9 +179,9 @@ variable "ado_execution_roles" {
         }
       ]
     }
-    ado-agent-iac = {
+    ado-iac-agent = {
       namespace            = "ado-agents"
-      service_account_name = "ado-agent-iac"
+      service_account_name = "ado-iac-agent"
       permissions = [
         {
           effect = "Allow"
@@ -319,14 +319,14 @@ variable "agent_pools" {
       volume_mounts       = []
       volumes             = []
     }
-    ado-agent-iac = {
+    ado-iac-agent = {
       enabled              = true
       ado_pool_name        = "EKS-IaC-Agents"
-      ecr_repository_key   = "ado-agent-iac"
+      ecr_repository_key   = "ado-iac-agent"
       image_repository     = "mcr.microsoft.com/azure-pipelines/vsts-agent"
       image_tag            = "ubuntu-20.04"
       image_pull_policy    = "IfNotPresent"
-      service_account_name = "ado-agent-iac"
+      service_account_name = "ado-iac-agent"
       resources = {
         requests = {
           cpu    = "200m"

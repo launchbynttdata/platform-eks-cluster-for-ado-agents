@@ -551,7 +551,7 @@ agent_pools = {
       }
     ]
   }
-  ado-agent-iac = {
+  ado-iac-agent = {
     enabled              = true
     ado_pool_name       = "EKS-Prod-IaC-Agents"
     resources = {

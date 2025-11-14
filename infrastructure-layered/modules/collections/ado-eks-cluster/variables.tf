@@ -260,7 +260,7 @@ variable "ado_execution_roles" {
   type = map(object({
     service_account_name = string
     namespace            = string
-    permissions = list(object({
+    permissions = optional(list(object({
       effect    = string
       actions   = list(string)
       resources = list(string)
@@ -269,7 +269,9 @@ variable "ado_execution_roles" {
         variable = string
         values   = list(string)
       }))
-    }))
+    })), [])
+    existing_role_arn  = optional(string)
+    attach_policy_arns = optional(list(string), [])
   }))
   default = {}
 }

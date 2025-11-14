@@ -206,7 +206,7 @@ module "cluster_security_group_ingress_vpc" {
   from_port         = 443
   to_port           = 443
   cidr_ipv4         = data.aws_vpc.selected.cidr_block
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-sg-api" })
+  tags              = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-sg-api" })
 }
 
 module "cluster_security_group_egress_all" {
@@ -217,7 +217,7 @@ module "cluster_security_group_egress_all" {
   description       = "Allow all outbound traffic"
   ip_protocol       = "-1"
   cidr_ipv4         = "0.0.0.0/0"
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-sg-egress" })
+  tags              = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-sg-egress" })
 }
 
 module "fargate_security_group" {
@@ -248,7 +248,7 @@ module "fargate_security_group_ingress_from_vpc" {
   from_port         = 0
   to_port           = 65535
   cidr_ipv4         = data.aws_vpc.selected.cidr_block
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-vpc" })
+  tags              = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-vpc" })
 }
 
 module "fargate_security_group_egress_all" {
@@ -259,7 +259,7 @@ module "fargate_security_group_egress_all" {
   description       = "Allow all outbound traffic"
   ip_protocol       = "-1"
   cidr_ipv4         = "0.0.0.0/0"
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-egress" })
+  tags              = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-egress" })
 }
 
 module "fargate_security_group_egress_https" {
@@ -272,7 +272,7 @@ module "fargate_security_group_egress_https" {
   from_port         = 443
   to_port           = 443
   cidr_ipv4         = "0.0.0.0/0"
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-https" })
+  tags              = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-https" })
 }
 
 module "fargate_security_group_ingress_from_cluster" {
@@ -285,7 +285,7 @@ module "fargate_security_group_ingress_from_cluster" {
   ip_protocol                  = "tcp"
   from_port                    = 0
   to_port                      = 65535
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-to-fargate" })
+  tags                         = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-to-fargate" })
 }
 
 module "cluster_security_group_ingress_from_fargate" {
@@ -298,7 +298,7 @@ module "cluster_security_group_ingress_from_fargate" {
   ip_protocol                  = "tcp"
   from_port                    = 443
   to_port                      = 443
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-to-cluster" })
+  tags                         = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-to-cluster" })
 }
 
 # EKS Cluster
@@ -546,7 +546,7 @@ module "eso_policy" {
     secrets_manager = {
       sid     = "AllowSecretsManagerAccess"
       actions = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
-  # Currently scoped to the ADO PAT secret only
+      # Currently scoped to the ADO PAT secret only
       # To add additional secrets, add their ARNs to this array:
       # Example: [
       #   aws_secretsmanager_secret.ado_pat.arn,
@@ -571,11 +571,48 @@ module "eso_policy_attachment" {
 }
 
 # ADO Agent Execution Roles (created after OIDC provider for IRSA)
+locals {
+  create_managed_ado_roles = var.create_ado_execution_roles && var.create_iam_roles
+
+  ado_managed_role_configs = create_managed_ado_roles ? {
+    for key, cfg in var.ado_execution_roles :
+    key => cfg
+    if try(trimspace(cfg.existing_role_arn), "") == ""
+  } : {}
+
+  ado_existing_role_configs = {
+    for key, cfg in var.ado_execution_roles :
+    key => cfg
+    if try(trimspace(cfg.existing_role_arn), "") != ""
+  }
+
+  ado_managed_role_configs_with_permissions = {
+    for key, cfg in local.ado_managed_role_configs :
+    key => cfg
+    if length(try(cfg.permissions, [])) > 0
+  }
+
+  ado_attached_policy_pairs = local.create_managed_ado_roles ? {
+    for attachment in flatten([
+      for role_key, cfg in local.ado_managed_role_configs : [
+        for policy_index, policy_arn in try(cfg.attach_policy_arns, []) : {
+          key        = "${role_key}-${policy_index}"
+          role_key   = role_key
+          policy_arn = policy_arn
+        }
+      ]
+      ]) : attachment.key => {
+      role_key   = attachment.role_key
+      policy_arn = attachment.policy_arn
+    }
+  } : {}
+}
+
 module "ado_agent_execution_roles" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source   = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
   version  = "~> 0.1"
-  for_each = var.create_ado_execution_roles && var.create_iam_roles ? var.ado_execution_roles : {}
+  for_each = local.ado_managed_role_configs
 
   name = "${local.cluster_name}-ado-agent-${each.key}-role"
 
@@ -613,7 +650,7 @@ module "ado_agent_execution_policies" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source   = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
   version  = "~> 0.1"
-  for_each = var.create_ado_execution_roles && var.create_iam_roles ? var.ado_execution_roles : {}
+  for_each = local.ado_managed_role_configs_with_permissions
 
   policy_name = "${local.cluster_name}-ado-agent-${each.key}-policy"
 
@@ -635,10 +672,32 @@ module "ado_agent_execution_policy_attachments" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source   = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
   version  = "~> 0.1"
-  for_each = var.create_ado_execution_roles && var.create_iam_roles ? var.ado_execution_roles : {}
+  for_each = local.ado_managed_role_configs_with_permissions
 
   role_name  = module.ado_agent_execution_roles[each.key].name
   policy_arn = module.ado_agent_execution_policies[each.key].policy_arn
+}
+
+module "ado_agent_execution_existing_policy_attachments" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source   = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version  = "~> 0.1"
+  for_each = local.ado_attached_policy_pairs
+
+  role_name  = module.ado_agent_execution_roles[each.value.role_key].name
+  policy_arn = each.value.policy_arn
+}
+
+locals {
+  ado_execution_role_arns = merge(
+    local.create_managed_ado_roles ? { for k, v in module.ado_agent_execution_roles : k => v.arn } : {},
+    { for k, cfg in local.ado_existing_role_configs : k => cfg.existing_role_arn }
+  )
+
+  ado_execution_role_names = merge(
+    local.create_managed_ado_roles ? { for k, v in module.ado_agent_execution_roles : k => v.name } : {},
+    { for k, cfg in local.ado_existing_role_configs : k => element(reverse(split("/", cfg.existing_role_arn)), 0) }
+  )
 }
 
 # VPC Endpoints (optional)

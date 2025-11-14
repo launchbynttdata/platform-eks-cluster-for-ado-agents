@@ -170,7 +170,7 @@ agentPools:
       repository: "123456789.dkr.ecr.us-west-2.amazonaws.com/ado-iac-agent"
       tag: "v1.0.0"
     serviceAccount:
-      name: "ado-agent-iac"
+      name: "ado-iac-agent"
       roleArn: "arn:aws:iam::123456789:role/ado-iac-role"
     resources:
       requests:

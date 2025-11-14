@@ -20,8 +20,8 @@ The application layer is the third and final layer in the infrastructure stack:
 │  │   ECR Repos     │  │  ADO Secrets    │  │   IAM Roles     │                   │
 │  │                 │  │                 │  │   (IRSA)        │                   │
 │  │ ado-agent       │  │ PersonalAccess  │  │                 │                   │
-│  │ ado-agent-iac   │  │ Token           │  │ ado-agent       │                   │
-│  └─────────────────┘  └─────────────────┘  │ ado-agent-iac   │                   │
+│  │ ado-iac-agent   │  │ Token           │  │ ado-agent       │                   │
+│  └─────────────────┘  └─────────────────┘  │ ado-iac-agent   │                   │
 │                                             └─────────────────┘                   │
 │                                                                                     │
 │  ┌───────────────────────────────────────────────────────────────────────────────┐ │
@@ -44,7 +44,7 @@ The application layer is the third and final layer in the infrastructure stack:
 
 ### ECR Repositories
 - **ado-agent**: Repository for general-purpose ADO agent images
-- **ado-agent-iac**: Repository for infrastructure/Terraform-focused agent images
+- **ado-iac-agent**: Repository for infrastructure/Terraform-focused agent images
 - Includes lifecycle policies for image cleanup
 - KMS encryption using cluster key
 - Vulnerability scanning enabled
@@ -57,7 +57,7 @@ The application layer is the third and final layer in the infrastructure stack:
 
 ### IAM Roles (IRSA)
 - **ado-agent**: Basic ECR pull permissions
-- **ado-agent-iac**: Extended permissions for Terraform operations
+- **ado-iac-agent**: Extended permissions for Terraform operations
   - ECR push/pull
   - S3 state bucket access
   - DynamoDB state locking
@@ -402,7 +402,7 @@ terraform destroy
 
 # Clean up ECR repositories (if needed)
 aws ecr delete-repository --repository-name ado-agent --force
-aws ecr delete-repository --repository-name ado-agent-iac --force
+aws ecr delete-repository --repository-name ado-iac-agent --force
 ```
 
 ## Integration with CI/CD

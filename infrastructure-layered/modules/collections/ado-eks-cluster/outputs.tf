@@ -181,21 +181,23 @@ output "eso_cluster_secret_store_name" {
 # ADO Agent Execution Roles outputs
 output "ado_agent_execution_role_arns" {
   description = "ARNs of the ADO agent execution IAM roles"
-  value       = var.create_ado_execution_roles && var.create_iam_roles ? { for k, v in module.ado_agent_execution_roles : k => v.arn } : {}
+  value       = local.ado_execution_role_arns
 }
 
 output "ado_agent_execution_role_names" {
   description = "Names of the ADO agent execution IAM roles"
-  value       = var.create_ado_execution_roles && var.create_iam_roles ? { for k, v in module.ado_agent_execution_roles : k => v.name } : {}
+  value       = local.ado_execution_role_names
 }
 
 output "ado_agent_service_account_annotations" {
   description = "Service account annotations for ADO agent roles (for Kubernetes ServiceAccount configuration)"
-  value = var.create_ado_execution_roles && var.create_iam_roles ? {
-    for role_name, role_config in var.ado_execution_roles : role_config.service_account_name => {
-      "eks.amazonaws.com/role-arn" = module.ado_agent_execution_roles[role_name].arn
+  value = {
+    for role_key, role_config in var.ado_execution_roles :
+    role_config.service_account_name => {
+      "eks.amazonaws.com/role-arn" = local.ado_execution_role_arns[role_key]
     }
-  } : {}
+    if contains(keys(local.ado_execution_role_arns), role_key)
+  }
 }
 
 # Cluster Autoscaler outputs

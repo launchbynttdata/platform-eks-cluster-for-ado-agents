@@ -62,7 +62,7 @@ module "ado_eks_cluster" {
       ]
     }
     iac = {
-      service_account_name = "ado-agent-iac"
+      service_account_name = "ado-iac-agent"
       permissions = [
         {
           effect = "Allow"
@@ -101,6 +101,46 @@ ado_execution_roles = {
           values   = ["us-west-2"]
         }
       }
+    ]
+  }
+}
+```
+
+### Referencing Existing IAM Roles
+
+If you already manage the IAM role elsewhere, provide its ARN and skip permission statements:
+
+```hcl
+ado_execution_roles = {
+  external = {
+    service_account_name = "ado-agent-external"
+    namespace            = "ado-agents"
+    existing_role_arn    = "arn:aws:iam::123456789012:role/existing-ado-agent"
+    permissions          = []
+  }
+}
+```
+
+The module will not create or update the role, but it will include the ARN in the outputs and service-account annotations.
+
+### Attaching Additional Managed Policies
+
+For roles managed by this module, you can attach extra IAM policies in addition to the inline statements:
+
+```hcl
+ado_execution_roles = {
+  dev-build = {
+    service_account_name = "ado-agent-dev-build"
+    namespace            = "ado-agents"
+    permissions = [
+      {
+        effect    = "Allow"
+        actions   = ["ecr:GetAuthorizationToken"]
+        resources = ["*"]
+      }
+    ]
+    attach_policy_arns = [
+      "arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess"
     ]
   }
 }

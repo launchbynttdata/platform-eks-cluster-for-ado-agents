@@ -243,7 +243,7 @@ locals {
       }
       lifecycle_policy_text = "" # Empty string will use default policy
     }
-    ado-agent-iac = {
+    ado-iac-agent = {
       image_tag_mutability = "IMMUTABLE"
       image_scanning_configuration = {
         scan_on_push = true
@@ -274,9 +274,9 @@ locals {
         }
       ]
     }
-    ado-agent-iac = {
+    ado-iac-agent = {
       namespace            = "ado-agents"
-      service_account_name = "ado-agent-iac"
+      service_account_name = "ado-iac-agent"
       permissions = [
         {
           effect = "Allow"
@@ -347,7 +347,7 @@ locals {
     
     iac = {
       pool_name           = "EKS-ADO-IaC-Agents"
-      service_account     = "ado-agent-iac"
+      service_account     = "ado-iac-agent"
       image_repository    = "" # Empty = use public image, otherwise use ECR URL
       image_tag           = "latest"
       min_replicas        = 0
