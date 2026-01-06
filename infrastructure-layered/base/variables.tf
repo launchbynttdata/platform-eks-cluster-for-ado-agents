@@ -195,6 +195,14 @@ variable "eks_addons" {
     }
     "metrics-server" = {
       version = "v0.7.2-eksbuild.1"
+        configuration_values = <<JSON
+{
+  "args": [
+    "--kubelet-insecure-tls",
+    "--kubelet-preferred-address-types=InternalIP,Hostname"
+  ]
+}
+JSON
     }
   }
 }

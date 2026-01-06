@@ -86,6 +86,17 @@ locals {
     "vpc-cni" = {
       version = "v1.20.2-eksbuild.1"
     }
+    "metrics-server" = {
+      version = "v0.8.0-eksbuild.6"
+        configuration_values = <<JSON
+{
+  "args": [
+    "--kubelet-insecure-tls",
+    "--kubelet-preferred-address-types=InternalIP,Hostname"
+  ]
+}
+JSON
+    }
   }
   
   # VPC Endpoints Configuration
