@@ -1,0 +1,18 @@
+{{- range $poolName, $poolConfig := .Values.agentPools }}
+{{- if and $poolConfig.enabled $poolConfig.autoscaling.enabled }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "ado-agent-cluster.triggerAuthName" $poolConfig }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "ado-agent-cluster.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $poolName }}
+spec:
+  secretTargetRef:
+  - parameter: personalAccessToken
+    name: {{ $poolConfig.ado.secretName }}
+    key: personalAccessToken
+{{- end }}
+{{- end }}

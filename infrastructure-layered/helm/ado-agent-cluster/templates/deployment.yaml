@@ -1,0 +1,102 @@
+{{- range $poolName, $poolConfig := .Values.agentPools }}
+{{- if $poolConfig.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ado-agent-cluster.deploymentName" $poolConfig }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "ado-agent-cluster.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $poolName }}
+  {{- with $.Values.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: 0  # KEDA will manage replicas
+  selector:
+    matchLabels:
+      {{- include "ado-agent-cluster.agentPoolSelectorLabels" (dict "root" $ "poolName" $poolName) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ado-agent-cluster.agentPoolSelectorLabels" (dict "root" $ "poolName" $poolName) | nindent 8 }}
+        {{- with $poolConfig.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $poolConfig.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "ado-agent-cluster.serviceAccountName" (dict "root" $ "serviceAccount" $poolConfig.serviceAccount "poolName" $poolName) }}
+      automountServiceAccountToken: false
+      {{- with $poolConfig.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $poolConfig.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $poolConfig.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: ado-agent
+        image: "{{ $poolConfig.image.repository }}:{{ $poolConfig.image.tag }}"
+        imagePullPolicy: {{ $poolConfig.image.pullPolicy }}
+        env:
+        - name: AZP_ORG
+          valueFrom:
+            secretKeyRef:
+              name: {{ $poolConfig.ado.secretName }}
+              key: organization
+        - name: AZP_URL
+          valueFrom:
+            secretKeyRef:
+              name: {{ $poolConfig.ado.secretName }}
+              key: adourl
+        - name: AZP_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ $poolConfig.ado.secretName }}
+              key: personalAccessToken
+        - name: AZP_POOL
+          value: {{ $poolConfig.ado.poolName | quote }}
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        {{- if $.Values.buildkit.enabled }}
+        - name: BUILDKIT_HOST
+          value: {{ $.Values.buildkit.endpoint | quote }}
+        {{- end }}
+        {{- with $poolConfig.env }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with $poolConfig.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with $.Values.securityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with $poolConfig.volumeMounts }}
+        volumeMounts:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- with $poolConfig.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      restartPolicy: Always
+{{- end }}
+{{- end }}

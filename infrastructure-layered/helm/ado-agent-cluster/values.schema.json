@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "global": {
+      "type": "object",
+      "properties": {
+        "namespace": {"type": "string"},
+        "clusterName": {"type": "string"},
+        "region": {"type": "string"}
+      },
+      "required": ["namespace"]
+    },
+    "agentPools": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-zA-Z0-9-]+$": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "name": {"type": "string"},
+            "ado": {
+              "type": "object", 
+              "properties": {
+                "poolName": {"type": "string"},
+                "secretName": {"type": "string"}
+              },
+              "required": ["poolName", "secretName"]
+            },
+            "image": {
+              "type": "object",
+              "properties": {
+                "repository": {"type": "string"},
+                "tag": {"type": "string"}, 
+                "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"]}
+              },
+              "required": ["repository", "tag"]
+            },
+            "serviceAccount": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string"},
+                "roleArn": {"type": "string"}
+              },
+              "required": ["name"]
+            },
+            "resources": {
+              "type": "object",
+              "properties": {
+                "requests": {"type": "object"},
+                "limits": {"type": "object"}
+              }
+            },
+            "autoscaling": {
+              "type": "object",
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "minReplicas": {"type": "integer", "minimum": 0},
+                "maxReplicas": {"type": "integer", "minimum": 1},
+                "targetPipelinesQueueLength": {"type": "integer", "minimum": 1}
+              }
+            }
+          },
+          "required": ["enabled", "name", "ado", "image", "serviceAccount"]
+        }
+      }
+    },
+    "externalSecrets": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "clusterSecretStoreName": {"type": "string"},
+        "secrets": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-zA-Z0-9-]+$": {
+              "type": "object",
+              "properties": {
+                "aws": {
+                  "type": "object",
+                  "properties": {
+                    "secretName": {"type": "string"},
+                    "region": {"type": "string"}
+                  },
+                  "required": ["secretName", "region"]
+                },
+                "k8s": {
+                  "type": "object", 
+                  "properties": {
+                    "secretName": {"type": "string"},
+                    "type": {"type": "string"},
+                    "refreshInterval": {"type": "string"}
+                  },
+                  "required": ["secretName"]
+                },
+                "data": {"type": "object"}
+              },
+              "required": ["aws", "k8s", "data"]
+            }
+          }
+        }
+      }
+    }
+  },
+  "required": ["global", "agentPools"]
+}

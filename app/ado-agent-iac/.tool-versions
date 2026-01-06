@@ -1,0 +1,4 @@
+helm 3.17.3 #https://github.com/Antiarchitect/asdf-helm.git
+kubectl 1.32.3
+terraform 1.11.4
+terragrunt 0.77.22

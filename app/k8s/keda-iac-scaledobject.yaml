@@ -1,0 +1,19 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: azure-devops-iac-scaler
+  namespace: ado-agents
+spec:
+  scaleTargetRef:
+    name: ado-iac-agent-deployment
+  minReplicaCount: 1     # maintain at least one agent to make pool scheduleable
+  maxReplicaCount: 10    # Maximum number of agents
+  triggers:
+  - type: azure-pipelines
+    metadata:
+      organizationURLFromEnv: "AZP_URL"
+      personalAccessTokenFromEnv: "AZP_TOKEN"
+      poolName: "batch-poc-eks-agent-iac-pool"
+      targetPipelinesQueueLength: "1"
+    authenticationRef:
+      name: azure-devops-trigger

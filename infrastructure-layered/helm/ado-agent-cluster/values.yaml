@@ -1,0 +1,135 @@
+# Default values for ado-agent-cluster
+# This is a YAML-formatted file.
+# Declare variables to be substituted into your templates.
+
+# Global configuration
+global:
+  # Cluster and namespace information (typically provided by Terraform)
+  namespace: ado-agents
+  clusterName: ""
+  region: us-west-2
+
+# Agent pool configurations
+# Multiple agent pools can be defined, each with their own configuration
+agentPools:
+  dev-build:
+    enabled: true
+    name: "dev-build"
+    # ADO Pool configuration
+    ado:
+      poolName: "batch-poc-eks-agent-pool"
+      secretName: "ado-pat"
+    # Container configuration
+    image:
+      repository: ""  # Will be set by Terraform from ECR URL
+      tag: "latest"
+      pullPolicy: Always
+    # Service Account (IAM role will be injected by Terraform)
+    serviceAccount:
+      name: "ado-agent-dev-build"
+      roleArn: ""  # Will be set by Terraform
+    # Resource configuration
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+    # KEDA autoscaling configuration
+    autoscaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 10
+      targetPipelinesQueueLength: 1
+      triggerAuthenticationName: ""  # Will be generated from pool name
+    # Node assignment
+    tolerations:
+      - key: "ks.amazonaws.com/compute-type"
+        operator: "Equal"
+        value: "fargate"
+        effect: "NoSchedule"
+    nodeSelector: {}
+    affinity: {}
+    
+  iac:
+    enabled: true
+    name: "iac"
+    # ADO Pool configuration  
+    ado:
+      poolName: "batch-poc-eks-iac-pool"
+      secretName: "ado-pat"
+    # Container configuration
+    image:
+      repository: ""  # Will be set by Terraform from ECR URL
+      tag: "latest"
+      pullPolicy: Always
+    # Service Account (IAM role will be injected by Terraform)
+    serviceAccount:
+      name: "ado-iac-agent"
+      roleArn: ""  # Will be set by Terraform
+    # Resource configuration
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "1000m"
+      limits:
+        memory: "4Gi"
+        cpu: "2000m"
+    # KEDA autoscaling configuration
+    autoscaling:
+      enabled: true
+      minReplicas: 0
+      maxReplicas: 5
+      targetPipelinesQueueLength: 1
+      triggerAuthenticationName: ""  # Will be generated from pool name
+    # Node assignment
+    tolerations:
+      - key: "ks.amazonaws.com/compute-type"
+        operator: "Equal"
+        value: "fargate"
+        effect: "NoSchedule"
+    nodeSelector: {}
+    affinity: {}
+
+# External Secrets configuration (for secret synchronization)
+externalSecrets:
+  enabled: true
+  clusterSecretStoreName: "aws-secrets-manager"  # From middleware layer
+  secrets: {}
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/name: ado-agent-cluster
+  app.kubernetes.io/instance: ado-agents
+  app.kubernetes.io/component: ci-cd
+  app.kubernetes.io/part-of: ado-agent-platform
+
+# Additional labels (can be overridden by Terraform)
+labels: {}
+
+# Additional annotations (can be overridden by Terraform)
+annotations: {}
+
+# Pod Security Context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+
+# Security Context for containers
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1001
+  capabilities:
+    drop:
+    - ALL
+
+# Buildkit integration (if using cluster buildkit service)
+buildkit:
+  enabled: true
+  endpoint: ""  # Will be set by Terraform from middleware layer output
+  # Example: "buildkitd.buildkit-system.svc.cluster.local:1234"

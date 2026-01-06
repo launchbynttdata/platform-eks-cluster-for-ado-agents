@@ -1,0 +1,19 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: azure-devops-scaler
+  namespace: ado-agents
+spec:
+  scaleTargetRef:
+    name: ado-agent-deployment
+  minReplicaCount: 1     # Scale to zero when no jobs
+  maxReplicaCount: 10    # Maximum number of agents
+  triggers:
+  - type: azure-pipelines
+    metadata:
+      organizationURLFromEnv: "AZP_URL"
+      personalAccessTokenFromEnv: "AZP_TOKEN"
+      poolName: "batch-poc-eks-agent-pool"
+      targetPipelinesQueueLength: "1"
+    authenticationRef:
+      name: azure-devops-trigger
