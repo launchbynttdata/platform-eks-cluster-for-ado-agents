@@ -557,6 +557,42 @@ resource "kubernetes_service" "buildkitd_alias" {
   ]
 }
 
+resource "kubernetes_horizontal_pod_autoscaler_v2" "buildkitd" {
+  count = var.enable_buildkitd && var.buildkitd_hpa_enabled ? 1 : 0
+
+  metadata {
+    name      = "buildkitd"
+    namespace = var.buildkitd_namespace
+    labels = {
+      app = "buildkitd"
+    }
+  }
+
+  spec {
+    min_replicas = var.buildkitd_hpa_min_replicas
+    max_replicas = var.buildkitd_hpa_max_replicas
+
+    scale_target_ref {
+      api_version = "apps/v1"
+      kind        = "Deployment"
+      name        = "buildkitd"
+    }
+
+    metric {
+      type = "Resource"
+      resource {
+        name = "memory"
+        target {
+          type                = "Utilization"
+          average_utilization = var.buildkitd_hpa_target_memory_utilization_percentage
+        }
+      }
+    }
+  }
+
+  depends_on = [kubernetes_deployment.buildkitd]
+}
+
 # AWS Node Termination Handler (queue processor mode)
 module "node_termination_handler" {
   count  = local.node_auto_heal_enabled && local.node_auto_heal_queue_url != null && local.node_auto_heal_role_arn != null ? 1 : 0

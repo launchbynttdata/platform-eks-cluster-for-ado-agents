@@ -198,6 +198,30 @@ variable "buildkitd_storage_size" {
   default     = "20Gi"
 }
 
+variable "buildkitd_hpa_enabled" {
+  description = "Whether to manage a Horizontal Pod Autoscaler for buildkitd."
+  type        = bool
+  default     = true
+}
+
+variable "buildkitd_hpa_min_replicas" {
+  description = "Minimum number of buildkitd replicas when HPA is enabled."
+  type        = number
+  default     = 2
+}
+
+variable "buildkitd_hpa_max_replicas" {
+  description = "Maximum number of buildkitd replicas when HPA is enabled."
+  type        = number
+  default     = 5
+}
+
+variable "buildkitd_hpa_target_memory_utilization_percentage" {
+  description = "Target average memory utilization percentage for buildkitd HPA."
+  type        = number
+  default     = 70
+}
+
 # Additional Tags
 variable "additional_tags" {
   description = "Additional tags to apply to resources (merged with base layer tags)"

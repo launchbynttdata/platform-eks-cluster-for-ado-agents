@@ -103,6 +103,10 @@ inputs = {
   buildkitd_tolerations  = local.env.locals.buildkitd_tolerations
   buildkitd_resources    = local.env.locals.buildkitd_resources
   buildkitd_storage_size = local.env.locals.buildkitd_storage_size
+  buildkitd_hpa_enabled   = local.env.locals.buildkitd_hpa_enabled
+  buildkitd_hpa_min_replicas = local.env.locals.buildkitd_hpa_min_replicas
+  buildkitd_hpa_max_replicas = local.env.locals.buildkitd_hpa_max_replicas
+  buildkitd_hpa_target_memory_utilization_percentage = local.env.locals.buildkitd_hpa_target_memory_utilization_percentage
 
   # Node auto-heal / AWS Node Termination Handler configuration
   node_auto_heal_daemonset_node_selector = local.env.locals.node_auto_heal_daemonset_node_selector

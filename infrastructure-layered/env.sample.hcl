@@ -185,6 +185,10 @@ locals {
   buildkitd_namespace = "buildkit-system"
   buildkitd_image     = "moby/buildkit:v0.12.5"
   buildkitd_replicas  = 2
+  buildkitd_hpa_enabled = true
+  buildkitd_hpa_min_replicas = 2
+  buildkitd_hpa_max_replicas = 5
+  buildkitd_hpa_target_memory_utilization_percentage = 70
   
   buildkitd_node_selector = {
     # Uncomment if using EC2 nodes with this label
