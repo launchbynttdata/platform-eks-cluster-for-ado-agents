@@ -94,7 +94,7 @@ variable "priority_class_name" {
 variable "pod_annotations" {
   description = "Additional annotations applied to the DaemonSet pods."
   type        = map(string)
-  default     = {
+  default = {
     "prometheus.io/scrape" = "true"
     "prometheus.io/port"   = "9092"
   }
@@ -108,7 +108,7 @@ variable "log_level" {
 
 variable "extra_env" {
   description = "Additional environment variables injected into the DaemonSet containers."
-  type        = list(object({
+  type = list(object({
     name  = string
     value = string
   }))

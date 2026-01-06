@@ -217,10 +217,10 @@ variable "cluster_autoscaler_node_selector" {
 variable "cluster_autoscaler_tolerations" {
   description = "Tolerations for the Cluster Autoscaler pod."
   type = list(object({
-    key               = optional(string)
-    operator          = optional(string, "Exists")
-    value             = optional(string)
-    effect            = optional(string)
+    key                = optional(string)
+    operator           = optional(string, "Exists")
+    value              = optional(string)
+    effect             = optional(string)
     toleration_seconds = optional(number)
   }))
   default = [
@@ -272,8 +272,8 @@ variable "cluster_autoscaler_pod_annotations" {
   description = "Custom annotations added to the Cluster Autoscaler pod template."
   type        = map(string)
   default = {
-    "prometheus.io/scrape" = "true"
-    "prometheus.io/port"   = "8085"
+    "prometheus.io/scrape"                           = "true"
+    "prometheus.io/port"                             = "8085"
     "cluster-autoscaler.kubernetes.io/safe-to-evict" = "false"
   }
 }

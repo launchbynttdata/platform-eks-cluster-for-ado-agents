@@ -28,8 +28,8 @@ locals {
     },
     var.additional_tags
   )
-  cluster_oidc_host = replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")
-  ado_secret_name   = var.ado_secret_name
+  cluster_oidc_host          = replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")
+  ado_secret_name            = var.ado_secret_name
   cluster_autoscaler_enabled = try(data.terraform_remote_state.base.outputs.cluster_autoscaler_role_arn, null) != null
   cluster_autoscaler_base_args = [
     "./cluster-autoscaler",
@@ -52,15 +52,15 @@ locals {
     for arg_map in [
       try(data.terraform_remote_state.base.outputs.cluster_autoscaler_extra_args, {}),
       var.cluster_autoscaler_additional_args
-    ] : [
+      ] : [
       for arg_key, arg_val in arg_map : "--${arg_key}=${arg_val}"
     ]
   ])
-  node_auto_heal_enabled    = try(data.terraform_remote_state.base.outputs.node_auto_heal_enabled, false)
-  node_auto_heal_queue_url  = try(data.terraform_remote_state.base.outputs.node_auto_heal_queue_url, null)
-  node_auto_heal_role_arn   = try(data.terraform_remote_state.base.outputs.node_auto_heal_role_arn, null)
-  node_auto_heal_namespace  = try(data.terraform_remote_state.base.outputs.node_auto_heal_namespace, "kube-system")
-  node_auto_heal_sa_name    = try(data.terraform_remote_state.base.outputs.node_auto_heal_service_account, "aws-node-termination-handler")
+  node_auto_heal_enabled   = try(data.terraform_remote_state.base.outputs.node_auto_heal_enabled, false)
+  node_auto_heal_queue_url = try(data.terraform_remote_state.base.outputs.node_auto_heal_queue_url, null)
+  node_auto_heal_role_arn  = try(data.terraform_remote_state.base.outputs.node_auto_heal_role_arn, null)
+  node_auto_heal_namespace = try(data.terraform_remote_state.base.outputs.node_auto_heal_namespace, "kube-system")
+  node_auto_heal_sa_name   = try(data.terraform_remote_state.base.outputs.node_auto_heal_service_account, "aws-node-termination-handler")
 }
 
 # KEDA Operator IAM Role
@@ -562,12 +562,12 @@ module "node_termination_handler" {
   count  = local.node_auto_heal_enabled && local.node_auto_heal_queue_url != null && local.node_auto_heal_role_arn != null ? 1 : 0
   source = "./modules/primitive/node-termination-handler"
 
-  namespace         = local.node_auto_heal_namespace
-  create_namespace  = false
-  queue_url         = local.node_auto_heal_queue_url
-  aws_region        = data.aws_region.current.name
-  chart_version     = var.node_auto_heal_chart_version
-  log_level         = var.node_auto_heal_log_level
+  namespace            = local.node_auto_heal_namespace
+  create_namespace     = false
+  queue_url            = local.node_auto_heal_queue_url
+  aws_region           = data.aws_region.current.name
+  chart_version        = var.node_auto_heal_chart_version
+  log_level            = var.node_auto_heal_log_level
   service_account_name = local.node_auto_heal_sa_name
   service_account_annotations = {
     "eks.amazonaws.com/role-arn" = local.node_auto_heal_role_arn

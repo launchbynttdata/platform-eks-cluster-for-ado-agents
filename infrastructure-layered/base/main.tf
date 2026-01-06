@@ -64,9 +64,9 @@ locals {
   enable_public_endpoint = var.endpoint_public_access && local.has_restricted_cidrs
   effective_public_cidrs = local.enable_public_endpoint ? var.public_access_cidrs : []
 
-  node_auto_heal_queue_name         = "${local.cluster_name}-node-auto-heal"
-  node_auto_heal_dlq_name           = "${local.cluster_name}-node-auto-heal-dlq"
-  node_auto_heal_service_account    = "aws-node-termination-handler"
+  node_auto_heal_queue_name      = "${local.cluster_name}-node-auto-heal"
+  node_auto_heal_dlq_name        = "${local.cluster_name}-node-auto-heal-dlq"
+  node_auto_heal_service_account = "aws-node-termination-handler"
   node_auto_heal_event_patterns = {
     spot_itn = {
       description = "Route EC2 Spot Interruption warnings to SQS"
@@ -265,9 +265,9 @@ module "cluster_security_group" {
   source  = "terraform.registry.launch.nttdata.com/module_primitive/security_group/aws"
   version = "~> 0.1"
 
-  name                  = join("-", [local.cluster_name, "cluster"])
-  description           = "Security group for EKS cluster ${local.cluster_name}"
-  vpc_id                = var.vpc_id
+  name        = join("-", [local.cluster_name, "cluster"])
+  description = "Security group for EKS cluster ${local.cluster_name}"
+  vpc_id      = var.vpc_id
 
   tags = merge(
     local.common_tags,
@@ -289,7 +289,7 @@ module "cluster_security_group_ingress_vpc" {
   from_port         = 443
   to_port           = 443
   cidr_ipv4         = data.aws_vpc.selected.cidr_block
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-sg-api" })
+  tags              = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-sg-api" })
 }
 
 module "cluster_security_group_egress_all" {
@@ -302,7 +302,7 @@ module "cluster_security_group_egress_all" {
   description       = "Allow all outbound traffic"
   ip_protocol       = "-1"
   cidr_ipv4         = "0.0.0.0/0"
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-sg-egress" })
+  tags              = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-sg-egress" })
 }
 
 module "fargate_security_group" {
@@ -310,9 +310,9 @@ module "fargate_security_group" {
   source  = "terraform.registry.launch.nttdata.com/module_primitive/security_group/aws"
   version = "~> 0.1"
 
-  name                  = join("-", [local.cluster_name, "fargate-pods"])
-  description           = "Security group for Fargate pods in EKS cluster ${local.cluster_name}"
-  vpc_id                = var.vpc_id
+  name        = join("-", [local.cluster_name, "fargate-pods"])
+  description = "Security group for Fargate pods in EKS cluster ${local.cluster_name}"
+  vpc_id      = var.vpc_id
 
   tags = merge(
     local.common_tags,
@@ -334,7 +334,7 @@ module "fargate_security_group_ingress_from_vpc" {
   from_port         = 0
   to_port           = 65535
   cidr_ipv4         = data.aws_vpc.selected.cidr_block
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-vpc" })
+  tags              = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-vpc" })
 }
 
 module "fargate_security_group_egress_all" {
@@ -347,7 +347,7 @@ module "fargate_security_group_egress_all" {
   description       = "Allow all outbound traffic"
   ip_protocol       = "-1"
   cidr_ipv4         = "0.0.0.0/0"
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-egress" })
+  tags              = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-egress" })
 }
 
 module "fargate_security_group_egress_https" {
@@ -361,7 +361,7 @@ module "fargate_security_group_egress_https" {
   from_port         = 443
   to_port           = 443
   cidr_ipv4         = "0.0.0.0/0"
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-https" })
+  tags              = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-https" })
 }
 
 module "fargate_security_group_ingress_from_cluster" {
@@ -375,7 +375,7 @@ module "fargate_security_group_ingress_from_cluster" {
   ip_protocol                  = "tcp"
   from_port                    = 0
   to_port                      = 65535
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-to-fargate" })
+  tags                         = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-to-fargate" })
 }
 
 module "cluster_security_group_ingress_from_fargate" {
@@ -389,7 +389,7 @@ module "cluster_security_group_ingress_from_fargate" {
   ip_protocol                  = "tcp"
   from_port                    = 443
   to_port                      = 443
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-to-cluster" })
+  tags                         = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-to-cluster" })
 }
 
 # EKS Cluster
@@ -759,9 +759,9 @@ module "cluster_autoscaler_policy_attachment" {
 resource "aws_sqs_queue" "node_auto_heal_dlq" {
   count = var.enable_node_auto_heal && var.node_auto_heal_enable_dlq ? 1 : 0
 
-  name                      = substr(replace(lower(local.node_auto_heal_dlq_name), "_", "-"), 0, 80)
-  message_retention_seconds = var.node_auto_heal_queue_retention_seconds
-  kms_master_key_id         = local.kms_key_arn
+  name                       = substr(replace(lower(local.node_auto_heal_dlq_name), "_", "-"), 0, 80)
+  message_retention_seconds  = var.node_auto_heal_queue_retention_seconds
+  kms_master_key_id          = local.kms_key_arn
   visibility_timeout_seconds = 30
   receive_wait_time_seconds  = 10
 
@@ -771,9 +771,9 @@ resource "aws_sqs_queue" "node_auto_heal_dlq" {
 resource "aws_sqs_queue" "node_auto_heal" {
   count = var.enable_node_auto_heal ? 1 : 0
 
-  name                      = substr(replace(lower(local.node_auto_heal_queue_name), "_", "-"), 0, 80)
-  message_retention_seconds = var.node_auto_heal_queue_retention_seconds
-  kms_master_key_id         = local.kms_key_arn
+  name                       = substr(replace(lower(local.node_auto_heal_queue_name), "_", "-"), 0, 80)
+  message_retention_seconds  = var.node_auto_heal_queue_retention_seconds
+  kms_master_key_id          = local.kms_key_arn
   visibility_timeout_seconds = 30
   receive_wait_time_seconds  = 10
 
@@ -816,8 +816,8 @@ module "node_auto_heal_event_role_policy" {
 
   policy_statement = {
     send_to_queue = {
-      sid     = "AllowEventBridgeToSendToQueue"
-      actions = ["sqs:SendMessage"]
+      sid       = "AllowEventBridgeToSendToQueue"
+      actions   = ["sqs:SendMessage"]
       resources = [aws_sqs_queue.node_auto_heal[0].arn]
     }
   }
@@ -837,8 +837,8 @@ module "node_auto_heal_event_role_policy_attachment" {
 resource "aws_cloudwatch_event_rule" "node_auto_heal" {
   for_each = { for k, v in local.node_auto_heal_event_patterns : k => v if var.enable_node_auto_heal }
 
-  name        = substr(replace(lower("${local.cluster_name}-${each.key}-node-auto-heal"), "_", "-"), 0, 64)
-  description = each.value.description
+  name          = substr(replace(lower("${local.cluster_name}-${each.key}-node-auto-heal"), "_", "-"), 0, 64)
+  description   = each.value.description
   event_pattern = jsonencode(each.value.pattern)
 }
 
