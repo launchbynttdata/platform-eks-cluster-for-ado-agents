@@ -63,6 +63,47 @@ locals {
   has_restricted_cidrs   = length(var.public_access_cidrs) > 0 && !contains(var.public_access_cidrs, "0.0.0.0/0")
   enable_public_endpoint = var.endpoint_public_access && local.has_restricted_cidrs
   effective_public_cidrs = local.enable_public_endpoint ? var.public_access_cidrs : []
+
+  node_auto_heal_queue_name         = "${local.cluster_name}-node-auto-heal"
+  node_auto_heal_dlq_name           = "${local.cluster_name}-node-auto-heal-dlq"
+  node_auto_heal_service_account    = "aws-node-termination-handler"
+  node_auto_heal_event_patterns = {
+    spot_itn = {
+      description = "Route EC2 Spot Interruption warnings to SQS"
+      pattern = {
+        source      = ["aws.ec2"]
+        detail-type = ["EC2 Spot Instance Interruption Warning"]
+      }
+    }
+    rebalance = {
+      description = "Route EC2 Instance Rebalance recommendations"
+      pattern = {
+        source      = ["aws.ec2"]
+        detail-type = ["EC2 Instance Rebalance Recommendation"]
+      }
+    }
+    state_change = {
+      description = "Route EC2 Instance state-change notifications"
+      pattern = {
+        source      = ["aws.ec2"]
+        detail-type = ["EC2 Instance State-change Notification"]
+        detail = {
+          state = ["stopping", "stopped", "shutting-down", "terminated", "terminating"]
+        }
+      }
+    }
+    scheduled_change = {
+      description = "Route AWS Health scheduled change notifications for EC2"
+      pattern = {
+        source      = ["aws.health"]
+        detail-type = ["AWS Health Event"]
+        detail = {
+          service  = ["EC2"]
+          category = ["scheduledChange"]
+        }
+      }
+    }
+  }
 }
 
 # KMS Key for EKS encryption
@@ -712,4 +753,186 @@ module "cluster_autoscaler_policy_attachment" {
 
   role_name  = module.cluster_autoscaler_role[0].role_name
   policy_arn = module.cluster_autoscaler_policy[0].policy_arn
+}
+
+# Node Auto-Heal (AWS Node Termination Handler) Infrastructure
+resource "aws_sqs_queue" "node_auto_heal_dlq" {
+  count = var.enable_node_auto_heal && var.node_auto_heal_enable_dlq ? 1 : 0
+
+  name                      = substr(replace(lower(local.node_auto_heal_dlq_name), "_", "-"), 0, 80)
+  message_retention_seconds = var.node_auto_heal_queue_retention_seconds
+  kms_master_key_id         = local.kms_key_arn
+  visibility_timeout_seconds = 30
+  receive_wait_time_seconds  = 10
+
+  tags = merge(local.common_tags, { Name = local.node_auto_heal_dlq_name })
+}
+
+resource "aws_sqs_queue" "node_auto_heal" {
+  count = var.enable_node_auto_heal ? 1 : 0
+
+  name                      = substr(replace(lower(local.node_auto_heal_queue_name), "_", "-"), 0, 80)
+  message_retention_seconds = var.node_auto_heal_queue_retention_seconds
+  kms_master_key_id         = local.kms_key_arn
+  visibility_timeout_seconds = 30
+  receive_wait_time_seconds  = 10
+
+  redrive_policy = var.node_auto_heal_enable_dlq ? jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.node_auto_heal_dlq[0].arn
+    maxReceiveCount     = var.node_auto_heal_dlq_max_receive_count
+  }) : null
+
+  tags = merge(local.common_tags, { Name = local.node_auto_heal_queue_name })
+}
+
+module "node_auto_heal_event_role" {
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+  count   = var.enable_node_auto_heal ? 1 : 0
+
+  name = "${local.cluster_name}-node-auto-heal-events"
+
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRole"]
+      principals = [
+        {
+          type        = "Service"
+          identifiers = ["events.amazonaws.com"]
+        }
+      ]
+    }
+  ]
+
+  tags = local.common_tags
+}
+
+module "node_auto_heal_event_role_policy" {
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  version = "~> 0.1"
+  count   = var.enable_node_auto_heal ? 1 : 0
+
+  policy_name = "${local.cluster_name}-node-auto-heal-events"
+
+  policy_statement = {
+    send_to_queue = {
+      sid     = "AllowEventBridgeToSendToQueue"
+      actions = ["sqs:SendMessage"]
+      resources = [aws_sqs_queue.node_auto_heal[0].arn]
+    }
+  }
+
+  tags = local.common_tags
+}
+
+module "node_auto_heal_event_role_policy_attachment" {
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  count   = var.enable_node_auto_heal ? 1 : 0
+
+  role_name  = module.node_auto_heal_event_role[0].role_name
+  policy_arn = module.node_auto_heal_event_role_policy[0].policy_arn
+}
+
+resource "aws_cloudwatch_event_rule" "node_auto_heal" {
+  for_each = { for k, v in local.node_auto_heal_event_patterns : k => v if var.enable_node_auto_heal }
+
+  name        = substr(replace(lower("${local.cluster_name}-${each.key}-node-auto-heal"), "_", "-"), 0, 64)
+  description = each.value.description
+  event_pattern = jsonencode(each.value.pattern)
+}
+
+resource "aws_cloudwatch_event_target" "node_auto_heal" {
+  for_each = { for k, v in local.node_auto_heal_event_patterns : k => v if var.enable_node_auto_heal }
+
+  rule      = aws_cloudwatch_event_rule.node_auto_heal[each.key].name
+  target_id = "node-auto-heal-${each.key}"
+  arn       = aws_sqs_queue.node_auto_heal[0].arn
+  role_arn  = module.node_auto_heal_event_role[0].role_arn
+}
+
+module "node_auto_heal_role" {
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+  count   = var.enable_node_auto_heal ? 1 : 0
+
+  name = "${local.cluster_name}-node-auto-heal-role"
+
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRoleWithWebIdentity"]
+      principals = [
+        {
+          type        = "Federated"
+          identifiers = [module.eks_cluster_oidc.arn]
+        }
+      ]
+      conditions = [
+        {
+          test     = "StringEquals"
+          variable = "${replace(module.eks_cluster_oidc.url, "https://", "")}:sub"
+          values   = ["system:serviceaccount:${var.node_auto_heal_namespace}:${local.node_auto_heal_service_account}"]
+        },
+        {
+          test     = "StringEquals"
+          variable = "${replace(module.eks_cluster_oidc.url, "https://", "")}:aud"
+          values   = ["sts.amazonaws.com"]
+        }
+      ]
+    }
+  ]
+
+  tags = local.common_tags
+}
+
+module "node_auto_heal_policy" {
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  version = "~> 0.1"
+  count   = var.enable_node_auto_heal ? 1 : 0
+
+  policy_name = "${local.cluster_name}-node-auto-heal-policy"
+
+  policy_statement = {
+    queue_access = {
+      sid = "AllowQueueProcessing"
+      actions = [
+        "sqs:ChangeMessageVisibility",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl",
+        "sqs:ReceiveMessage"
+      ]
+      resources = [aws_sqs_queue.node_auto_heal[0].arn]
+    }
+    autoscaling = {
+      sid = "AllowAutoscalingLifecycle"
+      actions = [
+        "autoscaling:CompleteLifecycleAction",
+        "autoscaling:DescribeAutoScalingGroups",
+        "autoscaling:DescribeAutoScalingInstances",
+        "autoscaling:DescribeScalingActivities"
+      ]
+      resources = ["*"]
+    }
+    ec2_describe = {
+      sid = "AllowEc2Describe"
+      actions = [
+        "ec2:DescribeInstances",
+        "ec2:DescribeInstanceStatus",
+        "ec2:DescribeTags"
+      ]
+      resources = ["*"]
+    }
+  }
+
+  tags = local.common_tags
+}
+
+module "node_auto_heal_policy_attachment" {
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+  count   = var.enable_node_auto_heal ? 1 : 0
+
+  role_name  = module.node_auto_heal_role[0].role_name
+  policy_arn = module.node_auto_heal_policy[0].policy_arn
 }

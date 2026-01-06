@@ -85,6 +85,19 @@ inputs = {
   
   # EC2 Node Groups (optional)
   ec2_node_group = local.env.locals.ec2_node_groups
+
+  # Cluster Autoscaler
+  enable_cluster_autoscaler     = local.env.locals.enable_cluster_autoscaler
+  cluster_autoscaler_namespace  = local.env.locals.cluster_autoscaler_namespace
+  cluster_autoscaler_version    = local.env.locals.cluster_autoscaler_version
+  cluster_autoscaler_extra_args = local.env.locals.cluster_autoscaler_extra_args
+
+  # Node Auto-Heal (AWS Node Termination Handler)
+  enable_node_auto_heal                   = local.env.locals.enable_node_auto_heal
+  node_auto_heal_namespace                = local.env.locals.node_auto_heal_namespace
+  node_auto_heal_queue_retention_seconds  = local.env.locals.node_auto_heal_queue_retention_seconds
+  node_auto_heal_enable_dlq               = local.env.locals.node_auto_heal_enable_dlq
+  node_auto_heal_dlq_max_receive_count    = local.env.locals.node_auto_heal_dlq_max_receive_count
 }
 
 # =============================================================================

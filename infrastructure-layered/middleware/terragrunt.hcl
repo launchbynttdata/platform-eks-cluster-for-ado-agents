@@ -103,6 +103,10 @@ inputs = {
   buildkitd_tolerations  = local.env.locals.buildkitd_tolerations
   buildkitd_resources    = local.env.locals.buildkitd_resources
   buildkitd_storage_size = local.env.locals.buildkitd_storage_size
+
+  # Node auto-heal / AWS Node Termination Handler configuration
+  node_auto_heal_daemonset_node_selector = local.env.locals.node_auto_heal_daemonset_node_selector
+  node_auto_heal_daemonset_tolerations   = local.env.locals.node_auto_heal_daemonset_tolerations
 }
 
 # =============================================================================

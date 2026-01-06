@@ -204,3 +204,146 @@ variable "additional_tags" {
   type        = map(string)
   default     = {}
 }
+
+# Cluster Autoscaler Deployment (middleware managed)
+variable "cluster_autoscaler_node_selector" {
+  description = "Node selector applied to the Cluster Autoscaler pod to keep it on system nodes."
+  type        = map(string)
+  default = {
+    "workload-type" = "system"
+  }
+}
+
+variable "cluster_autoscaler_tolerations" {
+  description = "Tolerations for the Cluster Autoscaler pod."
+  type = list(object({
+    key               = optional(string)
+    operator          = optional(string, "Exists")
+    value             = optional(string)
+    effect            = optional(string)
+    toleration_seconds = optional(number)
+  }))
+  default = [
+    {
+      key      = "node-role.kubernetes.io/system"
+      operator = "Exists"
+      effect   = "NoSchedule"
+    }
+  ]
+}
+
+variable "cluster_autoscaler_resources" {
+  description = "Resource requests and limits for the Cluster Autoscaler deployment."
+  type = object({
+    requests = object({
+      cpu    = string
+      memory = string
+    })
+    limits = object({
+      cpu    = string
+      memory = string
+    })
+  })
+  default = {
+    requests = {
+      cpu    = "100m"
+      memory = "600Mi"
+    }
+    limits = {
+      cpu    = "100m"
+      memory = "600Mi"
+    }
+  }
+}
+
+variable "cluster_autoscaler_priority_class_name" {
+  description = "PriorityClass applied to the Cluster Autoscaler pods."
+  type        = string
+  default     = "system-cluster-critical"
+}
+
+variable "cluster_autoscaler_replicas" {
+  description = "Number of Cluster Autoscaler replicas to run."
+  type        = number
+  default     = 1
+}
+
+variable "cluster_autoscaler_pod_annotations" {
+  description = "Custom annotations added to the Cluster Autoscaler pod template."
+  type        = map(string)
+  default = {
+    "prometheus.io/scrape" = "true"
+    "prometheus.io/port"   = "8085"
+    "cluster-autoscaler.kubernetes.io/safe-to-evict" = "false"
+  }
+}
+
+variable "cluster_autoscaler_additional_args" {
+  description = "Extra CLI arguments appended after the base autoscaler flags."
+  type        = map(string)
+  default     = {}
+}
+
+# Node Auto-Heal / AWS Node Termination Handler
+variable "node_auto_heal_daemonset_tolerations" {
+  description = "Tolerations for the Node Termination Handler DaemonSet."
+  type = list(object({
+    key               = optional(string)
+    operator          = optional(string, "Exists")
+    value             = optional(string)
+    effect            = optional(string)
+    tolerationSeconds = optional(number)
+  }))
+  default = [
+    {
+      key      = "workload-type"
+      operator = "Equal"
+      value    = "system"
+      effect   = "NoSchedule"
+    }
+  ]
+}
+
+variable "node_auto_heal_daemonset_node_selector" {
+  description = "Node selector applied to the Node Termination Handler DaemonSet."
+  type        = map(string)
+  default = {
+    "eks.amazonaws.com/compute-type" = "ec2"
+  }
+}
+
+variable "node_auto_heal_daemonset_resources" {
+  description = "Resource requests/limits for Node Termination Handler pods."
+  type = object({
+    requests = object({
+      cpu    = string
+      memory = string
+    })
+    limits = object({
+      cpu    = string
+      memory = string
+    })
+  })
+  default = {
+    requests = {
+      cpu    = "100m"
+      memory = "128Mi"
+    }
+    limits = {
+      cpu    = "200m"
+      memory = "256Mi"
+    }
+  }
+}
+
+variable "node_auto_heal_chart_version" {
+  description = "Version of the aws-node-termination-handler Helm chart."
+  type        = string
+  default     = "0.27.3"
+}
+
+variable "node_auto_heal_log_level" {
+  description = "Log level for the Node Termination Handler pods."
+  type        = string
+  default     = "info"
+}

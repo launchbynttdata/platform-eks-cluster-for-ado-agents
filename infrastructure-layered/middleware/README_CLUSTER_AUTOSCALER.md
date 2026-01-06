@@ -1,218 +1,102 @@
-# Cluster Autoscaler Deployment in Layered Infrastructure
+## Cluster Autoscaler Deployment in Layered Infrastructure
 
-## Overview
+### Overview
 
-The Cluster Autoscaler is automatically deployed as part of the middleware layer in the layered infrastructure approach. It's deployed only if enabled in the base layer configuration.
+Cluster Autoscaler is now provisioned entirely through Terraform:
 
-## Configuration
+1. **Base layer** creates the IAM role, attaches autoscaling permissions, and tags every managed node group for auto-discovery.
+2. **Middleware layer** installs the upstream Cluster Autoscaler deployment via the `modules/primitive/cluster-autoscaler` Terraform module. No manual YAML or `sed` substitution is required.
 
-### Base Layer (`infrastructure-layered/base/terraform.tfvars`)
+Autoscaler resources are only created when `enable_cluster_autoscaler = true` in the base layer.
 
-Enable cluster autoscaler in the base layer:
+### Base Layer Inputs
 
 ```hcl
-enable_cluster_autoscaler    = true
-cluster_autoscaler_namespace = "kube-system"
+enable_cluster_autoscaler     = true
+cluster_autoscaler_namespace  = "kube-system"
+cluster_autoscaler_version    = "v1.33.0"
+cluster_autoscaler_extra_args = {
+   "scan-interval"                   = "10s"
+   "scale-down-utilization-threshold" = "0.5"
+}
 ```
 
-This creates:
-- IAM role for Cluster Autoscaler with IRSA
-- IAM policy with autoscaling permissions
-- Proper tags on EC2 node groups for discovery
+### Middleware Layer Controls
 
-### Automatic Deployment
+The middleware layer exposes optional tuning knobs via `variables.tf`:
 
-When you run the layered deployment:
+```hcl
+cluster_autoscaler_node_selector = {
+   "workload-type" = "system"
+}
 
-```bash
+cluster_autoscaler_tolerations = [{
+   key      = "node-role.kubernetes.io/system"
+   operator = "Exists"
+   effect   = "NoSchedule"
+}]
+
+cluster_autoscaler_additional_args = {
+   "skip-nodes-with-system-pods" = "false"
+}
+```
+
+These values feed the Terraform module and are merged with any extra CLI arguments coming from the base layer, allowing platform teams to fine-tune behavior without editing manifests.
+
+### Deployment Flow
+
+```
 cd infrastructure-layered
-./deploy.sh
+./deploy.sh --layer base        # creates IAM + node-group tags
+./deploy.sh --layer middleware  # installs Autoscaler (and other operators)
 ```
 
-The cluster autoscaler will be automatically deployed during the middleware layer deployment if:
-1. `enable_cluster_autoscaler = true` in the base layer
-2. The IAM role was successfully created
-3. kubectl is configured and can access the cluster
+The middleware apply automatically rolls the Deployment if configuration changes (version bump, new flags, scheduling rules, etc.).
 
-## How It Works
-
-1. **Base Layer**: Creates IAM role and tags node groups
-2. **Middleware Layer Deployment**: After KEDA and ESO are deployed, the `deploy.sh` script:
-   - Checks if cluster autoscaler IAM role exists
-   - Substitutes placeholders in the manifest template
-   - Applies the Kubernetes manifest
-   - Waits for the deployment to be ready
-
-## Manifest Template
-
-The cluster autoscaler manifest is located at:
-```
-infrastructure-layered/middleware/cluster-autoscaler.yaml
-```
-
-It uses placeholders that are automatically replaced during deployment:
-- `CLUSTER_AUTOSCALER_ROLE_ARN_PLACEHOLDER` - IAM role ARN from base layer
-- `CLUSTER_NAME_PLACEHOLDER` - EKS cluster name
-- `AWS_REGION_PLACEHOLDER` - AWS region
-- `CLUSTER_AUTOSCALER_VERSION_PLACEHOLDER` - Autoscaler version (v1.30.0)
-
-## Key Configuration
-
-### Node Selector
-The autoscaler runs on **Fargate** nodes to avoid chicken-and-egg problems:
-```yaml
-nodeSelector:
-  eks.amazonaws.com/compute-type: fargate
-```
-
-### Auto-Discovery
-The autoscaler automatically discovers node groups with proper tags:
-```bash
---node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/<cluster-name>
-```
-
-### Scaling Parameters
-```bash
---scale-down-enabled=true
---scale-down-delay-after-add=10m
---scale-down-unneeded-time=10m
---scale-down-utilization-threshold=0.5
---max-node-provision-time=15m
-```
-
-## Verification
-
-After deployment, verify the cluster autoscaler:
+### Verification Checklist
 
 ```bash
-# Check deployment status
+# Deployment available?
 kubectl get deployment -n kube-system cluster-autoscaler
 
-# Check pod status
-kubectl get pods -n kube-system -l app=cluster-autoscaler
+# Pod healthy?
+kubectl get pods -n kube-system -l app=cluster-autoscaler -w
 
-# View logs
-kubectl logs -n kube-system deployment/cluster-autoscaler
-
-# Check discovered node groups
-kubectl logs -n kube-system deployment/cluster-autoscaler | grep "Discovered node groups"
+# Logs show ASG discovery?
+kubectl logs -n kube-system deploy/cluster-autoscaler | grep "Discovered"
 ```
 
-Expected output in logs:
+Expected log snippet:
+
 ```
-I1020 12:00:00.000000       1 auto_scaling_groups.go:xxx] Discovered 3 ASGs
+I0106 12:00:00.000000       1 auto_scaling_groups.go:xxx] Discovered 3 ASGs
 ```
 
-## Testing Autoscaling
+### Scaling Drills
 
-### Test Scale Up
-
-Create a deployment that requires more nodes:
+**Scale Up**
 
 ```bash
-# Create test deployment
 kubectl create deployment autoscale-test --image=nginx --replicas=20
-
-# Set resource requests to trigger node provisioning
 kubectl set resources deployment autoscale-test --requests=cpu=1,memory=1Gi
-
-# Watch nodes scale up
 kubectl get nodes -w
 ```
 
-### Test Scale Down
+**Scale Down**
 
 ```bash
-# Delete the test deployment
 kubectl delete deployment autoscale-test
-
-# After 10 minutes (scale-down-delay-after-add), unused nodes will be removed
-# Watch the scale down
+# Wait for --scale-down-delay-after-add (default 10m)
 kubectl get nodes -w
 ```
 
-## Troubleshooting
+### Troubleshooting Tips
 
-### Autoscaler Not Deployed
+1. **No Deployment** – ensure `terraform output cluster_autoscaler_role_arn` in the base layer is non-null and re-run the middleware layer.
+2. **Pods Pending** – verify `cluster_autoscaler_node_selector` matches a tainted system node group and that metrics-server add-on is healthy (`kubectl top nodes`).
+3. **No Scaling Events** – check logs for `Failed to discover ASGs`; confirm EC2 node groups have the required tags and `max_size` accommodates growth.
 
-Check if it's enabled:
-```bash
-cd infrastructure-layered/base
-terraform output cluster_autoscaler_role_arn
-```
-
-If it returns null, enable it in `base/terraform.tfvars` and re-run terraform apply.
-
-### Pods Not Scheduling on New Nodes
-
-Check autoscaler logs:
-```bash
-kubectl logs -n kube-system deployment/cluster-autoscaler | tail -50
-```
-
-Common issues:
-- Node group at max capacity
-- IAM permissions missing
-- Node group tags incorrect
-
-### Manual Redeployment
-
-If you need to redeploy only the cluster autoscaler:
-
-```bash
-cd infrastructure-layered
-./deploy.sh --layer middleware
-```
-
-Or manually:
-```bash
-cd infrastructure-layered/middleware
-
-# Get values from Terraform
-CLUSTER_NAME=$(cd ../base && terraform output -raw cluster_name)
-ROLE_ARN=$(cd ../base && terraform output -raw cluster_autoscaler_role_arn)
-AWS_REGION=${AWS_REGION:-us-west-2}
-
-# Apply with substitutions
-sed -e "s|CLUSTER_AUTOSCALER_ROLE_ARN_PLACEHOLDER|${ROLE_ARN}|g" \
-    -e "s|CLUSTER_NAME_PLACEHOLDER|${CLUSTER_NAME}|g" \
-    -e "s|AWS_REGION_PLACEHOLDER|${AWS_REGION}|g" \
-    -e "s|CLUSTER_AUTOSCALER_VERSION_PLACEHOLDER|v1.30.0|g" \
-    cluster-autoscaler.yaml | kubectl apply -f -
-```
-
-## Node Group Requirements
-
-For cluster autoscaler to work, node groups must have:
-
-1. **Proper Tags** (automatically added by base layer):
-   ```
-   k8s.io/cluster-autoscaler/enabled = "true"
-   k8s.io/cluster-autoscaler/<cluster-name> = "owned"
-   ```
-
-2. **Min/Max Size Configuration**:
-   ```hcl
-   scaling_config = {
-     desired_size = 1
-     min_size     = 0    # Can scale to zero
-     max_size     = 5    # Maximum nodes
-   }
-   ```
-
-3. **IAM Instance Profile**: Automatically configured by EKS
-
-## Version Compatibility
-
-| EKS Version | Cluster Autoscaler Version |
-|-------------|---------------------------|
-| 1.30        | v1.30.x                   |
-| 1.29        | v1.29.x                   |
-| 1.28        | v1.28.x                   |
-
-The deploy script uses v1.30.0 by default, which supports EKS 1.30+.
-
-## References
+### References
 
 - [AWS Cluster Autoscaler Documentation](https://docs.aws.amazon.com/eks/latest/userguide/autoscaling.html)
 - [Cluster Autoscaler GitHub](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)

@@ -30,6 +30,37 @@ locals {
   )
   cluster_oidc_host = replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")
   ado_secret_name   = var.ado_secret_name
+  cluster_autoscaler_enabled = try(data.terraform_remote_state.base.outputs.cluster_autoscaler_role_arn, null) != null
+  cluster_autoscaler_base_args = [
+    "./cluster-autoscaler",
+    "--v=4",
+    "--stderrthreshold=info",
+    "--cloud-provider=aws",
+    "--skip-nodes-with-local-storage=false",
+    "--expander=least-waste",
+    "--node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/${data.terraform_remote_state.base.outputs.cluster_name}",
+    "--balance-similar-node-groups",
+    "--skip-nodes-with-system-pods=false",
+    "--scale-down-enabled=true",
+    "--scale-down-delay-after-add=10m",
+    "--scale-down-unneeded-time=10m",
+    "--scale-down-utilization-threshold=0.5",
+    "--max-node-provision-time=15m",
+    "--aws-use-static-instance-list=false"
+  ]
+  cluster_autoscaler_extra_args = flatten([
+    for arg_map in [
+      try(data.terraform_remote_state.base.outputs.cluster_autoscaler_extra_args, {}),
+      var.cluster_autoscaler_additional_args
+    ] : [
+      for arg_key, arg_val in arg_map : "--${arg_key}=${arg_val}"
+    ]
+  ])
+  node_auto_heal_enabled    = try(data.terraform_remote_state.base.outputs.node_auto_heal_enabled, false)
+  node_auto_heal_queue_url  = try(data.terraform_remote_state.base.outputs.node_auto_heal_queue_url, null)
+  node_auto_heal_role_arn   = try(data.terraform_remote_state.base.outputs.node_auto_heal_role_arn, null)
+  node_auto_heal_namespace  = try(data.terraform_remote_state.base.outputs.node_auto_heal_namespace, "kube-system")
+  node_auto_heal_sa_name    = try(data.terraform_remote_state.base.outputs.node_auto_heal_service_account, "aws-node-termination-handler")
 }
 
 # KEDA Operator IAM Role
@@ -279,6 +310,31 @@ module "external_secrets_operator" {
   ]
 }
 
+# Cluster Autoscaler Deployment (Kubernetes resources)
+module "cluster_autoscaler" {
+  count  = local.cluster_autoscaler_enabled ? 1 : 0
+  source = "./modules/primitive/cluster-autoscaler"
+
+  cluster_name = local.cluster_name
+  namespace    = data.terraform_remote_state.base.outputs.cluster_autoscaler_namespace
+  aws_region   = data.aws_region.current.name
+  image_tag    = data.terraform_remote_state.base.outputs.cluster_autoscaler_version
+
+  service_account_annotations = {
+    "eks.amazonaws.com/role-arn" = data.terraform_remote_state.base.outputs.cluster_autoscaler_role_arn
+  }
+
+  base_args            = local.cluster_autoscaler_base_args
+  extra_args           = local.cluster_autoscaler_extra_args
+  node_selector        = var.cluster_autoscaler_node_selector
+  tolerations          = var.cluster_autoscaler_tolerations
+  resources            = var.cluster_autoscaler_resources
+  priority_class_name  = var.cluster_autoscaler_priority_class_name
+  replicas             = var.cluster_autoscaler_replicas
+  pod_annotations      = var.cluster_autoscaler_pod_annotations
+  service_account_name = "cluster-autoscaler"
+}
+
 # Buildkitd Service (standalone deployment for cluster-wide availability)
 resource "kubernetes_namespace" "buildkit" {
   count = var.enable_buildkitd ? 1 : 0
@@ -499,4 +555,24 @@ resource "kubernetes_service" "buildkitd_alias" {
     kubernetes_service.buildkitd,
     module.keda_operator # Ensures ado-agents namespace exists
   ]
+}
+
+# AWS Node Termination Handler (queue processor mode)
+module "node_termination_handler" {
+  count  = local.node_auto_heal_enabled && local.node_auto_heal_queue_url != null && local.node_auto_heal_role_arn != null ? 1 : 0
+  source = "./modules/primitive/node-termination-handler"
+
+  namespace         = local.node_auto_heal_namespace
+  create_namespace  = false
+  queue_url         = local.node_auto_heal_queue_url
+  aws_region        = data.aws_region.current.name
+  chart_version     = var.node_auto_heal_chart_version
+  log_level         = var.node_auto_heal_log_level
+  service_account_name = local.node_auto_heal_sa_name
+  service_account_annotations = {
+    "eks.amazonaws.com/role-arn" = local.node_auto_heal_role_arn
+  }
+  node_selector = var.node_auto_heal_daemonset_node_selector
+  tolerations   = var.node_auto_heal_daemonset_tolerations
+  resources     = var.node_auto_heal_daemonset_resources
 }

@@ -193,6 +193,9 @@ variable "eks_addons" {
     "vpc-cni" = {
       version = "v1.18.3-eksbuild.1"
     }
+    "metrics-server" = {
+      version = "v0.7.2-eksbuild.1"
+    }
   }
 }
 
@@ -267,6 +270,59 @@ variable "cluster_autoscaler_namespace" {
   description = "Kubernetes namespace for cluster autoscaler"
   type        = string
   default     = "kube-system"
+}
+
+variable "cluster_autoscaler_version" {
+  description = "Container image tag for the Kubernetes Cluster Autoscaler (must match the EKS control plane minor version)."
+  type        = string
+  default     = "v1.33.0"
+}
+
+variable "cluster_autoscaler_extra_args" {
+  description = "Additional command-line arguments for the Cluster Autoscaler container (map of flag => value)."
+  type        = map(string)
+  default     = {}
+}
+
+# Node Auto-Heal / AWS Node Termination Handler
+variable "enable_node_auto_heal" {
+  description = "Whether to provision queue-based AWS Node Termination Handler infrastructure (EventBridge + SQS + IRSA)."
+  type        = bool
+  default     = false
+}
+
+variable "node_auto_heal_namespace" {
+  description = "Namespace where the Node Termination Handler DaemonSet will run."
+  type        = string
+  default     = "kube-system"
+}
+
+variable "node_auto_heal_queue_retention_seconds" {
+  description = "Message retention period for the Node Termination Handler SQS queue."
+  type        = number
+  default     = 1209600 # 14 days
+
+  validation {
+    condition     = var.node_auto_heal_queue_retention_seconds >= 60 && var.node_auto_heal_queue_retention_seconds <= 1209600
+    error_message = "Retention must be between 60 seconds and 14 days."
+  }
+}
+
+variable "node_auto_heal_enable_dlq" {
+  description = "Whether to create a dead-letter queue for undeliverable termination events."
+  type        = bool
+  default     = true
+}
+
+variable "node_auto_heal_dlq_max_receive_count" {
+  description = "Number of times a message can be received before moving to the DLQ."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = var.node_auto_heal_dlq_max_receive_count >= 1 && var.node_auto_heal_dlq_max_receive_count <= 1000
+    error_message = "DLQ max receive count must be between 1 and 1000."
+  }
 }
 
 # Tagging
