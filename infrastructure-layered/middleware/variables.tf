@@ -53,6 +53,75 @@ variable "keda_enable_cloudeventsource" {
   default     = false
 }
 
+# Metrics Server Configuration
+variable "install_metrics_server" {
+  description = "Whether to deploy metrics-server via Helm."
+  type        = bool
+  default     = true
+}
+
+variable "metrics_server_namespace" {
+  description = "Namespace where metrics-server will run."
+  type        = string
+  default     = "kube-system"
+}
+
+variable "metrics_server_chart_version" {
+  description = "Helm chart version for metrics-server."
+  type        = string
+  default     = "3.12.2"
+}
+
+variable "metrics_server_args" {
+  description = "Extra command-line arguments for metrics-server."
+  type        = list(string)
+  default = [
+    "--kubelet-insecure-tls",
+    "--kubelet-preferred-address-types=InternalIP,Hostname"
+  ]
+}
+
+variable "metrics_server_node_selector" {
+  description = "Node selector for metrics-server pods."
+  type        = map(string)
+  default     = {}
+}
+
+variable "metrics_server_tolerations" {
+  description = "Tolerations for metrics-server pods."
+  type = list(object({
+    key      = optional(string)
+    operator = optional(string)
+    value    = optional(string)
+    effect   = optional(string)
+  }))
+  default = []
+}
+
+variable "metrics_server_resources" {
+  description = "Resource requests and limits for metrics-server."
+  type = object({
+    requests = object({
+      cpu    = string
+      memory = string
+    })
+    limits = object({
+      cpu    = string
+      memory = string
+    })
+  })
+  default = {
+    requests = {
+      cpu    = "100m"
+      memory = "256Mi"
+    }
+    limits = {
+      cpu    = "250m"
+      memory = "512Mi"
+    }
+  }
+}
+
 variable "keda_enable_cluster_cloudeventsource" {
   description = "Enable ClusterCloudEventSource controller in KEDA. Set to false if ClusterCloudEventSource CRDs are not needed to avoid CrashLoopBackOff issues in KEDA 2.15.x"
   type        = bool

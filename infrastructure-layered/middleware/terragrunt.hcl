@@ -81,6 +81,13 @@ inputs = {
   keda_version                         = local.env.locals.keda_version
   keda_enable_cloudeventsource         = local.env.locals.keda_enable_cloudeventsource
   keda_enable_cluster_cloudeventsource = local.env.locals.keda_enable_cluster_cloudeventsource
+  install_metrics_server               = local.env.locals.install_metrics_server
+  metrics_server_namespace             = local.env.locals.metrics_server_namespace
+  metrics_server_chart_version         = local.env.locals.metrics_server_chart_version
+  metrics_server_args                  = local.env.locals.metrics_server_args
+  metrics_server_node_selector         = local.env.locals.metrics_server_node_selector
+  metrics_server_tolerations           = local.env.locals.metrics_server_tolerations
+  metrics_server_resources             = local.env.locals.metrics_server_resources
   
   # ADO Agent Configuration
   ado_agents_namespace = local.env.locals.ado_agents_namespace

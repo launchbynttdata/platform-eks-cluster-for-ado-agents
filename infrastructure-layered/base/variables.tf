@@ -193,17 +193,6 @@ variable "eks_addons" {
     "vpc-cni" = {
       version = "v1.18.3-eksbuild.1"
     }
-    "metrics-server" = {
-      version = "v0.7.2-eksbuild.1"
-        configuration_values = <<JSON
-{
-  "args": [
-    "--kubelet-insecure-tls",
-    "--kubelet-preferred-address-types=InternalIP,Hostname"
-  ]
-}
-JSON
-    }
   }
 }
 
