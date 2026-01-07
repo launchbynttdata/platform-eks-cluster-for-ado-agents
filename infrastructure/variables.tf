@@ -470,6 +470,7 @@ variable "ec2_node_group" {
     disk_size        = optional(number, 20)
     taints           = optional(list(object({ key = string, value = string, effect = string })))
     labels           = optional(map(string))
+    cluster_autoscaler_node_resources = optional(map(string), {})
   }))
   default = {
     buildkit-nodes = {

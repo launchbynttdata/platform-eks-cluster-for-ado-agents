@@ -611,6 +611,11 @@ module "ec2_nodes" {
     {
       for label_key, label_value in coalesce(each.value.labels, {}) :
       "k8s.io/cluster-autoscaler/node-template/label/${label_key}" => label_value
+    },
+    # Optional explicit resource overrides for scale-from-zero accuracy
+    {
+      for resource_key, resource_value in try(each.value.cluster_autoscaler_node_resources, {}) :
+      "k8s.io/cluster-autoscaler/node-template/resources/${resource_key}" => resource_value
     }
   ) : {}
 

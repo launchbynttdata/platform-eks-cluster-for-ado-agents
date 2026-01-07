@@ -242,6 +242,7 @@ variable "ec2_node_group" {
       effect = string
     })), [])
     tags = optional(map(string), {})
+    cluster_autoscaler_node_resources = optional(map(string), {})
   }))
   default = {}
 }
