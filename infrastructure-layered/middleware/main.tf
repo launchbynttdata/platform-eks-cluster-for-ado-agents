@@ -393,9 +393,9 @@ resource "kubernetes_deployment" "buildkitd" {
             app = "buildkitd"
           }
 
-          annotations = {
-            "container.apparmor.security.beta.kubernetes.io/buildkitd" = "unconfined"
-          }
+            annotations = {
+              "container.apparmor.security.beta.kubernetes.io/buildkitd" = "unconfined"
+            }
         }
 
       spec {

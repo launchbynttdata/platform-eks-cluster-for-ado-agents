@@ -1,7 +1,7 @@
 locals {
   common_labels = merge({
-    "app"        = "cluster-autoscaler"
-    "k8s-app"    = "cluster-autoscaler"
+    "app"       = "cluster-autoscaler"
+    "k8s-app"   = "cluster-autoscaler"
     "managed-by" = "terraform"
   }, var.labels)
 
@@ -42,8 +42,8 @@ resource "kubernetes_cluster_role" "this" {
   }
 
   rule {
-    api_groups     = [""]
-    resources      = ["endpoints"]
+    api_groups = [""]
+    resources  = ["endpoints"]
     resource_names = ["cluster-autoscaler"]
     verbs          = ["get", "update"]
   }
@@ -67,8 +67,9 @@ resource "kubernetes_cluster_role" "this" {
     verbs = ["watch", "list", "get"]
   }
 
+  # VolumeAttachment is part of storage.k8s.io, not the core API group.
   rule {
-    api_groups = [""]
+    api_groups = ["storage.k8s.io"]
     resources  = ["volumeattachments"]
     verbs      = ["watch", "list", "get"]
   }
@@ -110,8 +111,8 @@ resource "kubernetes_cluster_role" "this" {
   }
 
   rule {
-    api_groups     = ["coordination.k8s.io"]
-    resources      = ["leases"]
+    api_groups    = ["coordination.k8s.io"]
+    resources     = ["leases"]
     resource_names = ["cluster-autoscaler"]
     verbs          = ["get", "update"]
   }
@@ -150,8 +151,8 @@ resource "kubernetes_role" "this" {
   }
 
   rule {
-    api_groups     = [""]
-    resources      = ["configmaps"]
+    api_groups = [""]
+    resources  = ["configmaps"]
     resource_names = ["cluster-autoscaler-status", "cluster-autoscaler-priority-expander"]
     verbs          = ["get", "update", "delete", "watch"]
   }
@@ -205,10 +206,10 @@ resource "kubernetes_deployment" "this" {
         dynamic "toleration" {
           for_each = var.tolerations
           content {
-            key                = lookup(toleration.value, "key", null)
-            operator           = lookup(toleration.value, "operator", null)
-            value              = lookup(toleration.value, "value", null)
-            effect             = lookup(toleration.value, "effect", null)
+            key               = lookup(toleration.value, "key", null)
+            operator          = lookup(toleration.value, "operator", null)
+            value             = lookup(toleration.value, "value", null)
+            effect            = lookup(toleration.value, "effect", null)
             toleration_seconds = lookup(toleration.value, "toleration_seconds", null)
           }
         }

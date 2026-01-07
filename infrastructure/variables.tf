@@ -485,6 +485,9 @@ variable "ec2_node_group" {
       taints = [
         { key = "node-role.kubernetes.io/buildkit", value = "true", effect = "NO_SCHEDULE" }
       ]
+      labels = {
+        "workload-type" = "buildkit"
+      }
     },
     system-nodes = {
       cluster_name  = "" # to be filled in by the module
@@ -497,6 +500,9 @@ variable "ec2_node_group" {
       instance_types   = ["t3a.medium"]
       disk_size        = 20
       taints           = []
+      labels = {
+        "workload-type" = "system"
+      }
     }
   }
 }
