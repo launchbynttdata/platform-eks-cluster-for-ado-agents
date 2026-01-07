@@ -437,7 +437,7 @@ resource "kubernetes_deployment" "buildkitd" {
           security_context {
             privileged                 = true
             allow_privilege_escalation = true
-            read_only_root_filesystem  = true
+            read_only_root_filesystem  = false
 
             capabilities {
               drop = ["NET_RAW"]
