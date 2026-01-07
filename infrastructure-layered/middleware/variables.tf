@@ -202,7 +202,7 @@ variable "buildkitd_namespace" {
 variable "buildkitd_image" {
   description = "Docker image for buildkitd"
   type        = string
-  default     = "moby/buildkit:v0.12.5"
+  default     = "moby/buildkit:v0.26.3-rootless"
 }
 
 variable "buildkitd_replicas" {

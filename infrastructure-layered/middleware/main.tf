@@ -363,13 +363,8 @@ resource "kubernetes_namespace" "buildkit" {
   }
 }
 
-# privileged security context is required for buildkitd
-# https://github.com/moby/buildkit/blob/main/docs/architecture.md#security-context
-# Note: This may not be compatible with Fargate profiles
 resource "kubernetes_deployment" "buildkitd" {
-  # checkov:skip=CKV_K8S_16:BuildKit requires privileged mode for container image building operations (overlay filesystem, namespace management)
-  # checkov:skip=CKV_K8S_20:BuildKit requires privilege escalation for container image building operations
-  # checkov:skip=CKV_K8S_37:Dropping NET_RAW capability as defense-in-depth measure. BuildKit runs privileged but doesn't need NET_RAW for image building
+  # Rootless BuildKit deployment aligned with https://github.com/moby/buildkit/tree/master/examples/kubernetes
   # checkov:skip=CKV_K8S_43:Using tag-based image references for maintainability. Digest-based references make updates difficult and provide minimal security benefit in this controlled environment
   # checkov:skip=CKV_K8S_14:Image tag is passed as variable. 
   count = var.enable_buildkitd ? 1 : 0
@@ -392,12 +387,16 @@ resource "kubernetes_deployment" "buildkitd" {
       }
     }
 
-    template {
-      metadata {
-        labels = {
-          app = "buildkitd"
+      template {
+        metadata {
+          labels = {
+            app = "buildkitd"
+          }
+
+          annotations = {
+            "container.apparmor.security.beta.kubernetes.io/buildkitd" = "unconfined"
+          }
         }
-      }
 
       spec {
         # Use node selector for EC2 nodes if available
@@ -425,22 +424,26 @@ resource "kubernetes_deployment" "buildkitd" {
             protocol       = "TCP"
           }
 
-          # Use --debug for better logging, don't use --oci-worker-no-process-sandbox
-          # as it requires rootless mode
+          # Enable debug logging and expose the TCP listener without TLS. Rootless mode
+          # requires the no-process-sandbox flag to avoid privileged operations.
           args = [
             "--debug",
-            "--addr", "tcp://0.0.0.0:1234"
+            "--addr", "tcp://0.0.0.0:1234",
+            "--oci-worker-no-process-sandbox"
           ]
 
-          # BuildKit requires elevated privileges for container image building
-          # Read-only root filesystem with writable emptyDir volumes for build operations
+          # Rootless deployment runs as an unprivileged user with explicit seccomp/AppArmor
+          # settings, matching the upstream example.
           security_context {
-            privileged                 = true
+            run_as_user               = 1000
+            run_as_group              = 1000
+            run_as_non_root           = true
+            read_only_root_filesystem = false
+            # Allow setuid helpers like newuidmap/newgidmap to initialize user namespaces
             allow_privilege_escalation = true
-            read_only_root_filesystem  = false
 
-            capabilities {
-              drop = ["NET_RAW"]
+            seccomp_profile {
+              type = "Unconfined"
             }
           }
 
@@ -479,8 +482,8 @@ resource "kubernetes_deployment" "buildkitd" {
           }
 
           volume_mount {
-            mount_path = "/var/lib/buildkit"
-            name       = "buildkit-storage"
+            mount_path = "/home/user/.local/share/buildkit"
+            name       = "buildkit-rootless"
           }
 
           volume_mount {
@@ -500,7 +503,7 @@ resource "kubernetes_deployment" "buildkitd" {
         }
 
         volume {
-          name = "buildkit-storage"
+          name = "buildkit-rootless"
           empty_dir {
             size_limit = var.buildkitd_storage_size
           }
