@@ -363,6 +363,22 @@ resource "kubernetes_namespace" "buildkit" {
   }
 }
 
+resource "kubernetes_config_map" "buildkitd_config" {
+  count = var.enable_buildkitd ? 1 : 0
+
+  metadata {
+    name      = "buildkitd-config"
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+  }
+
+  data = {
+    "buildkitd.toml" = <<-EOT
+      [worker.oci]
+        max-parallelism = 1
+    EOT
+  }
+}
+
 resource "kubernetes_deployment" "buildkitd" {
   # Rootless BuildKit deployment aligned with https://github.com/moby/buildkit/tree/master/examples/kubernetes
   # checkov:skip=CKV_K8S_43:Using tag-based image references for maintainability. Digest-based references make updates difficult and provide minimal security benefit in this controlled environment
@@ -387,16 +403,16 @@ resource "kubernetes_deployment" "buildkitd" {
       }
     }
 
-      template {
-        metadata {
-          labels = {
-            app = "buildkitd"
-          }
-
-            annotations = {
-              "container.apparmor.security.beta.kubernetes.io/buildkitd" = "unconfined"
-            }
+    template {
+      metadata {
+        labels = {
+          app = "buildkitd"
         }
+
+        annotations = {
+          "container.apparmor.security.beta.kubernetes.io/buildkitd" = "unconfined"
+        }
+      }
 
       spec {
         # Use node selector for EC2 nodes if available
@@ -429,8 +445,10 @@ resource "kubernetes_deployment" "buildkitd" {
           args = [
             "--debug",
             "--addr", "tcp://0.0.0.0:1234",
-            "--oci-worker-no-process-sandbox"
+            "--oci-worker-no-process-sandbox",
+            "--config", "/etc/buildkit/buildkitd.toml"
           ]
+
 
           # Rootless deployment runs as an unprivileged user with explicit seccomp/AppArmor
           # settings, matching the upstream example.
@@ -489,6 +507,19 @@ resource "kubernetes_deployment" "buildkitd" {
           volume_mount {
             mount_path = "/run"
             name       = "run"
+          }
+
+          volume_mount {
+            mount_path = "/etc/buildkit"
+            name       = "buildkitd-config"
+          }
+
+        }
+
+        volume {
+          name = "buildkitd-config"
+          config_map {
+            name = kubernetes_config_map.buildkitd_config[0].metadata[0].name
           }
         }
 
