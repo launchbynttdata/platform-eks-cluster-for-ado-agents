@@ -28,8 +28,39 @@ locals {
     },
     var.additional_tags
   )
-  cluster_oidc_host = replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")
-  ado_secret_name   = var.ado_secret_name
+  cluster_oidc_host          = replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")
+  ado_secret_name            = var.ado_secret_name
+  cluster_autoscaler_enabled = try(data.terraform_remote_state.base.outputs.cluster_autoscaler_role_arn, null) != null
+  cluster_autoscaler_base_args = [
+    "./cluster-autoscaler",
+    "--v=4",
+    "--stderrthreshold=info",
+    "--cloud-provider=aws",
+    "--skip-nodes-with-local-storage=false",
+    "--expander=least-waste",
+    "--node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/${data.terraform_remote_state.base.outputs.cluster_name}",
+    "--balance-similar-node-groups",
+    "--skip-nodes-with-system-pods=false",
+    "--scale-down-enabled=true",
+    "--scale-down-delay-after-add=10m",
+    "--scale-down-unneeded-time=10m",
+    "--scale-down-utilization-threshold=0.5",
+    "--max-node-provision-time=15m",
+    "--aws-use-static-instance-list=false"
+  ]
+  cluster_autoscaler_extra_args = flatten([
+    for arg_map in [
+      try(data.terraform_remote_state.base.outputs.cluster_autoscaler_extra_args, {}),
+      var.cluster_autoscaler_additional_args
+      ] : [
+      for arg_key, arg_val in arg_map : "--${arg_key}=${arg_val}"
+    ]
+  ])
+  node_auto_heal_enabled   = try(data.terraform_remote_state.base.outputs.node_auto_heal_enabled, false)
+  node_auto_heal_queue_url = try(data.terraform_remote_state.base.outputs.node_auto_heal_queue_url, null)
+  node_auto_heal_role_arn  = try(data.terraform_remote_state.base.outputs.node_auto_heal_role_arn, null)
+  node_auto_heal_namespace = try(data.terraform_remote_state.base.outputs.node_auto_heal_namespace, "kube-system")
+  node_auto_heal_sa_name   = try(data.terraform_remote_state.base.outputs.node_auto_heal_service_account, "aws-node-termination-handler")
 }
 
 # KEDA Operator IAM Role
@@ -246,6 +277,19 @@ module "keda_operator" {
   }]
 }
 
+# Metrics Server (Helm-managed to allow custom arguments)
+module "metrics_server" {
+  count  = var.install_metrics_server ? 1 : 0
+  source = "./modules/primitive/metrics-server"
+
+  namespace     = var.metrics_server_namespace
+  chart_version = var.metrics_server_chart_version
+  args          = var.metrics_server_args
+  node_selector = var.metrics_server_node_selector
+  tolerations   = var.metrics_server_tolerations
+  resources     = var.metrics_server_resources
+}
+
 # External Secrets Operator Installation
 module "external_secrets_operator" {
   count  = var.install_eso ? 1 : 0
@@ -279,6 +323,31 @@ module "external_secrets_operator" {
   ]
 }
 
+# Cluster Autoscaler Deployment (Kubernetes resources)
+module "cluster_autoscaler" {
+  count  = local.cluster_autoscaler_enabled ? 1 : 0
+  source = "./modules/primitive/cluster-autoscaler"
+
+  cluster_name = local.cluster_name
+  namespace    = data.terraform_remote_state.base.outputs.cluster_autoscaler_namespace
+  aws_region   = data.aws_region.current.name
+  image_tag    = data.terraform_remote_state.base.outputs.cluster_autoscaler_version
+
+  service_account_annotations = {
+    "eks.amazonaws.com/role-arn" = data.terraform_remote_state.base.outputs.cluster_autoscaler_role_arn
+  }
+
+  base_args            = local.cluster_autoscaler_base_args
+  extra_args           = local.cluster_autoscaler_extra_args
+  node_selector        = var.cluster_autoscaler_node_selector
+  tolerations          = var.cluster_autoscaler_tolerations
+  resources            = var.cluster_autoscaler_resources
+  priority_class_name  = var.cluster_autoscaler_priority_class_name
+  replicas             = var.cluster_autoscaler_replicas
+  pod_annotations      = var.cluster_autoscaler_pod_annotations
+  service_account_name = "cluster-autoscaler"
+}
+
 # Buildkitd Service (standalone deployment for cluster-wide availability)
 resource "kubernetes_namespace" "buildkit" {
   count = var.enable_buildkitd ? 1 : 0
@@ -294,13 +363,24 @@ resource "kubernetes_namespace" "buildkit" {
   }
 }
 
-# privileged security context is required for buildkitd
-# https://github.com/moby/buildkit/blob/main/docs/architecture.md#security-context
-# Note: This may not be compatible with Fargate profiles
+resource "kubernetes_config_map" "buildkitd_config" {
+  count = var.enable_buildkitd ? 1 : 0
+
+  metadata {
+    name      = "buildkitd-config"
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+  }
+
+  data = {
+    "buildkitd.toml" = <<-EOT
+      [worker.oci]
+        max-parallelism = 1
+    EOT
+  }
+}
+
 resource "kubernetes_deployment" "buildkitd" {
-  # checkov:skip=CKV_K8S_16:BuildKit requires privileged mode for container image building operations (overlay filesystem, namespace management)
-  # checkov:skip=CKV_K8S_20:BuildKit requires privilege escalation for container image building operations
-  # checkov:skip=CKV_K8S_37:Dropping NET_RAW capability as defense-in-depth measure. BuildKit runs privileged but doesn't need NET_RAW for image building
+  # Rootless BuildKit deployment aligned with https://github.com/moby/buildkit/tree/master/examples/kubernetes
   # checkov:skip=CKV_K8S_43:Using tag-based image references for maintainability. Digest-based references make updates difficult and provide minimal security benefit in this controlled environment
   # checkov:skip=CKV_K8S_14:Image tag is passed as variable. 
   count = var.enable_buildkitd ? 1 : 0
@@ -327,6 +407,10 @@ resource "kubernetes_deployment" "buildkitd" {
       metadata {
         labels = {
           app = "buildkitd"
+        }
+
+        annotations = {
+          "container.apparmor.security.beta.kubernetes.io/buildkitd" = "unconfined"
         }
       }
 
@@ -356,22 +440,28 @@ resource "kubernetes_deployment" "buildkitd" {
             protocol       = "TCP"
           }
 
-          # Use --debug for better logging, don't use --oci-worker-no-process-sandbox
-          # as it requires rootless mode
+          # Enable debug logging and expose the TCP listener without TLS. Rootless mode
+          # requires the no-process-sandbox flag to avoid privileged operations.
           args = [
             "--debug",
-            "--addr", "tcp://0.0.0.0:1234"
+            "--addr", "tcp://0.0.0.0:1234",
+            "--oci-worker-no-process-sandbox",
+            "--config", "/etc/buildkit/buildkitd.toml"
           ]
 
-          # BuildKit requires elevated privileges for container image building
-          # Read-only root filesystem with writable emptyDir volumes for build operations
-          security_context {
-            privileged                 = true
-            allow_privilege_escalation = true
-            read_only_root_filesystem  = true
 
-            capabilities {
-              drop = ["NET_RAW"]
+          # Rootless deployment runs as an unprivileged user with explicit seccomp/AppArmor
+          # settings, matching the upstream example.
+          security_context {
+            run_as_user               = 1000
+            run_as_group              = 1000
+            run_as_non_root           = true
+            read_only_root_filesystem = false
+            # Allow setuid helpers like newuidmap/newgidmap to initialize user namespaces
+            allow_privilege_escalation = true
+
+            seccomp_profile {
+              type = "Unconfined"
             }
           }
 
@@ -410,13 +500,26 @@ resource "kubernetes_deployment" "buildkitd" {
           }
 
           volume_mount {
-            mount_path = "/var/lib/buildkit"
-            name       = "buildkit-storage"
+            mount_path = "/home/user/.local/share/buildkit"
+            name       = "buildkit-rootless"
           }
 
           volume_mount {
             mount_path = "/run"
             name       = "run"
+          }
+
+          volume_mount {
+            mount_path = "/etc/buildkit"
+            name       = "buildkitd-config"
+          }
+
+        }
+
+        volume {
+          name = "buildkitd-config"
+          config_map {
+            name = kubernetes_config_map.buildkitd_config[0].metadata[0].name
           }
         }
 
@@ -431,7 +534,7 @@ resource "kubernetes_deployment" "buildkitd" {
         }
 
         volume {
-          name = "buildkit-storage"
+          name = "buildkit-rootless"
           empty_dir {
             size_limit = var.buildkitd_storage_size
           }
@@ -499,4 +602,60 @@ resource "kubernetes_service" "buildkitd_alias" {
     kubernetes_service.buildkitd,
     module.keda_operator # Ensures ado-agents namespace exists
   ]
+}
+
+resource "kubernetes_horizontal_pod_autoscaler_v2" "buildkitd" {
+  count = var.enable_buildkitd && var.buildkitd_hpa_enabled ? 1 : 0
+
+  metadata {
+    name      = "buildkitd"
+    namespace = var.buildkitd_namespace
+    labels = {
+      app = "buildkitd"
+    }
+  }
+
+  spec {
+    min_replicas = var.buildkitd_hpa_min_replicas
+    max_replicas = var.buildkitd_hpa_max_replicas
+
+    scale_target_ref {
+      api_version = "apps/v1"
+      kind        = "Deployment"
+      name        = "buildkitd"
+    }
+
+    metric {
+      type = "Resource"
+      resource {
+        name = "memory"
+        target {
+          type                = "Utilization"
+          average_utilization = var.buildkitd_hpa_target_memory_utilization_percentage
+        }
+      }
+    }
+  }
+
+  depends_on = [kubernetes_deployment.buildkitd]
+}
+
+# AWS Node Termination Handler (queue processor mode)
+module "node_termination_handler" {
+  count  = local.node_auto_heal_enabled && local.node_auto_heal_queue_url != null && local.node_auto_heal_role_arn != null ? 1 : 0
+  source = "./modules/primitive/node-termination-handler"
+
+  namespace            = local.node_auto_heal_namespace
+  create_namespace     = false
+  queue_url            = local.node_auto_heal_queue_url
+  aws_region           = data.aws_region.current.name
+  chart_version        = var.node_auto_heal_chart_version
+  log_level            = var.node_auto_heal_log_level
+  service_account_name = local.node_auto_heal_sa_name
+  service_account_annotations = {
+    "eks.amazonaws.com/role-arn" = local.node_auto_heal_role_arn
+  }
+  node_selector = var.node_auto_heal_daemonset_node_selector
+  tolerations   = var.node_auto_heal_daemonset_tolerations
+  resources     = var.node_auto_heal_daemonset_resources
 }

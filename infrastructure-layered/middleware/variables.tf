@@ -53,6 +53,75 @@ variable "keda_enable_cloudeventsource" {
   default     = false
 }
 
+# Metrics Server Configuration
+variable "install_metrics_server" {
+  description = "Whether to deploy metrics-server via Helm."
+  type        = bool
+  default     = true
+}
+
+variable "metrics_server_namespace" {
+  description = "Namespace where metrics-server will run."
+  type        = string
+  default     = "kube-system"
+}
+
+variable "metrics_server_chart_version" {
+  description = "Helm chart version for metrics-server."
+  type        = string
+  default     = "3.12.2"
+}
+
+variable "metrics_server_args" {
+  description = "Extra command-line arguments for metrics-server."
+  type        = list(string)
+  default = [
+    "--kubelet-insecure-tls",
+    "--kubelet-preferred-address-types=InternalIP,Hostname"
+  ]
+}
+
+variable "metrics_server_node_selector" {
+  description = "Node selector for metrics-server pods."
+  type        = map(string)
+  default     = {}
+}
+
+variable "metrics_server_tolerations" {
+  description = "Tolerations for metrics-server pods."
+  type = list(object({
+    key      = optional(string)
+    operator = optional(string)
+    value    = optional(string)
+    effect   = optional(string)
+  }))
+  default = []
+}
+
+variable "metrics_server_resources" {
+  description = "Resource requests and limits for metrics-server."
+  type = object({
+    requests = object({
+      cpu    = string
+      memory = string
+    })
+    limits = object({
+      cpu    = string
+      memory = string
+    })
+  })
+  default = {
+    requests = {
+      cpu    = "100m"
+      memory = "256Mi"
+    }
+    limits = {
+      cpu    = "250m"
+      memory = "512Mi"
+    }
+  }
+}
+
 variable "keda_enable_cluster_cloudeventsource" {
   description = "Enable ClusterCloudEventSource controller in KEDA. Set to false if ClusterCloudEventSource CRDs are not needed to avoid CrashLoopBackOff issues in KEDA 2.15.x"
   type        = bool
@@ -133,7 +202,7 @@ variable "buildkitd_namespace" {
 variable "buildkitd_image" {
   description = "Docker image for buildkitd"
   type        = string
-  default     = "moby/buildkit:v0.12.5"
+  default     = "moby/buildkit:v0.26.3-rootless"
 }
 
 variable "buildkitd_replicas" {
@@ -198,9 +267,176 @@ variable "buildkitd_storage_size" {
   default     = "20Gi"
 }
 
+variable "buildkitd_hpa_enabled" {
+  description = "Whether to manage a Horizontal Pod Autoscaler for buildkitd."
+  type        = bool
+  default     = true
+}
+
+variable "buildkitd_hpa_min_replicas" {
+  description = "Minimum number of buildkitd replicas when HPA is enabled."
+  type        = number
+  default     = 2
+}
+
+variable "buildkitd_hpa_max_replicas" {
+  description = "Maximum number of buildkitd replicas when HPA is enabled."
+  type        = number
+  default     = 5
+}
+
+variable "buildkitd_hpa_target_memory_utilization_percentage" {
+  description = "Target average memory utilization percentage for buildkitd HPA."
+  type        = number
+  default     = 70
+}
+
 # Additional Tags
 variable "additional_tags" {
   description = "Additional tags to apply to resources (merged with base layer tags)"
   type        = map(string)
   default     = {}
+}
+
+# Cluster Autoscaler Deployment (middleware managed)
+variable "cluster_autoscaler_node_selector" {
+  description = "Node selector applied to the Cluster Autoscaler pod to keep it on system nodes."
+  type        = map(string)
+  default = {
+    "workload-type" = "system"
+  }
+}
+
+variable "cluster_autoscaler_tolerations" {
+  description = "Tolerations for the Cluster Autoscaler pod."
+  type = list(object({
+    key                = optional(string)
+    operator           = optional(string, "Exists")
+    value              = optional(string)
+    effect             = optional(string)
+    toleration_seconds = optional(number)
+  }))
+  default = [
+    {
+      key      = "node-role.kubernetes.io/system"
+      operator = "Exists"
+      effect   = "NoSchedule"
+    }
+  ]
+}
+
+variable "cluster_autoscaler_resources" {
+  description = "Resource requests and limits for the Cluster Autoscaler deployment."
+  type = object({
+    requests = object({
+      cpu    = string
+      memory = string
+    })
+    limits = object({
+      cpu    = string
+      memory = string
+    })
+  })
+  default = {
+    requests = {
+      cpu    = "100m"
+      memory = "600Mi"
+    }
+    limits = {
+      cpu    = "100m"
+      memory = "600Mi"
+    }
+  }
+}
+
+variable "cluster_autoscaler_priority_class_name" {
+  description = "PriorityClass applied to the Cluster Autoscaler pods."
+  type        = string
+  default     = "system-cluster-critical"
+}
+
+variable "cluster_autoscaler_replicas" {
+  description = "Number of Cluster Autoscaler replicas to run."
+  type        = number
+  default     = 1
+}
+
+variable "cluster_autoscaler_pod_annotations" {
+  description = "Custom annotations added to the Cluster Autoscaler pod template."
+  type        = map(string)
+  default = {
+    "prometheus.io/scrape"                           = "true"
+    "prometheus.io/port"                             = "8085"
+    "cluster-autoscaler.kubernetes.io/safe-to-evict" = "false"
+  }
+}
+
+variable "cluster_autoscaler_additional_args" {
+  description = "Extra CLI arguments appended after the base autoscaler flags."
+  type        = map(string)
+  default     = {}
+}
+
+# Node Auto-Heal / AWS Node Termination Handler
+variable "node_auto_heal_daemonset_tolerations" {
+  description = "Tolerations for the Node Termination Handler DaemonSet."
+  type = list(object({
+    key               = optional(string)
+    operator          = optional(string, "Exists")
+    value             = optional(string)
+    effect            = optional(string)
+    tolerationSeconds = optional(number)
+  }))
+  default = [
+    {
+      key      = "workload-type"
+      operator = "Equal"
+      value    = "system"
+      effect   = "NoSchedule"
+    }
+  ]
+}
+
+variable "node_auto_heal_daemonset_node_selector" {
+  description = "Node selector applied to the Node Termination Handler DaemonSet."
+  type        = map(string)
+  default = {
+    "eks.amazonaws.com/compute-type" = "ec2"
+  }
+}
+
+variable "node_auto_heal_daemonset_resources" {
+  description = "Resource requests/limits for Node Termination Handler pods."
+  type = object({
+    requests = object({
+      cpu    = string
+      memory = string
+    })
+    limits = object({
+      cpu    = string
+      memory = string
+    })
+  })
+  default = {
+    requests = {
+      cpu    = "100m"
+      memory = "128Mi"
+    }
+    limits = {
+      cpu    = "200m"
+      memory = "256Mi"
+    }
+  }
+}
+
+variable "node_auto_heal_chart_version" {
+  description = "Version of the aws-node-termination-handler Helm chart."
+  type        = string
+  default     = "0.27.3"
+}
+
+variable "node_auto_heal_log_level" {
+  description = "Log level for the Node Termination Handler pods."
+  type        = string
+  default     = "info"
 }

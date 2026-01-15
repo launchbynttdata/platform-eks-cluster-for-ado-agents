@@ -4,15 +4,15 @@ module "ecr_repositories" {
 
   for_each = var.ecr_repositories
 
-  repository_name         = each.value.repository_name
-  image_tag_mutability    = each.value.image_tag_mutability
-  encryption_type         = each.value.encryption_type
-  kms_key_arn             = each.value.kms_key_arn
-  scan_on_push            = each.value.scan_on_push
-  lifecycle_untagged_days = each.value.lifecycle_untagged_days
-  keep_tagged_count       = each.value.keep_tagged_count
+  repository_name             = each.value.repository_name
+  image_tag_mutability        = each.value.image_tag_mutability
+  encryption_type             = each.value.encryption_type
+  kms_key_arn                 = each.value.kms_key_arn
+  scan_on_push                = each.value.scan_on_push
+  lifecycle_untagged_days     = each.value.lifecycle_untagged_days
+  keep_tagged_count           = each.value.keep_tagged_count
   image_tag_mutability_filter = each.value.image_tag_mutability_filter
-  tags                    = var.tags
+  tags                        = var.tags
 }
 
 # Create IAM policies for ECR access if repositories exist and policies are enabled

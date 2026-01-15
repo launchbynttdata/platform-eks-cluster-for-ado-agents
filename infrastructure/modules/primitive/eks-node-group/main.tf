@@ -1,3 +1,12 @@
+locals {
+  cluster_autoscaler_tag_list = [
+    for tag_key, tag_value in var.cluster_autoscaler_tags : {
+      key   = tag_key
+      value = tag_value
+    }
+  ]
+}
+
 resource "aws_eks_node_group" "this" {
   cluster_name    = var.cluster_name
   node_group_name = var.node_group_name
@@ -45,4 +54,16 @@ resource "aws_eks_node_group" "this" {
     ]
   }
 
+}
+
+resource "aws_autoscaling_group_tag" "cluster_autoscaler" {
+  count = var.enable_cluster_autoscaler ? length(local.cluster_autoscaler_tag_list) : 0
+
+  autoscaling_group_name = aws_eks_node_group.this.resources[0].autoscaling_groups[0].name
+
+  tag {
+    key                 = local.cluster_autoscaler_tag_list[count.index].key
+    value               = local.cluster_autoscaler_tag_list[count.index].value
+    propagate_at_launch = true
+  }
 }

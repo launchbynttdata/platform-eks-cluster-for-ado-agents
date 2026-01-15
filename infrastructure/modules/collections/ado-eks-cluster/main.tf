@@ -149,7 +149,7 @@ module "cluster_security_group_ingress_vpc" {
   from_port         = 443
   to_port           = 443
   cidr_ipv4         = data.aws_vpc.selected.cidr_block
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-sg-api" })
+  tags              = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-sg-api" })
 }
 
 module "cluster_security_group_egress_all" {
@@ -160,7 +160,7 @@ module "cluster_security_group_egress_all" {
   description       = "Allow all outbound traffic"
   ip_protocol       = "-1"
   cidr_ipv4         = "0.0.0.0/0"
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-sg-egress" })
+  tags              = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-sg-egress" })
 }
 
 module "fargate_security_group" {
@@ -191,7 +191,7 @@ module "fargate_security_group_ingress_from_vpc" {
   from_port         = 0
   to_port           = 65535
   cidr_ipv4         = data.aws_vpc.selected.cidr_block
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-vpc" })
+  tags              = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-vpc" })
 }
 
 module "fargate_security_group_egress_all" {
@@ -202,7 +202,7 @@ module "fargate_security_group_egress_all" {
   description       = "Allow all outbound traffic"
   ip_protocol       = "-1"
   cidr_ipv4         = "0.0.0.0/0"
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-egress" })
+  tags              = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-egress" })
 }
 
 module "fargate_security_group_egress_https" {
@@ -215,7 +215,7 @@ module "fargate_security_group_egress_https" {
   from_port         = 443
   to_port           = 443
   cidr_ipv4         = "0.0.0.0/0"
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-https" })
+  tags              = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-sg-https" })
 }
 
 module "fargate_security_group_ingress_from_cluster" {
@@ -228,7 +228,7 @@ module "fargate_security_group_ingress_from_cluster" {
   ip_protocol                  = "tcp"
   from_port                    = 0
   to_port                      = 65535
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-to-fargate" })
+  tags                         = merge(local.common_tags, { Name = "${local.cluster_name}-cluster-to-fargate" })
 }
 
 module "cluster_security_group_ingress_from_fargate" {
@@ -241,7 +241,7 @@ module "cluster_security_group_ingress_from_fargate" {
   ip_protocol                  = "tcp"
   from_port                    = 443
   to_port                      = 443
-  tags = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-to-cluster" })
+  tags                         = merge(local.common_tags, { Name = "${local.cluster_name}-fargate-to-cluster" })
 }
 
 # EKS Cluster
@@ -424,7 +424,7 @@ module "eso_policy" {
     secrets_manager = {
       sid     = "AllowSecretsManagerAccess"
       actions = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
-  # Currently scoped to the ADO PAT secret only
+      # Currently scoped to the ADO PAT secret only
       # To add additional secrets, add their ARNs to this array:
       # Example: [
       #   aws_secretsmanager_secret.ado_pat.arn,
@@ -741,6 +741,10 @@ module "ec2_nodes" {
     {
       for label_key, label_value in coalesce(each.value.labels, {}) :
       "k8s.io/cluster-autoscaler/node-template/label/${label_key}" => label_value
+    },
+    {
+      for resource_key, resource_value in try(each.value.cluster_autoscaler_node_resources, {}) :
+      "k8s.io/cluster-autoscaler/node-template/resources/${resource_key}" => resource_value
     }
   ) : {}
 

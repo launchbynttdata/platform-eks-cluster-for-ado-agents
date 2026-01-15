@@ -95,7 +95,7 @@ resource "aws_secretsmanager_secret" "ado_pat" {
     {
       Purpose    = "ADO-Integration"
       ManagedBy  = "terraform"
-  SecretType = "ado-agent-pat"
+      SecretType = "ado-agent-pat"
     }
   )
 }

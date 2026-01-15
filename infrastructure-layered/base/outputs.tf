@@ -128,6 +128,46 @@ output "cluster_autoscaler_namespace" {
   value       = var.cluster_autoscaler_namespace
 }
 
+output "cluster_autoscaler_version" {
+  description = "Container image version for the Cluster Autoscaler"
+  value       = var.cluster_autoscaler_version
+}
+
+output "cluster_autoscaler_extra_args" {
+  description = "Additional CLI arguments to append to the Cluster Autoscaler command"
+  value       = var.cluster_autoscaler_extra_args
+}
+
+output "node_auto_heal_enabled" {
+  description = "Whether AWS Node Termination Handler infrastructure is enabled"
+  value       = var.enable_node_auto_heal
+}
+
+output "node_auto_heal_role_arn" {
+  description = "IAM role ARN used by the Node Termination Handler service account"
+  value       = var.enable_node_auto_heal ? module.node_auto_heal_role[0].role_arn : null
+}
+
+output "node_auto_heal_queue_url" {
+  description = "URL of the SQS queue that receives EC2/ASG termination events"
+  value       = var.enable_node_auto_heal ? aws_sqs_queue.node_auto_heal[0].url : null
+}
+
+output "node_auto_heal_queue_arn" {
+  description = "ARN of the SQS queue that receives EC2/ASG termination events"
+  value       = var.enable_node_auto_heal ? aws_sqs_queue.node_auto_heal[0].arn : null
+}
+
+output "node_auto_heal_namespace" {
+  description = "Namespace where the Node Termination Handler is deployed"
+  value       = var.node_auto_heal_namespace
+}
+
+output "node_auto_heal_service_account" {
+  description = "Service account name expected by the Node Termination Handler"
+  value       = local.node_auto_heal_service_account
+}
+
 # Common Information
 output "aws_region" {
   description = "AWS region"

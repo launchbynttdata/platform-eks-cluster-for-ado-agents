@@ -168,6 +168,30 @@ locals {
   keda_version                         = "2.17.2"
   keda_enable_cloudeventsource         = false
   keda_enable_cluster_cloudeventsource = false
+
+  # Metrics Server Configuration (Helm-managed)
+  install_metrics_server        = true
+  metrics_server_namespace      = "kube-system"
+  metrics_server_chart_version  = "3.12.2"
+  metrics_server_args = [
+    "--kubelet-insecure-tls",
+    "--kubelet-preferred-address-types=InternalIP,Hostname"
+  ]
+  metrics_server_node_selector = {
+    # Uncomment to pin to system nodes
+    # "workload-type" = "system"
+  }
+  metrics_server_tolerations = []
+  metrics_server_resources = {
+    requests = {
+      cpu    = "100m"
+      memory = "256Mi"
+    }
+    limits = {
+      cpu    = "250m"
+      memory = "512Mi"
+    }
+  }
   
   # ADO Configuration
   ado_agents_namespace = "ado-agents"
@@ -185,6 +209,10 @@ locals {
   buildkitd_namespace = "buildkit-system"
   buildkitd_image     = "moby/buildkit:v0.12.5"
   buildkitd_replicas  = 2
+  buildkitd_hpa_enabled = true
+  buildkitd_hpa_min_replicas = 2
+  buildkitd_hpa_max_replicas = 5
+  buildkitd_hpa_target_memory_utilization_percentage = 70
   
   buildkitd_node_selector = {
     # Uncomment if using EC2 nodes with this label

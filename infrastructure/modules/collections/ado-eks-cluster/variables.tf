@@ -283,16 +283,17 @@ variable "ec2_node_group_policies" {
 variable "ec2_node_group" {
   description = "Configuration for the EC2 node group"
   type = map(object({
-    cluster_name     = optional(string)
-    node_role_arn    = optional(string)
-    subnet_ids       = list(string)
-    desired_capacity = number
-    max_capacity     = number
-    min_capacity     = number
-    instance_types   = list(string)
-    disk_size        = optional(number, 20)
-    taints           = optional(list(object({ key = string, value = string, effect = string })))
-    labels           = optional(map(string))
+    cluster_name                      = optional(string)
+    node_role_arn                     = optional(string)
+    subnet_ids                        = list(string)
+    desired_capacity                  = number
+    max_capacity                      = number
+    min_capacity                      = number
+    instance_types                    = list(string)
+    disk_size                         = optional(number, 20)
+    taints                            = optional(list(object({ key = string, value = string, effect = string })))
+    labels                            = optional(map(string))
+    cluster_autoscaler_node_resources = optional(map(string), {})
   }))
   default = {}
 }

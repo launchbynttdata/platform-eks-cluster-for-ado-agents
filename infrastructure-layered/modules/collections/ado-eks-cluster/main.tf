@@ -924,6 +924,10 @@ module "ec2_nodes" {
     {
       for label_key, label_value in coalesce(each.value.labels, {}) :
       "k8s.io/cluster-autoscaler/node-template/label/${label_key}" => label_value
+    },
+    {
+      for resource_key, resource_value in try(each.value.cluster_autoscaler_node_resources, {}) :
+      "k8s.io/cluster-autoscaler/node-template/resources/${resource_key}" => resource_value
     }
   ) : {}
 
@@ -937,17 +941,23 @@ module "ec2_nodes" {
 }
 
 module "ec2_node_group_role" {
+  # checkov:skip=CKV_TF_1: trusted module source
   source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
   version = "~> 0.1"
-  name    = "eks-buildkit-nodes"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Service = "ec2.amazonaws.com" }
-      Action    = "sts:AssumeRole"
-    }]
-  })
+
+  name = "eks-buildkit-nodes"
+
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRole"]
+      principals = [
+        {
+          type        = "Service"
+          identifiers = ["ec2.amazonaws.com"]
+        }
+      ]
+    }
+  ]
 }
 
 # resource "aws_iam_role" "ec2_node_group_role" {

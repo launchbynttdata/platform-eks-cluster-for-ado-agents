@@ -81,6 +81,13 @@ inputs = {
   keda_version                         = local.env.locals.keda_version
   keda_enable_cloudeventsource         = local.env.locals.keda_enable_cloudeventsource
   keda_enable_cluster_cloudeventsource = local.env.locals.keda_enable_cluster_cloudeventsource
+  install_metrics_server               = local.env.locals.install_metrics_server
+  metrics_server_namespace             = local.env.locals.metrics_server_namespace
+  metrics_server_chart_version         = local.env.locals.metrics_server_chart_version
+  metrics_server_args                  = local.env.locals.metrics_server_args
+  metrics_server_node_selector         = local.env.locals.metrics_server_node_selector
+  metrics_server_tolerations           = local.env.locals.metrics_server_tolerations
+  metrics_server_resources             = local.env.locals.metrics_server_resources
   
   # ADO Agent Configuration
   ado_agents_namespace = local.env.locals.ado_agents_namespace
@@ -103,6 +110,14 @@ inputs = {
   buildkitd_tolerations  = local.env.locals.buildkitd_tolerations
   buildkitd_resources    = local.env.locals.buildkitd_resources
   buildkitd_storage_size = local.env.locals.buildkitd_storage_size
+  buildkitd_hpa_enabled   = local.env.locals.buildkitd_hpa_enabled
+  buildkitd_hpa_min_replicas = local.env.locals.buildkitd_hpa_min_replicas
+  buildkitd_hpa_max_replicas = local.env.locals.buildkitd_hpa_max_replicas
+  buildkitd_hpa_target_memory_utilization_percentage = local.env.locals.buildkitd_hpa_target_memory_utilization_percentage
+
+  # Node auto-heal / AWS Node Termination Handler configuration
+  node_auto_heal_daemonset_node_selector = local.env.locals.node_auto_heal_daemonset_node_selector
+  node_auto_heal_daemonset_tolerations   = local.env.locals.node_auto_heal_daemonset_tolerations
 }
 
 # =============================================================================

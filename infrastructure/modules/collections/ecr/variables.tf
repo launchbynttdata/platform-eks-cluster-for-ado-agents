@@ -1,13 +1,13 @@
 variable "ecr_repositories" {
   description = "Map of ECR repositories to create"
   type = map(object({
-    repository_name         = string
-    image_tag_mutability    = optional(string, "MUTABLE")
-    encryption_type         = optional(string, "AES256")
-    kms_key_arn             = optional(string, "")
-    scan_on_push            = optional(bool, true)
-    lifecycle_untagged_days = optional(number, 7)
-    keep_tagged_count       = optional(number, 10)
+    repository_name             = string
+    image_tag_mutability        = optional(string, "MUTABLE")
+    encryption_type             = optional(string, "AES256")
+    kms_key_arn                 = optional(string, "")
+    scan_on_push                = optional(bool, true)
+    lifecycle_untagged_days     = optional(number, 7)
+    keep_tagged_count           = optional(number, 10)
     image_tag_mutability_filter = optional(list(string), [])
   }))
   default = {}

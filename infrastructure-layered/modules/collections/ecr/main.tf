@@ -74,9 +74,9 @@ locals {
 }
 
 module "ecr_pull_policy" {
-  source = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
   version = "~> 0.1"
-  count  = local.iam_policies_enabled ? 1 : 0
+  count   = local.iam_policies_enabled ? 1 : 0
 
   policy_name      = "${var.cluster_name}-ecr-pull"
   policy_statement = local.ecr_pull_policy_statements
@@ -86,9 +86,9 @@ module "ecr_pull_policy" {
 }
 
 module "ecr_bastion_policy" {
-  source = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
   version = "~> 0.1"
-  count  = local.iam_policies_enabled ? 1 : 0
+  count   = local.iam_policies_enabled ? 1 : 0
 
   policy_name      = "${var.cluster_name}-ecr-bastion"
   policy_statement = local.ecr_bastion_policy_statements
@@ -98,18 +98,18 @@ module "ecr_bastion_policy" {
 }
 
 module "ecr_pull_policy_attachment" {
-  source = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
   version = "~> 0.1"
-  count  = local.iam_policies_enabled && var.attach_pull_to_fargate && var.fargate_role_name != "" ? 1 : 0
+  count   = local.iam_policies_enabled && var.attach_pull_to_fargate && var.fargate_role_name != "" ? 1 : 0
 
   role_name  = var.fargate_role_name
   policy_arn = module.ecr_pull_policy[0].policy_arn
 }
 
 module "ecr_bastion_policy_attachment" {
-  source = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
   version = "~> 0.1"
-  count  = local.iam_policies_enabled && var.attach_bastion_policy && var.bastion_role_name != "" ? 1 : 0
+  count   = local.iam_policies_enabled && var.attach_bastion_policy && var.bastion_role_name != "" ? 1 : 0
 
   role_name  = var.bastion_role_name
   policy_arn = module.ecr_bastion_policy[0].policy_arn
