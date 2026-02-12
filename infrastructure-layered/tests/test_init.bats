@@ -268,6 +268,31 @@ teardown() {
     [ "$status" -eq 0 ]
     [[ "$output" =~ "init" ]]
     [[ "$output" =~ "Initialize Terragrunt/Terraform" ]]
+    [[ "$output" =~ "Usage: deploy.sh" ]]
+}
+
+@test "arg parsing: --layer requires value" {
+    local SCRIPT_DIR_LOCAL="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+
+    run bash -c "cd ${SCRIPT_DIR_LOCAL} && ./deploy.sh --layer 2>&1"
+    [ "$status" -ne 0 ]
+    [[ "$output" =~ "Option --layer requires a value" ]]
+}
+
+@test "arg parsing: --region requires value" {
+    local SCRIPT_DIR_LOCAL="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+
+    run bash -c "cd ${SCRIPT_DIR_LOCAL} && ./deploy.sh --region 2>&1"
+    [ "$status" -ne 0 ]
+    [[ "$output" =~ "Option --region requires a value" ]]
+}
+
+@test "dry-run: does not require valid AWS credentials" {
+    local SCRIPT_DIR_LOCAL="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+
+    run bash -c "cd ${SCRIPT_DIR_LOCAL} && AWS_PROFILE=__nonexistent_profile__ ./deploy.sh init --dry-run 2>&1"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "Dry-run mode detected: skipping AWS credentials validation" ]]
 }
 
 # =============================================================================

@@ -55,7 +55,7 @@ resource "aws_eks_addon" "vpc_cni" {
 
 ```hcl
 module "ec2_nodes" {
-  source   = "../../infrastructure/modules/primitive/eks-node-group"
+  source   = "../../modules/primitive/eks-node-group"
   for_each = var.ec2_node_group
 
   # ... configuration ...
@@ -66,7 +66,7 @@ module "ec2_nodes" {
 
 module "fargate_profile" {
   for_each = var.fargate_profiles
-  source   = "../../infrastructure/modules/primitive/fargate-profile"
+  source   = "../../modules/primitive/fargate-profile"
 
   # ... configuration ...
 
