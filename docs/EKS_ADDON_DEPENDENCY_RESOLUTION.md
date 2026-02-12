@@ -69,7 +69,7 @@ resource "aws_eks_addon" "vpc_cni" {
 ### 2. EC2 Node Groups - Wait for VPC CNI
 ```hcl
 module "ec2_nodes" {
-  source   = "../../infrastructure/modules/primitive/eks-node-group"
+  source   = "../../modules/primitive/eks-node-group"
   for_each = var.ec2_node_group
 
   # ... node configuration ...
@@ -83,7 +83,7 @@ module "ec2_nodes" {
 ```hcl
 module "fargate_profile" {
   for_each = var.fargate_profiles
-  source   = "../../infrastructure/modules/primitive/fargate-profile"
+  source   = "../../modules/primitive/fargate-profile"
 
   # ... profile configuration ...
 

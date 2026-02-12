@@ -22,7 +22,7 @@
 # - Dry-run mode for validation
 #
 # Usage:
-#   ./deploy-tg.sh [OPTIONS] [COMMAND]
+#   ./deploy.sh [OPTIONS] [COMMAND]
 #
 # Commands:
 #   deploy        Deploy all layers (default)
@@ -50,6 +50,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 readonly LAYERS_DIR="${SCRIPT_DIR}"
+readonly SCRIPT_NAME="${0##*/}"
 
 readonly BASE_LAYER_DIR="${LAYERS_DIR}/base"
 readonly MIDDLEWARE_LAYER_DIR="${LAYERS_DIR}/middleware"
@@ -105,7 +106,7 @@ log_debug() {
 
 show_usage() {
     cat << EOF
-Usage: ${0##*/} [OPTIONS] [COMMAND]
+Usage: ${SCRIPT_NAME} [OPTIONS] [COMMAND]
 
 Commands:
   deploy        Deploy all layers in order (default)
@@ -134,34 +135,34 @@ Environment Variables:
 
 Examples:
   # Initialize all layers (download external modules)
-  ./deploy-tg.sh init
+  ./${SCRIPT_NAME} init
 
   # Initialize specific layer
-  ./deploy-tg.sh init --layer base
+  ./${SCRIPT_NAME} init --layer base
 
   # Deploy all layers (recommended for initial deployment)
-  ./deploy-tg.sh deploy --update-ado-secret
+  ./${SCRIPT_NAME} deploy --update-ado-secret
 
   # Deploy only base layer
-  ./deploy-tg.sh deploy --layer base
+  ./${SCRIPT_NAME} deploy --layer base
 
   # Show plan for all layers
-  ./deploy-tg.sh plan
+  ./${SCRIPT_NAME} plan
 
   # Deploy application layer with credentials (prevents KEDA errors)
-  ./deploy-tg.sh deploy --layer application --update-ado-secret
+  ./${SCRIPT_NAME} deploy --layer application --update-ado-secret
 
   # Deploy config layer (post-deployment)
-  ./deploy-tg.sh deploy --layer config
+  ./${SCRIPT_NAME} deploy --layer config
 
   # Update ADO credentials after initial deployment
-  ./deploy-tg.sh deploy --layer config --update-ado-secret
+  ./${SCRIPT_NAME} deploy --layer config --update-ado-secret
 
   # Destroy all layers
-  ./deploy-tg.sh destroy
+  ./${SCRIPT_NAME} destroy
 
   # Deploy with auto-approve (CI/CD)
-  ./deploy-tg.sh deploy --auto-approve --update-ado-secret
+  ./${SCRIPT_NAME} deploy --auto-approve --update-ado-secret
 
 EOF
 }
@@ -209,7 +210,7 @@ check_prerequisites() {
     local missing_tools=()
     
     # Check for required tools
-    for tool in aws terragrunt terraform helm kubectl; do
+    for tool in aws terragrunt terraform helm kubectl jq; do
         if ! command -v "${tool}" &> /dev/null; then
             missing_tools+=("${tool}")
         fi
@@ -232,16 +233,20 @@ check_prerequisites() {
     tf_version=$(terraform version -json | jq -r '.terraform_version' 2>/dev/null || echo "unknown")
     log_debug "Terraform version: ${tf_version}"
     
-    # Check AWS credentials
-    if ! aws sts get-caller-identity &> /dev/null; then
-        log_error "AWS credentials not configured or invalid"
-        log_error "Run 'aws configure' to set up credentials"
-        exit 1
+    # Skip live AWS identity checks in dry-run mode to allow offline validation.
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        log_info "Dry-run mode detected: skipping AWS credentials validation"
+    else
+        if ! aws sts get-caller-identity &> /dev/null; then
+            log_error "AWS credentials not configured or invalid"
+            log_error "Run 'aws configure' to set up credentials"
+            exit 1
+        fi
+
+        local caller_identity
+        caller_identity=$(aws sts get-caller-identity --output json)
+        log_debug "AWS Identity: $(echo "${caller_identity}" | jq -r '.Arn')"
     fi
-    
-    local caller_identity
-    caller_identity=$(aws sts get-caller-identity --output json)
-    log_debug "AWS Identity: $(echo "${caller_identity}" | jq -r '.Arn')"
     
     # Check for TF_STATE_BUCKET environment variable
     if [[ -z "${TF_STATE_BUCKET:-}" ]]; then
@@ -281,6 +286,39 @@ get_layer_dir() {
             return 1
             ;;
     esac
+}
+
+validate_target_layer() {
+    if [[ -z "${TARGET_LAYER}" ]]; then
+        return 0
+    fi
+
+    case "${TARGET_LAYER}" in
+        base|middleware|application|config) return 0 ;;
+        *)
+            log_error "Invalid --layer value: ${TARGET_LAYER}"
+            log_error "Valid values: base, middleware, application, config"
+            return 1
+            ;;
+    esac
+}
+
+get_terragrunt_output_raw() {
+    local layer="$1"
+    local output_name="$2"
+    local layer_dir
+    layer_dir=$(get_layer_dir "${layer}")
+
+    (cd "${layer_dir}" && terragrunt output -raw "${output_name}" 2>/dev/null)
+}
+
+get_terragrunt_output_json() {
+    local layer="$1"
+    local output_name="$2"
+    local layer_dir
+    layer_dir=$(get_layer_dir "${layer}")
+
+    (cd "${layer_dir}" && terragrunt output -json "${output_name}" 2>/dev/null)
 }
 
 init_layer() {
@@ -773,16 +811,13 @@ inject_ado_secret() {
         log_info "  Organization: ${org_name}"
         log_info "  URL: ${ADO_ORG_URL}"
         
-        # Create JSON structure matching Terraform expectations
+        # Create JSON structure matching Terraform expectations without shell interpolation risks.
         local secret_json
-        secret_json=$(cat <<EOF
-{
-  "personalAccessToken": "${ADO_PAT}",
-  "organization": "${org_name}",
-  "adourl": "${ADO_ORG_URL}"
-}
-EOF
-)
+        secret_json=$(jq -nc \
+            --arg pat "${ADO_PAT}" \
+            --arg org "${org_name}" \
+            --arg url "${ADO_ORG_URL}" \
+            '{personalAccessToken: $pat, organization: $org, adourl: $url}')
         
         if aws secretsmanager put-secret-value \
             --secret-id "${secret_name}" \
@@ -805,10 +840,16 @@ create_cluster_secret_store() {
     local cluster_name="$1"
     local region="$2"
     local eso_role_arn="$3"
-    local eso_sa_name="external-secrets"
-    local eso_namespace="external-secrets-system"
+    local secret_store_name="${4:-aws-secrets-manager}"
+    local eso_sa_name="${5:-external-secrets}"
+    local eso_namespace="${6:-external-secrets-system}"
     
     log_info "Creating ClusterSecretStore for External Secrets Operator..."
+    log_debug "Cluster: ${cluster_name}"
+    log_debug "Region: ${region}"
+    log_debug "ESO role ARN: ${eso_role_arn}"
+    log_debug "ClusterSecretStore: ${secret_store_name}"
+    log_debug "ESO service account: ${eso_namespace}/${eso_sa_name}"
     
     # Validate kubectl access
     if ! kubectl get nodes &>/dev/null; then
@@ -828,7 +869,7 @@ create_cluster_secret_store() {
 apiVersion: external-secrets.io/v1beta1
 kind: ClusterSecretStore
 metadata:
-  name: aws-secrets-manager
+  name: ${secret_store_name}
 spec:
   provider:
     aws:
@@ -855,7 +896,7 @@ EOF
     
     while [[ ${attempt} -lt ${max_attempts} ]]; do
         local status
-        status=$(kubectl get clustersecretstore aws-secrets-manager -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
+        status=$(kubectl get clustersecretstore "${secret_store_name}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
         
         if [[ "${status}" == "True" ]]; then
             log_success "ClusterSecretStore is ready"
@@ -871,7 +912,7 @@ EOF
     
     echo
     log_warning "ClusterSecretStore status check timed out after ${max_attempts} attempts"
-    log_info "Check status with: kubectl get clustersecretstore aws-secrets-manager -o yaml"
+    log_info "Check status with: kubectl get clustersecretstore ${secret_store_name} -o yaml"
     return 1
 }
 
@@ -885,58 +926,81 @@ deploy_config_layer() {
     log "=========================================="
     log ""
     
-    # Verify all Terraform layers are deployed
-    log_info "Verifying prerequisite layers..."
-    
-    local layers=("base" "middleware" "application")
-    for layer in "${layers[@]}"; do
-        local layer_dir
-        layer_dir=$(get_layer_dir "${layer}")
-        
-        cd "${layer_dir}"
-        if ! terragrunt output cluster_name &>/dev/null 2>&1 && \
-           ! terragrunt output eso_role_arn &>/dev/null 2>&1; then
-            if [[ "${layer}" == "base" ]]; then
-                log_error "Base layer not deployed. Deploy base layer first."
-                return 1
-            fi
+    # Verify required Terraform outputs before making cluster-side changes.
+    log_info "Verifying prerequisite layer outputs..."
+
+    local cluster_name
+    cluster_name=$(get_terragrunt_output_raw "base" "cluster_name" || true)
+    if [[ -z "${cluster_name}" ]]; then
+        log_error "Base layer output missing: cluster_name"
+        log_error "Deploy base layer first: ./${SCRIPT_NAME} deploy --layer base"
+        return 1
+    fi
+
+    local eso_role_arn
+    eso_role_arn=$(get_terragrunt_output_raw "middleware" "eso_role_arn" || true)
+    if [[ -z "${eso_role_arn}" ]]; then
+        log_error "Middleware layer output missing: eso_role_arn"
+        log_error "Deploy middleware layer first: ./${SCRIPT_NAME} deploy --layer middleware"
+        return 1
+    fi
+
+    local cluster_secret_store_name
+    cluster_secret_store_name=$(get_terragrunt_output_raw "middleware" "cluster_secret_store_name" || true)
+    if [[ -z "${cluster_secret_store_name}" ]]; then
+        log_error "Middleware layer output missing: cluster_secret_store_name"
+        log_error "Deploy middleware layer first: ./${SCRIPT_NAME} deploy --layer middleware"
+        return 1
+    fi
+
+    local eso_namespace
+    eso_namespace=$(get_terragrunt_output_raw "middleware" "eso_namespace" || true)
+    if [[ -z "${eso_namespace}" ]]; then
+        log_error "Middleware layer output missing: eso_namespace"
+        log_error "Deploy middleware layer first: ./${SCRIPT_NAME} deploy --layer middleware"
+        return 1
+    fi
+
+    local eso_service_account_name
+    eso_service_account_name=$(get_terragrunt_output_raw "middleware" "eso_service_account_name" || true)
+    if [[ -z "${eso_service_account_name}" ]]; then
+        log_error "Middleware layer output missing: eso_service_account_name"
+        log_error "Deploy middleware layer first: ./${SCRIPT_NAME} deploy --layer middleware"
+        return 1
+    fi
+
+    if [[ "${update_ado_secret}" == "true" ]]; then
+        local application_secret_json
+        application_secret_json=$(get_terragrunt_output_json "application" "ado_pat_secret" || true)
+        local application_secret_name
+        application_secret_name=$(echo "${application_secret_json}" | jq -r '.name // empty' 2>/dev/null || true)
+
+        if [[ -z "${application_secret_name}" ]]; then
+            log_error "Application layer output missing: ado_pat_secret.name"
+            log_error "Deploy application layer first: ./${SCRIPT_NAME} deploy --layer application"
+            return 1
         fi
-    done
-    
-    log_success "All prerequisite layers are deployed"
+    fi
+
+    log_success "Prerequisite outputs verified"
     
     # Configure kubectl
     configure_kubectl "${base_dir}"
-    
-    # Get cluster information from base layer
-    cd "$(get_layer_dir "base")"
-    
-    local cluster_name
-    cluster_name=$(terragrunt output -raw cluster_name 2>/dev/null || echo "")
-    
-    if [[ -z "${cluster_name}" ]]; then
-        log_error "Could not retrieve cluster name from base layer outputs"
-        return 1
-    fi
     
     local region="${AWS_REGION_OVERRIDE:-}"
     if [[ -z "${region}" ]]; then
         region=$(aws configure get region 2>/dev/null || echo "us-west-2")
     fi
-    
-    # Get ESO IAM role ARN from middleware layer
-    cd "$(get_layer_dir "middleware")"
-    
-    local eso_role_arn
-    eso_role_arn=$(terragrunt output -raw eso_role_arn 2>/dev/null || echo "")
-    
-    if [[ -z "${eso_role_arn}" ]]; then
-        log_warning "Could not retrieve ESO IAM role ARN from middleware layer"
-        log_info "ClusterSecretStore will be created but may need manual configuration"
-    fi
-    
+
     # Create ClusterSecretStore
-    if ! create_cluster_secret_store "${cluster_name}" "${region}" "${eso_role_arn}"; then
+    if ! create_cluster_secret_store \
+        "${cluster_name}" \
+        "${region}" \
+        "${eso_role_arn}" \
+        "${cluster_secret_store_name}" \
+        "${eso_service_account_name}" \
+        "${eso_namespace}"
+    then
         log_error "Failed to create ClusterSecretStore"
         return 1
     fi
@@ -973,13 +1037,13 @@ deploy_config_layer() {
     log_info "Region: ${region}"
     log_info ""
     log_info "Verify ClusterSecretStore:"
-    log_info "  kubectl get clustersecretstore aws-secrets-manager"
+    log_info "  kubectl get clustersecretstore ${cluster_secret_store_name}"
     log_info ""
     log_info "Check External Secrets:"
     log_info "  kubectl get externalsecrets -A"
     log_info ""
     log_info "To update ADO PAT later:"
-    log_info "  ./deploy-tg.sh deploy --layer config --update-ado-secret"
+    log_info "  ./${SCRIPT_NAME} deploy --layer config --update-ado-secret"
     echo
     
     return 0
@@ -1000,6 +1064,11 @@ main() {
                 shift
                 ;;
             --layer)
+                if [[ $# -lt 2 || -z "${2:-}" || "${2:-}" == --* ]]; then
+                    log_error "Option --layer requires a value (base|middleware|application|config)"
+                    show_usage
+                    exit 1
+                fi
                 TARGET_LAYER="$2"
                 shift 2
                 ;;
@@ -1012,6 +1081,11 @@ main() {
                 shift
                 ;;
             --region)
+                if [[ $# -lt 2 || -z "${2:-}" || "${2:-}" == --* ]]; then
+                    log_error "Option --region requires a value (e.g., us-west-2)"
+                    show_usage
+                    exit 1
+                fi
                 AWS_REGION_OVERRIDE="$2"
                 shift 2
                 ;;
@@ -1034,6 +1108,11 @@ main() {
                 ;;
         esac
     done
+
+    if ! validate_target_layer; then
+        show_usage
+        exit 1
+    fi
     
     # Display configuration
     log_info "Configuration:"

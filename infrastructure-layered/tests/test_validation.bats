@@ -62,3 +62,43 @@ teardown() {
 @test "common.hcl configuration exists" {
     [ -f "${TEST_SCRIPT_DIR}/common.hcl" ]
 }
+
+@test "deploy_config_layer: fails early when base cluster_name output missing" {
+    get_terragrunt_output_raw() { :; }
+
+    run deploy_config_layer "${BASE_LAYER_DIR}" "false"
+    [ "$status" -ne 0 ]
+    [[ "$output" =~ "Base layer output missing: cluster_name" ]]
+}
+
+@test "deploy_config_layer: fails when middleware outputs are missing" {
+    get_terragrunt_output_raw() {
+        if [[ "$1:$2" == "base:cluster_name" ]]; then
+            echo "demo-cluster"
+            return 0
+        fi
+        return 0
+    }
+
+    run deploy_config_layer "${BASE_LAYER_DIR}" "false"
+    [ "$status" -ne 0 ]
+    [[ "$output" =~ "Middleware layer output missing: eso_role_arn" ]]
+}
+
+@test "deploy_config_layer: checks application secret output when update requested" {
+    get_terragrunt_output_raw() {
+        case "$1:$2" in
+            base:cluster_name) echo "demo-cluster" ;;
+            middleware:eso_role_arn) echo "arn:aws:iam::123456789012:role/eso-role" ;;
+            middleware:cluster_secret_store_name) echo "aws-secrets-manager" ;;
+            middleware:eso_namespace) echo "external-secrets-system" ;;
+            middleware:eso_service_account_name) echo "external-secrets" ;;
+        esac
+        return 0
+    }
+    get_terragrunt_output_json() { echo "{}"; }
+
+    run deploy_config_layer "${BASE_LAYER_DIR}" "true"
+    [ "$status" -ne 0 ]
+    [[ "$output" =~ "Application layer output missing: ado_pat_secret.name" ]]
+}

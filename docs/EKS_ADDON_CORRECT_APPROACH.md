@@ -78,7 +78,7 @@ Fargate profiles can be created without any addons:
 
 ## Original Implementation Reference
 
-From `infrastructure/modules/collections/ado-eks-cluster/main.tf`:
+From `modules/collections/ado-eks-cluster/main.tf`:
 
 ```hcl
 # Fargate profiles created first
@@ -117,7 +117,7 @@ Following the original approach in the refactored code:
 # Fargate Profiles - No addon dependencies
 module "fargate_profile" {
   for_each = var.fargate_profiles
-  source   = "../../infrastructure/modules/primitive/fargate-profile"
+  source   = "../../modules/primitive/fargate-profile"
 
   # ...
   
@@ -129,7 +129,7 @@ module "fargate_profile" {
 
 # EC2 Node Groups - No addon dependencies
 module "ec2_nodes" {
-  source   = "../../infrastructure/modules/primitive/eks-node-group"
+  source   = "../../modules/primitive/eks-node-group"
   for_each = var.ec2_node_group
 
   # ...
@@ -199,7 +199,7 @@ You should see:
 
 ## References
 
-- Original working implementation: `infrastructure/modules/collections/ado-eks-cluster/main.tf`
+- Original working implementation: `modules/collections/ado-eks-cluster/main.tf`
 - AWS EKS Best Practices: https://aws.github.io/aws-eks-best-practices/
 - Amazon EKS User Guide - Add-ons: https://docs.aws.amazon.com/eks/latest/userguide/eks-add-ons.html
 
