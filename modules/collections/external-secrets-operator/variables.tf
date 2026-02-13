@@ -18,9 +18,9 @@ variable "create_namespace" {
 }
 
 variable "eso_version" {
-  description = "Version of External Secrets Operator to install"
+  description = "Version of External Secrets Operator Helm chart to install (1.3.x = ESO app 1.3)"
   type        = string
-  default     = "0.19.2"
+  default     = "1.3.2"
 }
 
 variable "release_name" {

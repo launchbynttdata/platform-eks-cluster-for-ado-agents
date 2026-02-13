@@ -772,6 +772,75 @@ prompt_for_ado_credentials() {
     return 0
 }
 
+# Forces External Secrets Operator to sync and restarts KEDA so ScaledObjects
+# resolve the updated ADO PAT from Kubernetes secrets.
+refresh_ado_secret_in_cluster() {
+    local cluster_name="$1"
+    local region="$2"
+    local secret_name="$3"
+
+    log_info "Refreshing Kubernetes resources to pick up new ADO secret..."
+
+    # Ensure kubectl is configured
+    if ! configure_kubectl "${BASE_LAYER_DIR}"; then
+        log_warning "Could not configure kubectl; skipping cluster refresh"
+        log_info "Manually refresh with: kubectl annotate externalsecret -n ado-agents ${secret_name}-secret force-sync=\$(date +%s) --overwrite"
+        log_info "Then restart KEDA: kubectl rollout restart deployment -n keda-system keda-operator"
+        return 0
+    fi
+
+    # Check kubectl access
+    if ! kubectl get nodes &>/dev/null; then
+        log_warning "Cannot access Kubernetes cluster; skipping cluster refresh"
+        return 0
+    fi
+
+    local ado_namespace keda_namespace
+    ado_namespace=$(cd "${MIDDLEWARE_LAYER_DIR}" && terragrunt output -raw ado_agents_namespace 2>/dev/null || echo "ado-agents")
+    keda_namespace=$(cd "${MIDDLEWARE_LAYER_DIR}" && terragrunt output -raw keda_namespace 2>/dev/null || echo "keda-system")
+
+    local external_secret_name="${secret_name}-secret"
+
+    # Force External Secrets Operator to immediately sync the secret
+    if kubectl get externalsecret "${external_secret_name}" -n "${ado_namespace}" &>/dev/null; then
+        log_info "Forcing ExternalSecret ${external_secret_name} to sync..."
+        if kubectl annotate externalsecret "${external_secret_name}" -n "${ado_namespace}" \
+            force-sync="$(date +%s)" --overwrite 2>/dev/null; then
+            log_success "ExternalSecret refresh triggered"
+            log_info "Waiting 5s for ESO to sync..."
+            sleep 5
+        else
+            log_warning "Failed to annotate ExternalSecret (ESO may use different annotation)"
+        fi
+    else
+        log_warning "ExternalSecret ${external_secret_name} not found in ${ado_namespace}; application layer may not be deployed yet"
+    fi
+
+    # Restart KEDA operator so it re-resolves secrets for ScaledObjects
+    if kubectl get deployment keda-operator -n "${keda_namespace}" &>/dev/null; then
+        log_info "Restarting KEDA operator to refresh secret resolution..."
+        if kubectl rollout restart deployment keda-operator -n "${keda_namespace}"; then
+            log_success "KEDA operator restart initiated"
+        else
+            log_warning "Failed to restart KEDA operator"
+        fi
+    else
+        log_warning "KEDA operator not found in ${keda_namespace}; ScaledObjects will reconcile on next sync interval"
+    fi
+
+    # Restart ADO agent deployments so pods pick up the new secret values
+    local ado_deployments
+    ado_deployments=$(kubectl get deployment -n "${ado_namespace}" -l app.kubernetes.io/name=ado-agent-cluster -o name 2>/dev/null || true)
+    if [[ -n "${ado_deployments}" ]]; then
+        log_info "Restarting ADO agent deployments to pick up new secret..."
+        for dep in ${ado_deployments}; do
+            kubectl rollout restart "${dep}" -n "${ado_namespace}" 2>/dev/null && log_debug "Restarted ${dep}" || true
+        done
+    fi
+
+    return 0
+}
+
 inject_ado_secret() {
     local cluster_name="$1"
     local region="$2"
@@ -824,6 +893,8 @@ inject_ado_secret() {
             --secret-string "${secret_json}" \
             --region "${region}" >/dev/null; then
             log_success "ADO PAT updated in AWS Secrets Manager: ${secret_name}"
+            # Refresh Kubernetes resources so KEDA ScaledObject picks up the new value
+            refresh_ado_secret_in_cluster "${cluster_name}" "${region}" "${secret_name}"
             return 0
         else
             log_error "Failed to update ADO PAT in AWS Secrets Manager"
@@ -866,7 +937,7 @@ create_cluster_secret_store() {
     log_info "Applying ClusterSecretStore manifest..."
     
     if ! kubectl apply -f - <<EOF
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ClusterSecretStore
 metadata:
   name: ${secret_store_name}
@@ -1181,7 +1252,6 @@ main() {
                         fi
                         
                         log_success "ADO secret injected successfully"
-                        log_info "You may need to restart KEDA operator: kubectl rollout restart deployment -n keda-system keda-operator"
                     fi
                 fi
             else

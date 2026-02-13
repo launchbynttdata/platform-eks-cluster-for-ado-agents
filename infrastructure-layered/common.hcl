@@ -15,14 +15,15 @@ locals {
   # Mock outputs for when dependencies don't exist yet
   # Useful during initial deployment or when running plan/validate
   mock_outputs_base = {
-    cluster_name          = "mock-cluster"
-    cluster_id            = "mock-cluster-id"
-    cluster_arn           = "arn:aws:eks:us-west-2:123456789012:cluster/mock-cluster"
-    cluster_endpoint      = "https://mock.eks.amazonaws.com"
-    cluster_ca_cert       = "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t"
-    oidc_provider_arn     = "arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-west-2.amazonaws.com/id/MOCK"
-    kms_key_id            = "mock-key-id"
-    kms_key_arn           = "arn:aws:kms:us-west-2:123456789012:key/mock"
+    cluster_name                      = "mock-cluster"
+    cluster_id                       = "mock-cluster-id"
+    cluster_arn                      = "arn:aws:eks:us-west-2:123456789012:cluster/mock-cluster"
+    cluster_endpoint                 = "https://mock.eks.amazonaws.com"
+    cluster_ca_cert                  = "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t"
+    cluster_certificate_authority_data = "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t"
+    oidc_provider_arn                = "arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-west-2.amazonaws.com/id/MOCK"
+    kms_key_id                       = "mock-key-id"
+    kms_key_arn                      = "arn:aws:kms:us-west-2:123456789012:key/mock"
     vpc_id                = "vpc-mock"
     subnet_ids            = ["subnet-mock1", "subnet-mock2"]
     security_group_id     = "sg-mock"

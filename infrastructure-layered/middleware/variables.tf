@@ -154,9 +154,9 @@ variable "eso_namespace" {
 }
 
 variable "eso_version" {
-  description = "Version of External Secrets Operator to install"
+  description = "Version of External Secrets Operator Helm chart to install (1.3.x = ESO app 1.3)"
   type        = string
-  default     = "0.10.4"
+  default     = "1.3.2"
 }
 
 variable "eso_webhook_enabled" {
@@ -176,9 +176,11 @@ variable "eso_webhook_failure_policy" {
   }
 }
 
-# NOTE: ClusterSecretStore is NOT created by Terraform due to CRD timing limitations.
-# It must be created post-deployment using the post-deploy-middleware.sh script.
-# See: docs/MIDDLEWARE_POST_DEPLOYMENT_STEPS.md
+variable "create_cluster_secret_store" {
+  description = "Whether to create the ClusterSecretStore for AWS Secrets Manager (required for ExternalSecrets to sync)"
+  type        = bool
+  default     = true
+}
 
 variable "cluster_secret_store_name" {
   description = "Name of the ClusterSecretStore (created by post-deploy script, used by application layer)"

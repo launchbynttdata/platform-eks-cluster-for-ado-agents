@@ -94,12 +94,13 @@ inputs = {
   ado_secret_name      = try(local.env.locals.ado_secret_name, local.env.locals.ado_pat_secret_name)
   
   # External Secrets Operator Configuration
-  install_eso                = local.env.locals.install_eso
-  eso_namespace              = local.env.locals.eso_namespace
-  eso_version                = local.env.locals.eso_version
-  eso_webhook_enabled        = local.env.locals.eso_webhook_enabled
-  eso_webhook_failure_policy = local.env.locals.eso_webhook_failure_policy
-  cluster_secret_store_name  = local.env.locals.cluster_secret_store_name
+  install_eso                  = local.env.locals.install_eso
+  eso_namespace                = local.env.locals.eso_namespace
+  eso_version                  = local.env.locals.eso_version
+  eso_webhook_enabled          = local.env.locals.eso_webhook_enabled
+  eso_webhook_failure_policy   = local.env.locals.eso_webhook_failure_policy
+  create_cluster_secret_store  = try(local.env.locals.create_cluster_secret_store, true)
+  cluster_secret_store_name    = local.env.locals.cluster_secret_store_name
   
   # Buildkitd Configuration
   enable_buildkitd       = local.env.locals.enable_buildkitd

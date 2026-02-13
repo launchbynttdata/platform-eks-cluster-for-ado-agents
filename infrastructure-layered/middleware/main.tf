@@ -309,10 +309,7 @@ module "external_secrets_operator" {
   webhook_enabled       = var.eso_webhook_enabled
   webhook_failurePolicy = var.eso_webhook_failure_policy
 
-  # ClusterSecretStore is NOT created by Terraform (CRD timing limitation)
-  # Must be created post-deployment using post-deploy-middleware.sh script
-  # See: docs/MIDDLEWARE_POST_DEPLOYMENT_STEPS.md
-  create_cluster_secret_store = false
+  create_cluster_secret_store = var.create_cluster_secret_store
 
   # Don't create external secrets here - application layer will manage them
   create_external_secrets = false

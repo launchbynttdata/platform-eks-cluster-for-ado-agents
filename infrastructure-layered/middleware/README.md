@@ -12,7 +12,7 @@ This layer deploys cluster operators and middleware services on the EKS cluster.
 
 ### External Secrets Operator (ESO)
 - **Purpose**: Synchronizes secrets from AWS Secrets Manager to Kubernetes secrets
-- **Version**: Configurable (default: 0.10.4)  
+- **Version**: Configurable (default: 1.3.2, ESO app 1.3)  
 - **Namespace**: `external-secrets-system` (configurable)
 - **IAM Role**: Created with basic Secrets Manager permissions
 - **ClusterSecretStore**: Creates AWS Secrets Manager integration

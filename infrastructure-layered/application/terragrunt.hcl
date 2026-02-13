@@ -70,8 +70,9 @@ locals {
 dependency "base" {
   config_path = "../base"
   
-  # Mock outputs allow running plan/validate before base layer exists
+  # Mock outputs allow running plan/validate/destroy when deps are broken or not yet applied
   mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
+  #mock_outputs_allowed_terraform_commands = ["init", "validate", "plan", "destroy"]
   mock_outputs_merge_strategy_with_state  = "shallow"
   
   mock_outputs = local.common.locals.mock_outputs_base
@@ -80,8 +81,9 @@ dependency "base" {
 dependency "middleware" {
   config_path = "../middleware"
   
-  # Mock outputs allow running plan/validate before middleware layer exists
-  mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
+  # Mock outputs allow running plan/validate/destroy when deps are broken or not yet applied
+  mock_outputs_allowed_terraform_commands = ["init", "validate", "plan", "destroy"]
+  #mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
   mock_outputs_merge_strategy_with_state  = "shallow"
   
   mock_outputs = local.common.locals.mock_outputs_middleware
