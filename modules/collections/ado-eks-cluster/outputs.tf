@@ -1,31 +1,31 @@
 output "cluster_id" {
   description = "The ID of the EKS cluster"
-  value       = module.eks_cluster.cluster_id
+  value       = module.eks_cluster.id
 }
 
 output "cluster_name" {
   description = "The name of the EKS cluster"
-  value       = module.eks_cluster.cluster_name
+  value       = module.eks_cluster.name
 }
 
 output "cluster_arn" {
   description = "The Amazon Resource Name (ARN) of the cluster"
-  value       = module.eks_cluster.cluster_arn
+  value       = module.eks_cluster.arn
 }
 
 output "cluster_endpoint" {
   description = "The endpoint for the EKS cluster API server"
-  value       = module.eks_cluster.cluster_endpoint
+  value       = module.eks_cluster.endpoint
 }
 
 output "cluster_version" {
   description = "The Kubernetes server version of the EKS cluster"
-  value       = module.eks_cluster.cluster_version
+  value       = module.eks_cluster.version
 }
 
 output "cluster_certificate_authority_data" {
   description = "The base64 encoded certificate data required to communicate with the cluster"
-  value       = module.eks_cluster.cluster_certificate_authority_data
+  value       = module.eks_cluster.certificate_authority_data
 }
 
 output "cluster_security_group_id" {
@@ -35,7 +35,7 @@ output "cluster_security_group_id" {
 
 output "cluster_oidc_issuer_url" {
   description = "The URL on the EKS cluster OIDC Issuer"
-  value       = module.eks_cluster.cluster_oidc_issuer_url
+  value       = module.eks_cluster.identity_oidc_issuer
 }
 
 output "oidc_provider_arn" {
@@ -63,14 +63,14 @@ output "keda_role_arn" {
 output "additional_security_group_ids" {
   description = "List of additional security group IDs attached to the cluster"
   value = compact([
-    module.cluster_security_group.security_group_id,
-    module.fargate_security_group.security_group_id
+    module.cluster_security_group.id,
+    module.fargate_security_group.id
   ])
 }
 
 output "fargate_security_group_id" {
   description = "ID of the Fargate pods security group"
-  value       = module.fargate_security_group.security_group_id
+  value       = module.fargate_security_group.id
 }
 
 # Fargate Profile outputs
@@ -106,11 +106,6 @@ output "ado_secret_name" {
   value       = local.ado_secret_name
 }
 
-output "ado_secret_name" {
-  description = "Name of the Kubernetes secret for ADO PAT"
-  value       = local.ado_secret_name
-}
-
 # KEDA outputs
 output "keda_namespace" {
   description = "Name of the KEDA namespace"
@@ -130,15 +125,15 @@ output "keda_service_account_name" {
 # Connection information
 output "kubectl_config_command" {
   description = "Command to configure kubectl"
-  value       = "aws eks update-kubeconfig --region ${data.aws_region.current.name} --name ${module.eks_cluster.cluster_name}"
+  value       = "aws eks update-kubeconfig --region ${data.aws_region.current.name} --name ${module.eks_cluster.name}"
 }
 
 output "cluster_info" {
   description = "Cluster information summary"
   value = {
-    cluster_name     = module.eks_cluster.cluster_name
-    cluster_endpoint = module.eks_cluster.cluster_endpoint
-    cluster_version  = module.eks_cluster.cluster_version
+    cluster_name     = module.eks_cluster.name
+    cluster_endpoint = module.eks_cluster.endpoint
+    cluster_version  = module.eks_cluster.version
     fargate_profile  = module.fargate_profile.fargate_profile_name
     keda_installed   = var.install_keda
     vpc_endpoints    = var.create_vpc_endpoints
@@ -154,7 +149,7 @@ output "kms_key_arn" {
 
 output "kms_key_id" {
   description = "ID of the KMS key used for EKS encryption"
-  value       = var.create_kms_key ? aws_kms_key.eks_encryption[0].key_id : null
+  value       = var.create_kms_key ? module.eks_encryption_key[0].key_id : null
 }
 
 output "kms_key_alias" {

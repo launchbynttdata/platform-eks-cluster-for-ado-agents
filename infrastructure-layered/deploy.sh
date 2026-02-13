@@ -817,7 +817,7 @@ inject_ado_secret() {
             --arg pat "${ADO_PAT}" \
             --arg org "${org_name}" \
             --arg url "${ADO_ORG_URL}" \
-            '{personalAccessToken: $pat, organization: $org, adourl: $url}')
+            '{"personalAccessToken": $pat, "organization": $org, "adourl": $url}')
         
         if aws secretsmanager put-secret-value \
             --secret-id "${secret_name}" \

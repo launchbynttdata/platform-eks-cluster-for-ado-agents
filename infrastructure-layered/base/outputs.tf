@@ -6,27 +6,27 @@
 # Cluster Information
 output "cluster_name" {
   description = "Name of the EKS cluster"
-  value       = module.eks_cluster.cluster_name
+  value       = module.eks_cluster.name
 }
 
 output "cluster_arn" {
   description = "ARN of the EKS cluster"
-  value       = module.eks_cluster.cluster_arn
+  value       = module.eks_cluster.arn
 }
 
 output "cluster_endpoint" {
   description = "Endpoint for the EKS cluster API server"
-  value       = module.eks_cluster.cluster_endpoint
+  value       = module.eks_cluster.endpoint
 }
 
 output "cluster_version" {
   description = "The Kubernetes version of the EKS cluster"
-  value       = module.eks_cluster.cluster_version
+  value       = module.eks_cluster.version
 }
 
 output "cluster_certificate_authority_data" {
   description = "Base64 encoded certificate data required to communicate with the cluster"
-  value       = module.eks_cluster.cluster_certificate_authority_data
+  value       = module.eks_cluster.certificate_authority_data
   sensitive   = true
 }
 
@@ -43,7 +43,7 @@ output "oidc_provider_arn" {
 
 output "cluster_oidc_issuer_url" {
   description = "The URL on the EKS cluster for the OpenID Connect identity provider"
-  value       = module.eks_cluster.cluster_oidc_issuer_url
+  value       = module.eks_cluster.identity_oidc_issuer
 }
 
 # IAM Role Information

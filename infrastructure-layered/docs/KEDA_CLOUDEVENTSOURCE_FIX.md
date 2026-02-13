@@ -66,7 +66,7 @@ keda_version = "2.17.2"
 
 ### Changes Made
 
-1. **Updated KEDA Operator Module** (`modules/primitive/keda-operator/`)
+1. **Updated KEDA Operator Module** (`modules/collections/keda-operator/`)
    - Added `env` variable to support passing environment variables to KEDA operator
    - Updated `main.tf` to pass environment variables to the Helm chart
 
@@ -82,8 +82,8 @@ keda_version = "2.17.2"
 
 ### Files Modified
 
-- `modules/primitive/keda-operator/variables.tf` - Added `env` variable
-- `modules/primitive/keda-operator/main.tf` - Pass env vars to Helm
+- `modules/collections/keda-operator/variables.tf` - Added `env` variable
+- `modules/collections/keda-operator/main.tf` - Pass env vars to Helm
 - `infrastructure-layered/middleware/variables.tf` - Added controller toggle variables
 - `infrastructure-layered/middleware/main.tf` - Configure controllers via variables
 - `infrastructure-layered/middleware/terraform.tfvars` - Set default values

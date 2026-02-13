@@ -144,5 +144,5 @@ To prevent similar issues in the future:
 ## Related
 
 - Original implementation: `docs/CONFIG_LAYER_INTEGRATION.md`
-- ESO module: `modules/primitive/external-secrets-operator/`
+- ESO module: `modules/collections/external-secrets-operator/`
 - Middleware layer: `infrastructure-layered/middleware/main.tf` (lines 257-280)

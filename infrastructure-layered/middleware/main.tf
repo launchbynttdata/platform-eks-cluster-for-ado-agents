@@ -237,7 +237,7 @@ module "eso_policy_attachment" {
 # KEDA Operator Installation
 module "keda_operator" {
   count  = var.install_keda ? 1 : 0
-  source = "./modules/primitive/keda-operator"
+  source = "./modules/collections/keda-operator"
 
   cluster_name         = local.cluster_name
   namespace            = var.keda_namespace
@@ -280,7 +280,7 @@ module "keda_operator" {
 # Metrics Server (Helm-managed to allow custom arguments)
 module "metrics_server" {
   count  = var.install_metrics_server ? 1 : 0
-  source = "./modules/primitive/metrics-server"
+  source = "./modules/collections/metrics-server"
 
   namespace     = var.metrics_server_namespace
   chart_version = var.metrics_server_chart_version
@@ -293,7 +293,7 @@ module "metrics_server" {
 # External Secrets Operator Installation
 module "external_secrets_operator" {
   count  = var.install_eso ? 1 : 0
-  source = "./modules/primitive/external-secrets-operator"
+  source = "./modules/collections/external-secrets-operator"
 
   cluster_name     = local.cluster_name
   namespace        = var.eso_namespace
@@ -326,7 +326,7 @@ module "external_secrets_operator" {
 # Cluster Autoscaler Deployment (Kubernetes resources)
 module "cluster_autoscaler" {
   count  = local.cluster_autoscaler_enabled ? 1 : 0
-  source = "./modules/primitive/cluster-autoscaler"
+  source = "./modules/collections/cluster-autoscaler"
 
   cluster_name = local.cluster_name
   namespace    = data.terraform_remote_state.base.outputs.cluster_autoscaler_namespace
@@ -643,7 +643,7 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "buildkitd" {
 # AWS Node Termination Handler (queue processor mode)
 module "node_termination_handler" {
   count  = local.node_auto_heal_enabled && local.node_auto_heal_queue_url != null && local.node_auto_heal_role_arn != null ? 1 : 0
-  source = "./modules/primitive/node-termination-handler"
+  source = "./modules/collections/node-termination-handler"
 
   namespace            = local.node_auto_heal_namespace
   create_namespace     = false
