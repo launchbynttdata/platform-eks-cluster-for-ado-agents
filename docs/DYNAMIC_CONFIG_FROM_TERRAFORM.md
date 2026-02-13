@@ -263,7 +263,7 @@ aws-secrets-manager   42s   Valid    ReadWrite      True
 - `docs/CONFIG_LAYER_INTEGRATION.md` - Original config layer integration
 - `docs/FIX_CLUSTERSECRETSTORE_CONFIG.md` - ClusterSecretStore fix
 - `infrastructure-layered/middleware/outputs.tf` - Terraform outputs
-- `modules/primitive/external-secrets-operator/` - ESO module
+- `modules/collections/external-secrets-operator/` - ESO module
 
 ## Conclusion
 

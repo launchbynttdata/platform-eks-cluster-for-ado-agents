@@ -173,7 +173,7 @@ kubectl describe deployment cluster-autoscaler -n kube-system
 - `modules/collections/ado-eks-cluster/outputs.tf` - Added autoscaler outputs
 - `modules/primitive/eks-node-group/main.tf` - Added conditional autoscaler tags
 - `modules/primitive/eks-node-group/variables.tf` - Added autoscaler configuration
-- `modules/primitive/vpc-endpoints/main.tf` - Added autoscaling VPC endpoint
+- `modules/collections/vpc-endpoints/main.tf` - Added autoscaling VPC endpoint
 
 ### Kubernetes Manifests
 - `app/k8s/cluster-autoscaler.yaml` - Cluster Autoscaler deployment template

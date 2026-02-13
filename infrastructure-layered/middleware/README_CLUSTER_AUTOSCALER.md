@@ -5,7 +5,7 @@
 Cluster Autoscaler is now provisioned entirely through Terraform:
 
 1. **Base layer** creates the IAM role, attaches autoscaling permissions, and tags every managed node group for auto-discovery.
-2. **Middleware layer** installs the upstream Cluster Autoscaler deployment via the `modules/primitive/cluster-autoscaler` Terraform module. No manual YAML or `sed` substitution is required.
+2. **Middleware layer** installs the upstream Cluster Autoscaler deployment via the `modules/collections/cluster-autoscaler` Terraform module. No manual YAML or `sed` substitution is required.
 
 Autoscaler resources are only created when `enable_cluster_autoscaler = true` in the base layer.
 

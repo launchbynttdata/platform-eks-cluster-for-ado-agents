@@ -226,7 +226,7 @@ ado_agents_namespace = "ado-agents"
 ```hcl
 install_eso                = true
 eso_namespace              = "external-secrets-system"
-eso_version                = "0.10.4"
+eso_version                = "1.3.2"
 eso_webhook_enabled        = false
 eso_webhook_failure_policy = "Ignore"
 cluster_secret_store_name  = "aws-secrets-manager"

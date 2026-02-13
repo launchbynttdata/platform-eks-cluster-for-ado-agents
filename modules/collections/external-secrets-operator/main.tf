@@ -117,6 +117,7 @@ resource "kubernetes_manifest" "cluster_secret_store" {
   count = var.create_cluster_secret_store ? 1 : 0
 
   manifest = {
+    # ESO 1.x uses external-secrets.io/v1; v1beta1 was removed in 1.0+
     apiVersion = "external-secrets.io/v1"
     kind       = "ClusterSecretStore"
     metadata = {

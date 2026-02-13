@@ -5,12 +5,12 @@ The `/infrastructure` stack is deprecated and is no longer supported for active 
 ## Canonical deployment path
 
 Use:
-`/Users/a267326/git_repos/launch/platform-eks-cluster-for-ado-agents/infrastructure-layered/deploy.sh`
+`${REPO_ROOT}/infrastructure-layered/deploy.sh`
 
 ## Canonical module path
 
 Local Terraform modules are now sourced from:
-`/Users/a267326/git_repos/launch/platform-eks-cluster-for-ado-agents/modules`
+`${REPO_ROOT}/modules`
 
 ## Notes
 

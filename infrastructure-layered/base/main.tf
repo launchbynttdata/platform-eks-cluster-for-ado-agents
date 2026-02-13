@@ -396,24 +396,37 @@ module "cluster_security_group_ingress_from_fargate" {
 #checkov:skip=CKV_AWS_39:Public endpoint access is restricted to specific CIDRs or disabled based on public_access_cidrs variable
 #checkov:skip=CKV_AWS_38:Public endpoint CIDR restrictions enforced via local.enable_public_endpoint logic
 module "eks_cluster" {
-  source = "./modules/primitive/eks-cluster"
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/eks_cluster/aws"
+  version = "~> 0.1"
 
-  cluster_name           = local.cluster_name
-  cluster_role_arn       = var.create_iam_roles ? module.eks_cluster_role[0].role_arn : var.existing_cluster_role_arn
-  cluster_version        = var.cluster_version
-  subnet_ids             = var.subnet_ids
-  endpoint_public_access = local.enable_public_endpoint
-  public_access_cidrs    = local.effective_public_cidrs
-  additional_security_group_ids = compact([
-    module.cluster_security_group.id,
-    module.fargate_security_group.id
-  ])
-
-  kms_key_arn               = local.kms_key_arn
+  name                      = local.cluster_name
+  role_arn                  = var.create_iam_roles ? module.eks_cluster_role[0].role_arn : var.existing_cluster_role_arn
+  kubernetes_version        = var.cluster_version
   enabled_cluster_log_types = var.enabled_cluster_log_types
 
-  # Don't create any addons here - manage all separately after Fargate profiles
-  addons = {}
+  vpc_config = {
+    subnet_ids = var.subnet_ids
+    security_group_ids = compact([
+      module.cluster_security_group.id,
+      module.fargate_security_group.id
+    ])
+    endpoint_private_access = true
+    endpoint_public_access  = local.enable_public_endpoint
+    public_access_cidrs     = local.effective_public_cidrs
+  }
+
+  encryption_config = [
+    {
+      provider_key_arn = local.kms_key_arn
+      resources        = ["secrets"]
+    }
+  ]
+
+  access_config = {
+    authentication_mode                         = "API_AND_CONFIG_MAP"
+    bootstrap_cluster_creator_admin_permissions = true
+  }
 
   tags = local.common_tags
 
@@ -440,7 +453,7 @@ module "eks_cluster_oidc" {
 
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = ["9e99a48a9960b14926bb7f3b02e22da2b0ab7280"] # EKS OIDC root CA thumbprint
-  url             = module.eks_cluster.cluster_oidc_issuer_url
+  url             = module.eks_cluster.identity_oidc_issuer
 
   tags = local.common_tags
 }
@@ -496,7 +509,7 @@ module "vpc_cni_policy_attachment" {
 resource "aws_eks_addon" "vpc_cni" {
   count = contains(keys(var.eks_addons), "vpc-cni") ? 1 : 0
 
-  cluster_name                = module.eks_cluster.cluster_name
+  cluster_name                = module.eks_cluster.name
   addon_name                  = "vpc-cni"
   addon_version               = try(var.eks_addons["vpc-cni"].addon_version, null)
   service_account_role_arn    = var.create_iam_roles ? module.vpc_cni_irsa_role[0].role_arn : null
@@ -515,7 +528,7 @@ resource "aws_eks_addon" "vpc_cni" {
 # VPC Endpoints (optional)
 module "vpc_endpoints" {
   count  = var.create_vpc_endpoints ? 1 : 0
-  source = "./modules/primitive/vpc-endpoints"
+  source = "./modules/collections/vpc-endpoints"
 
   cluster_name              = local.cluster_name
   vpc_id                    = var.vpc_id
@@ -536,7 +549,7 @@ module "fargate_profile" {
   for_each = var.fargate_profiles
   source   = "./modules/primitive/fargate-profile"
 
-  cluster_name           = module.eks_cluster.cluster_name
+  cluster_name           = module.eks_cluster.name
   profile_name           = "${local.cluster_name}-${each.key}-fargate-profile"
   pod_execution_role_arn = var.create_iam_roles ? module.fargate_pod_execution_role[0].role_arn : var.existing_fargate_role_arn
   subnet_ids             = var.subnet_ids
@@ -558,7 +571,7 @@ module "fargate_profile" {
 resource "aws_eks_addon" "addons" {
   for_each = { for k, v in var.eks_addons : k => v if k != "vpc-cni" }
 
-  cluster_name                = module.eks_cluster.cluster_name
+  cluster_name                = module.eks_cluster.name
   addon_name                  = each.key
   addon_version               = each.value.version
   resolve_conflicts_on_create = try(each.value.resolve_conflicts_on_create, "OVERWRITE")
@@ -583,7 +596,7 @@ module "ec2_nodes" {
   for_each = var.ec2_node_group
 
   node_group_name = each.key
-  cluster_name    = module.eks_cluster.cluster_name
+  cluster_name    = module.eks_cluster.name
   node_role_arn   = module.ec2_node_group_role[0].role_arn
   subnet_ids      = var.subnet_ids
   instance_types  = try(each.value.instance_types, ["t3.medium"])
