@@ -176,12 +176,6 @@ variable "eso_webhook_failure_policy" {
   }
 }
 
-variable "create_cluster_secret_store" {
-  description = "Whether to create the ClusterSecretStore for AWS Secrets Manager (required for ExternalSecrets to sync)"
-  type        = bool
-  default     = true
-}
-
 variable "cluster_secret_store_name" {
   description = "Name of the ClusterSecretStore (created by post-deploy script, used by application layer)"
   type        = string

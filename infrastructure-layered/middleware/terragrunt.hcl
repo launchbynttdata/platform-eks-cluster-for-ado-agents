@@ -99,7 +99,6 @@ inputs = {
   eso_version                  = local.env.locals.eso_version
   eso_webhook_enabled          = local.env.locals.eso_webhook_enabled
   eso_webhook_failure_policy   = local.env.locals.eso_webhook_failure_policy
-  create_cluster_secret_store  = try(local.env.locals.create_cluster_secret_store, false)
   cluster_secret_store_name    = local.env.locals.cluster_secret_store_name
   
   # Buildkitd Configuration
