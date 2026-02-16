@@ -245,6 +245,8 @@ module "keda_operator" {
   create_namespace     = true
   create_ado_namespace = true
   keda_version         = var.keda_version
+  keda_image_tag       = var.keda_version
+  webhooks_image_tag   = var.keda_version
 
   service_account_annotations = {
     "eks.amazonaws.com/role-arn" = module.keda_operator_role.role_arn
