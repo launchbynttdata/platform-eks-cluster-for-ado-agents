@@ -72,9 +72,6 @@ print_header() {
 
 # Let the agent ignore the token env variables
 export VSO_AGENT_IGNORE="AZP_TOKEN,AZP_TOKEN_FILE"
-print_header "0. Installing asdf tools..."
-
-awk -F'[ #]' '$NF ~ /https/ {system("asdf plugin add " $1 " " $NF)} $1 ~ /./ {system("asdf plugin add " $1 "; asdf install " $1 " " $2)}' ${HOME}/.tool-versions
 
 print_header "1. Determining matching Azure Pipelines agent..."
 
