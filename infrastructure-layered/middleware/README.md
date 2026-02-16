@@ -117,7 +117,7 @@ The script will:
 
 See [Operations Guide](../../docs/OPERATIONS.md) for detailed instructions.
 
-> **Important**: The ClusterSecretStore cannot be created during the initial Terraform apply due to CRD timing constraints. The External Secrets Operator must install its CRDs before ClusterSecretStore resources can be created. The post-deployment script handles this automatically.
+> **Important**: The ClusterSecretStore cannot be created during the initial Terraform apply due to CRD timing constraints. The External Secrets Operator must install its CRDs before ClusterSecretStore resources can be created. The config layer in deploy.sh creates it via kubectl after middleware apply.
 
 ## Configuration Notes
 
@@ -128,7 +128,7 @@ See [Operations Guide](../../docs/OPERATIONS.md) for detailed instructions.
 
 ### ESO Configuration
 - **Webhook**: Disabled by default for Fargate compatibility
-- **ClusterSecretStore**: Automatically configured for AWS Secrets Manager
+- **ClusterSecretStore**: Created by deploy.sh config layer via kubectl (idempotent). Not managed by Terraform due to CRD timing.
 - **IAM Permissions**: Basic Secrets Manager access (specific secrets added by application layer)
 
 ### Buildkitd Configuration

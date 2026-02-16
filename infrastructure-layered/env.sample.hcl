@@ -202,7 +202,6 @@ locals {
   eso_version                  = "1.3.2"   # ESO 1.3.x - see https://external-secrets.io/latest/introduction/stability-support/
   eso_webhook_enabled          = false
   eso_webhook_failure_policy   = "Ignore"
-  create_cluster_secret_store  = true   # Create ClusterSecretStore via Terraform (required for ExternalSecrets)
   cluster_secret_store_name    = "aws-secrets-manager"
   
   # Buildkitd Configuration

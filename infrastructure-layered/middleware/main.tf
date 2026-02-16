@@ -245,6 +245,8 @@ module "keda_operator" {
   create_namespace     = true
   create_ado_namespace = true
   keda_version         = var.keda_version
+  keda_image_tag       = var.keda_version
+  webhooks_image_tag   = var.keda_version
 
   service_account_annotations = {
     "eks.amazonaws.com/role-arn" = module.keda_operator_role.role_arn
@@ -309,7 +311,8 @@ module "external_secrets_operator" {
   webhook_enabled       = var.eso_webhook_enabled
   webhook_failurePolicy = var.eso_webhook_failure_policy
 
-  create_cluster_secret_store = var.create_cluster_secret_store
+  # ClusterSecretStore is created by deploy.sh config layer (kubectl) due to CRD timing; not Terraform
+  create_cluster_secret_store = false
 
   # Don't create external secrets here - application layer will manage them
   create_external_secrets = false
