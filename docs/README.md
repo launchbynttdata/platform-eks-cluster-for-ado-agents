@@ -18,65 +18,58 @@ Contains operational procedures and how-to guides:
 
 ---
 
-### [CHANGELOG.md](./CHANGELOG.md)
+### [CHANGELOG.md](../CHANGELOG.md)
 **History of changes, fixes, and improvements.**
 
-Contains detailed change history:
-- Recent refactoring (region propagation, CRD fixes)
-- Breaking changes and migration notes
-- Historical improvements
-- Known issues and limitations
-- Future roadmap
+Located at repository root. Contains date-ordered change history, breaking changes, and known issues.
 
 **Use this when:** You need to understand what changed, why, and how to migrate.
 
 ---
 
-## Technical Deep-Dives
+## Layer Documentation
 
-These documents provide detailed technical information about specific components or solutions:
-
-### EKS Addons
-- [EKS_ADDON_CORRECT_APPROACH.md](./EKS_ADDON_CORRECT_APPROACH.md) - Proper addon configuration
-- [EKS_ADDON_DEPENDENCY_RESOLUTION.md](./EKS_ADDON_DEPENDENCY_RESOLUTION.md) - Addon dependency management
-- [EKS_ADDON_SPLIT_SOLUTION.md](./EKS_ADDON_SPLIT_SOLUTION.md) - Layer-based addon approach
-- [VPC_CNI_IRSA_FIX.md](./VPC_CNI_IRSA_FIX.md) - VPC CNI IRSA configuration
-
-### Authentication
-- [EKS_AUTH_SOLUTIONS.md](./EKS_AUTH_SOLUTIONS.md) - EKS authentication approaches
-
-### Deployment
-- [DEPLOY_SCRIPT_IMPROVEMENTS.md](./DEPLOY_SCRIPT_IMPROVEMENTS.md) - Deployment script enhancements
-- [DEPLOY_SCRIPT_PLAN_AND_LAYER_IMPROVEMENTS.md](./DEPLOY_SCRIPT_PLAN_AND_LAYER_IMPROVEMENTS.md) - Layer workflow improvements
-
-### Autoscaling
-- [CLUSTER_AUTOSCALER_README.md](./CLUSTER_AUTOSCALER_README.md) - Cluster autoscaler implementation
-
-### Container Management
-- [OCI_IMAGE_CROSS_BUILD_README.md](./OCI_IMAGE_CROSS_BUILD_README.md) - Multi-arch image builds
-- [ECR_Multiple_Repositories_Example.md](./ECR_Multiple_Repositories_Example.md) - ECR repository configuration
+- [base-layer.md](./base-layer.md) - Base infrastructure layer (EKS cluster, VPC, IAM)
+- [middleware-layer.md](./middleware-layer.md) - Middleware layer (KEDA, ESO, buildkitd)
+- [application-layer.md](./application-layer.md) - Application layer (ECR, agents, Helm)
+- [ado-agent-cluster-helm.md](./ado-agent-cluster-helm.md) - ADO agent Helm chart
 
 ---
 
-## Documentation Consolidation (2025-10-20)
+## Technical Reference
 
-The documentation was reorganized to separate operational guides from change history:
+### EKS and Addons
+- [EKS_ADDON_CORRECT_APPROACH.md](./EKS_ADDON_CORRECT_APPROACH.md) - Proper addon configuration
+- [EKS_ADDON_DEPENDENCY_RESOLUTION.md](./EKS_ADDON_DEPENDENCY_RESOLUTION.md) - Addon dependency management
+- [ADDONS_AND_COMPUTE.md](./ADDONS_AND_COMPUTE.md) - Addon independence and compute resources
 
-**Consolidated into OPERATIONS.md:**
-- ADO_PAT_SECRET_INJECTION.md → PAT secret management section
-- QUICK_REF_ADO_PAT_SECRET.md → Quick reference commands
-- MIDDLEWARE_POST_DEPLOYMENT_STEPS.md → Post-deployment configuration section
+### Terragrunt
+- [TERRAGRUNT_QUICKSTART.md](./TERRAGRUNT_QUICKSTART.md) - Quick start guide
+- [TERRAGRUNT_MIGRATION.md](./TERRAGRUNT_MIGRATION.md) - Migration from Terraform
+- [TERRAGRUNT_CONFIGURATION_REFERENCE.md](./TERRAGRUNT_CONFIGURATION_REFERENCE.md) - Configuration reference
+- [CONFIG_LAYER_IN_TERRAGRUNT.md](./CONFIG_LAYER_IN_TERRAGRUNT.md) - Config layer (ClusterSecretStore, kubectl)
 
-**Consolidated into CHANGELOG.md:**
-- REFACTORING_SUMMARY.md → Recent changes section
-- REFACTOR_REGION_AND_CRD_FIXES.md → Detailed fix documentation
-- CLEANUP_ESO_EXTERNALIZATION.md → ESO cleanup details
+### Infrastructure
+- [IAM_ADO_AGENTS.md](./IAM_ADO_AGENTS.md) - IAM roles and policies for ADO agents
+- [FARGATE_CONFIGURATION.md](./FARGATE_CONFIGURATION.md) - Fargate profile configuration
+- [LAYER_DEPENDENCY_REFERENCE.md](./LAYER_DEPENDENCY_REFERENCE.md) - Layer dependencies and data flow
 
-**Benefits:**
-- ✅ Clear separation: "how to use" vs "what changed"
-- ✅ Easier to find relevant information
-- ✅ Reduced documentation sprawl
-- ✅ Single source of truth for operational procedures
+### Authentication and Secrets
+- [EKS_AUTH_SOLUTIONS.md](./EKS_AUTH_SOLUTIONS.md) - EKS authentication approaches
+- [ADO_SECRET_MANAGEMENT.md](./ADO_SECRET_MANAGEMENT.md) - ADO secret architecture
+
+### Autoscaling and Containers
+- [CLUSTER_AUTOSCALER_README.md](./CLUSTER_AUTOSCALER_README.md) - Cluster autoscaler implementation
+- [cluster-autoscaler-middleware.md](./cluster-autoscaler-middleware.md) - Cluster autoscaler in layered infra
+- [OCI_IMAGE_CROSS_BUILD_README.md](./OCI_IMAGE_CROSS_BUILD_README.md) - Multi-arch image builds
+- [ECR_Multiple_Repositories_Example.md](./ECR_Multiple_Repositories_Example.md) - ECR repository configuration
+
+### Other
+- [primitive-collection-state-migration-runbook.md](./primitive-collection-state-migration-runbook.md) - State migration runbook
+- [DEPRECATED.md](./DEPRECATED.md) - Legacy infrastructure deprecation notice
+- [PROJECT_STRUCTURE.md](./PROJECT_STRUCTURE.md) - Repository directory layout
+- [TESTING.md](./TESTING.md) - Testing guide (ShellCheck, BATS)
+- [infrastructure-tests.md](./infrastructure-tests.md) - Infrastructure test structure
 
 ---
 
@@ -88,8 +81,7 @@ The documentation was reorganized to separate operational guides from change his
 - **Run post-deployment steps** → [OPERATIONS.md - Post-Deployment Configuration](./OPERATIONS.md#post-deployment-configuration)
 - **Inject ADO PAT secret** → [OPERATIONS.md - ADO PAT Secret Management](./OPERATIONS.md#ado-pat-secret-management)
 - **Troubleshoot issues** → [OPERATIONS.md - Troubleshooting](./OPERATIONS.md#troubleshooting)
-- **Understand recent changes** → [CHANGELOG.md - Unreleased](./CHANGELOG.md#unreleased---2025-10-20)
-- **Learn about breaking changes** → [CHANGELOG.md - Breaking Changes](./CHANGELOG.md#breaking-changes)
+- **Understand recent changes** → [CHANGELOG.md](../CHANGELOG.md)
 - **Configure cluster autoscaler** → [CLUSTER_AUTOSCALER_README.md](./CLUSTER_AUTOSCALER_README.md)
 - **Understand EKS addons** → [EKS_ADDON_CORRECT_APPROACH.md](./EKS_ADDON_CORRECT_APPROACH.md)
 
@@ -100,7 +92,7 @@ The documentation was reorganized to separate operational guides from change his
 When adding or updating documentation:
 
 1. **Operational procedures** → Update [OPERATIONS.md](./OPERATIONS.md)
-2. **Changes, fixes, improvements** → Update [CHANGELOG.md](./CHANGELOG.md)
+2. **Changes, fixes, improvements** → Update [CHANGELOG.md](../CHANGELOG.md)
 3. **Technical deep-dives** → Create standalone document with descriptive name
 4. **Update this README** → Add link to your new document in appropriate section
 

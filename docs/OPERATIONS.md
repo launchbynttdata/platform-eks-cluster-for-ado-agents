@@ -81,7 +81,7 @@ This region propagates to:
 
 ### Complete Infrastructure Post-Deployment
 
-After ALL infrastructure layers are deployed (base + middleware + application), you **must** run the post-deployment script to complete the setup.
+After ALL infrastructure layers are deployed (base + middleware + application), you **must** run the config layer to complete the setup.
 
 #### Why This Step is Required
 
@@ -90,34 +90,32 @@ Terraform cannot create `ClusterSecretStore` resources during the initial apply 
 2. Terraform validates `kubernetes_manifest` resources during the **plan** phase
 3. If CRDs don't exist yet, validation fails before any resources are created
 
-The post-deploy script creates the ClusterSecretStore **after** all layers are deployed and ESO has installed its CRDs.
+The config layer creates the ClusterSecretStore **after** all layers are deployed and ESO has installed its CRDs.
 
-#### Run Post-Deployment Script
+#### Run Config Layer
 
-**Important**: Run this AFTER deploying all layers with `./deploy.sh --layer all deploy`
+**Important**: Run this AFTER deploying all Terraform layers with `./deploy.sh deploy` or `./deploy.sh --layer all deploy`
 
 ```bash
 cd infrastructure-layered
 
-# Interactive mode (recommended)
-./post-deploy.sh
+# Deploy config layer (interactive mode - prompts for PAT)
+./deploy.sh --layer config deploy
 
 # With explicit credentials
-./post-deploy.sh \
-    --pat "your-ado-pat-token" \
-    --org-url "https://dev.azure.com/your-org"
+./deploy.sh --layer config --pat "your-ado-pat-token" --org-url "https://dev.azure.com/your-org" deploy
 
-# Verification only (skip ClusterSecretStore and secret injection)
-./post-deploy.sh --verify-only
+# Skip ADO secret injection
+./deploy.sh --layer config --skip-ado-secret deploy
 ```
 
-#### What the Script Does
+#### What the Config Layer Does
 
 1. **Verifies** all infrastructure layers are deployed (base, middleware, application)
 2. **Auto-detects** cluster name and AWS region from Terraform state
 3. **Configures** kubectl access to your EKS cluster
 4. **Creates** ClusterSecretStore for AWS Secrets Manager integration
-5. **Prompts** for Azure DevOps PAT token (interactive mode)
+5. **Prompts** for Azure DevOps PAT token (interactive mode, unless --skip-ado-secret)
 6. **Injects** ADO PAT secret into AWS Secrets Manager
 7. **Verifies** all components are working (ESO, KEDA, agents)
 
@@ -454,7 +452,7 @@ kubectl exec -it <pod-name> -n <namespace> -- /bin/sh
 
 ## Additional Resources
 
-- [Changelog](./CHANGELOG.md) - Detailed history of changes and fixes
+- [Changelog](../CHANGELOG.md) - Detailed history of changes and fixes
 - [Infrastructure-Layered README](../infrastructure-layered/README.md) - Layered infrastructure overview
 - [Middleware README](../infrastructure-layered/middleware/README.md) - Middleware layer details
 - [Application README](../infrastructure-layered/application/README.md) - Application layer details
@@ -465,6 +463,6 @@ kubectl exec -it <pod-name> -n <namespace> -- /bin/sh
 
 For issues or questions:
 1. Check the [Troubleshooting](#troubleshooting) section above
-2. Review the [Changelog](./CHANGELOG.md) for recent fixes
+2. Review the [Changelog](../CHANGELOG.md) for recent fixes
 3. Examine Terraform outputs and Kubernetes resource status
 4. Check relevant component logs

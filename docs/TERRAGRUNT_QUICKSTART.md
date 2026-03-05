@@ -120,19 +120,19 @@ direnv allow
 
 ```bash
 # Validate configuration
-./deploy-tg.sh validate
+./deploy.sh validate
 
 # Show deployment plan
-./deploy-tg.sh plan
+./deploy.sh plan
 
 # Deploy all layers (Terraform + Config)
-./deploy-tg.sh deploy
+./deploy.sh deploy
 
 # Or deploy step-by-step:
-./deploy-tg.sh deploy --layer base
-./deploy-tg.sh deploy --layer middleware
-./deploy-tg.sh deploy --layer application
-./deploy-tg.sh deploy --layer config        # Post-deployment kubectl setup
+./deploy.sh deploy --layer base
+./deploy.sh deploy --layer middleware
+./deploy.sh deploy --layer application
+./deploy.sh deploy --layer config        # Post-deployment kubectl setup
 ```
 
 That's it! ✅
@@ -219,13 +219,13 @@ kubectl logs -n ado-agents -l app=ado-agent --tail=50
 
 ```bash
 # Base layer only
-./deploy-tg.sh deploy --layer base
+./deploy.sh deploy --layer base
 
 # Middleware layer only
-./deploy-tg.sh deploy --layer middleware
+./deploy.sh deploy --layer middleware
 
 # Application layer only
-./deploy-tg.sh deploy --layer application
+./deploy.sh deploy --layer application
 ```
 
 ### Update Configuration
@@ -235,26 +235,26 @@ kubectl logs -n ado-agents -l app=ado-agent --tail=50
 vim env.hcl
 
 # 2. Plan changes
-./deploy-tg.sh plan
+./deploy.sh plan
 
 # 3. Apply changes
-./deploy-tg.sh deploy
+./deploy.sh deploy
 ```
 
 ### Show Status
 
 ```bash
-./deploy-tg.sh status
+./deploy.sh status
 ```
 
 ### Destroy Infrastructure
 
 ```bash
 # Destroy all layers (in reverse order)
-./deploy-tg.sh destroy
+./deploy.sh destroy
 
 # Or destroy specific layer
-./deploy-tg.sh destroy --layer application
+./deploy.sh destroy --layer application
 ```
 
 ## Using Terragrunt Directly
@@ -267,7 +267,7 @@ terragrunt run-all apply --terragrunt-non-interactive
 
 # Note: This deploys Terraform layers only
 # For post-deployment config (ClusterSecretStore), use:
-./deploy-tg.sh deploy --layer config
+./deploy.sh deploy --layer config
 ```
 
 **Important**: The `run-all` command deploys only Terraform-managed layers (base, middleware, application). The **config layer** is kubectl-based and must be run separately. See [CONFIG_LAYER_IN_TERRAGRUNT.md](./CONFIG_LAYER_IN_TERRAGRUNT.md) for details.
@@ -311,11 +311,11 @@ vim env.prod.hcl
 
 # Switch to development
 ln -sf env.dev.hcl env.hcl
-./deploy-tg.sh deploy
+./deploy.sh deploy
 
 # Switch to production
 ln -sf env.prod.hcl env.hcl
-./deploy-tg.sh deploy
+./deploy.sh deploy
 ```
 
 ## Troubleshooting
@@ -323,13 +323,13 @@ ln -sf env.prod.hcl env.hcl
 ### Check Prerequisites
 
 ```bash
-./deploy-tg.sh --help
+./deploy.sh --help
 ```
 
 ### Verbose Output
 
 ```bash
-./deploy-tg.sh deploy --verbose
+./deploy.sh deploy --verbose
 ```
 
 ### Clear Cache
@@ -384,7 +384,7 @@ aws s3 ls "s3://${TF_STATE_BUCKET}/"
 | Task | Old (Terraform) | New (Terragrunt) |
 |------|----------------|------------------|
 | **Configure** | Edit 3 tfvars files | Edit 1 env.hcl file |
-| **Deploy** | `./deploy.sh deploy` | `./deploy-tg.sh deploy` |
+| **Deploy** | `./deploy.sh deploy` | `./deploy.sh deploy` |
 | **Dependencies** | Manual remote_state | Automatic |
 | **Multi-env** | Copy/edit tfvars | Switch env.hcl |
 | **Backend config** | 3 separate configs | 1 generated config |

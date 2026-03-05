@@ -62,8 +62,7 @@ The deploying user/role needs the following AWS permissions:
 
 4. **Deploy using orchestration script (recommended):**
    ```bash
-   # From infrastructure-layered/ directory
-   cd ..
+   # From repository root
    ./deploy.sh --layer base deploy
    ```
 
@@ -76,7 +75,7 @@ The deploying user/role needs the following AWS permissions:
    terraform apply
    ```
 
-> **Note**: The orchestration script (`../deploy.sh`) handles S3 bucket name substitution automatically. If deploying manually, ensure the backend configuration in `main.tf` has the correct bucket name.
+> **Note**: The orchestration script (`deploy.sh` in infrastructure-layered) handles S3 bucket name substitution automatically. If deploying manually, ensure the backend configuration in `main.tf` has the correct bucket name.
 
 ## Important Configuration Notes
 
