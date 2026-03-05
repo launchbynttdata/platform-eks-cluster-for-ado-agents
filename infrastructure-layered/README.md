@@ -9,13 +9,14 @@
 5. [Quick Start](#quick-start)
 6. [Detailed Deployment](#detailed-deployment)
 7. [Configuration](#configuration)
-8. [Operations](#operations)
-9. [Troubleshooting](#troubleshooting)
-10. [Security](#security)
-11. [Monitoring](#monitoring)
-12. [Cost Optimization](#cost-optimization)
-13. [Migration Guide](#migration-guide)
-14. [FAQ](#faq)
+8. [IAM Configuration for ADO Agents](#iam-configuration-for-ado-agents)
+9. [Operations](#operations)
+10. [Troubleshooting](#troubleshooting)
+11. [Security](#security)
+12. [Monitoring](#monitoring)
+13. [Cost Optimization](#cost-optimization)
+14. [Migration Guide](#migration-guide)
+15. [FAQ](#faq)
 
 ## Overview
 
@@ -102,6 +103,7 @@ Application Layer (depends on Base + Middleware)
 ## Layer Structure
 
 > 📖 **Configuration Guides**:
+> - [IAM Roles and Policies for ADO Agents](./docs/IAM_ADO_AGENTS.md) - How IAM roles are defined, created, and managed for agent pods
 > - [Fargate Profile Configuration](./docs/FARGATE_CONFIGURATION.md) - Comprehensive guide for configuring Fargate profiles
 > - [EKS Addon Split Solution](./docs/EKS_ADDON_SPLIT_SOLUTION.md) - **CRITICAL**: Split VPC CNI from other addons to prevent CoreDNS degraded state
 > - [EKS Addon Dependency Resolution](./docs/EKS_ADDON_DEPENDENCY_RESOLUTION.md) - Understanding VPC CNI and compute resource dependencies
@@ -113,30 +115,32 @@ Application Layer (depends on Base + Middleware)
 ```
 infrastructure-layered/
 ├── deploy.sh                           # Orchestration script
-├── .env.example                        # Environment variable template
+├── env.sample.hcl                     # Configuration template (copy to env.hcl)
+├── env.hcl                            # Your configuration (create from env.sample.hcl)
+├── .env.example                       # Environment variable template (TF_STATE_BUCKET, etc.)
 ├── README.md                          # This documentation
 │
 ├── base/                              # Layer 1: Foundation
 │   ├── main.tf                        # EKS cluster, VPC, IAM
-│   ├── variables.tf                   # Configuration variables
+│   ├── variables.tf                  # Configuration variables
 │   ├── outputs.tf                     # Outputs for other layers
-│   ├── terraform.tfvars.sample        # Sample configuration
+│   ├── terragrunt.hcl                 # Layer config (reads env.hcl)
 │   └── README.md                      # Base layer documentation
 │
 ├── middleware/                        # Layer 2: Cluster Operators
 │   ├── main.tf                        # KEDA, ESO, buildkitd
-│   ├── variables.tf                   # Configuration variables  
+│   ├── variables.tf                  # Configuration variables
 │   ├── outputs.tf                     # Outputs for app layer
 │   ├── remote_state.tf                # Base layer dependencies
-│   ├── terraform.tfvars.sample        # Sample configuration
+│   ├── terragrunt.hcl                 # Layer config (reads env.hcl)
 │   └── README.md                      # Middleware layer docs
 │
 ├── application/                       # Layer 3: Applications
 │   ├── main.tf                        # ECR, secrets, agents
-│   ├── variables.tf                   # Configuration variables
+│   ├── variables.tf                  # Configuration variables
 │   ├── outputs.tf                     # Operational outputs
 │   ├── remote_state.tf                # Layer dependencies
-│   ├── terraform.tfvars.sample        # Sample configuration
+│   ├── terragrunt.hcl                 # Layer config (reads env.hcl)
 │   └── README.md                      # Application layer docs
 │
 └── helm/                              # Helm Charts
@@ -176,28 +180,20 @@ infrastructure-layered/
 
 ## Prerequisites
 
-### Required Tools
+For a complete prerequisites list including tool versions and mise setup, see the [root README Prerequisites](../README.md#prerequisites).
 
-```bash
-# Install AWS CLI
-curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "AWSCLIV2.pkg"
-sudo installer -pkg AWSCLIV2.pkg -target /
+### Required Tools (Summary)
 
-# Install Terraform >= 1.5
-brew install terraform
+| Tool | Version | Purpose |
+|------|---------|---------|
+| terraform | 1.12.2 | IaC |
+| terragrunt | 0.81.7 | Layer orchestration |
+| helm | 3.19.0 | Kubernetes charts |
+| kubectl | 1.34.1 | Cluster access |
+| aws (CLI) | v2 | AWS operations |
+| jq | latest | JSON parsing (deploy.sh) |
 
-# Install Helm >= 3.10  
-brew install helm
-
-# Install kubectl
-brew install kubectl
-
-# Verify installations
-aws --version      # aws-cli/2.x.x or later
-terraform version  # Terraform v1.5.0 or later  
-helm version       # version.BuildInfo{Version:"v3.10.x" or later}
-kubectl version --client  # Client Version: v1.28.x or later
-```
+This repository uses [.tool-versions](../.tool-versions). We recommend [mise](https://mise.jdx.dev/) for managing tool versions—see the [mise installation documentation](https://mise.jdx.dev/installing-mise.html). Run `mise install` in the repo root to install tools from .tool-versions.
 
 ### AWS Prerequisites
 
@@ -286,68 +282,52 @@ export AWS_REGION='us-west-2'  # Important: Must match your VPC region
 
 > **Note**: The `TF_STATE_BUCKET` environment variable is **required**. See `.env.example` for all configuration options.
 
-### 3. Configure Base Layer
+### 3. Configure env.hcl
 
 ```bash
 # Copy sample configuration
-cp base/terraform.tfvars.sample base/terraform.tfvars
+cp env.sample.hcl env.hcl
 
 # Edit configuration (required fields)
-vi base/terraform.tfvars
+vi env.hcl
 ```
 
-**Minimum required configuration:**
+**Minimum required configuration in `env.hcl`:**
 ```hcl
-# base/terraform.tfvars
-cluster_name = "my-ado-agents"
-aws_region   = "us-east-1"
+# env.hcl (locals block)
+cluster_name    = "my-ado-agents"
+aws_region      = "us-east-1"
+vpc_id          = "vpc-xxxxx"        # Your existing VPC
+subnet_ids      = ["subnet-xxx", "subnet-yyy"]  # Private subnets
 
-# Remote state
+# Remote state (must match TF_STATE_BUCKET)
 remote_state_bucket = "my-terraform-state-bucket"
 remote_state_region = "us-east-1"
 
-# Networking (adjust as needed)
-vpc_cidr = "10.0.0.0/16"
-```
-
-### 3. Configure Application Layer
-
-```bash
-# Copy sample configuration  
-cp application/terraform.tfvars.sample application/terraform.tfvars
-
-# Edit configuration (required fields)
-vi application/terraform.tfvars
-```
-
-**Minimum required configuration:**
-```hcl
-# application/terraform.tfvars
-remote_state_bucket = "my-terraform-state-bucket"  # Same as base
-remote_state_region = "us-east-1"                 # Same as base
-
-# ADO configuration (set via environment variables for security)
+# ADO configuration (application layer)
 ado_org = "your-ado-organization"
 ado_url = "https://dev.azure.com/your-ado-organization"
-
-# Set PAT via environment variable
-export TF_VAR_ado_pat_value="your-personal-access-token"
 ```
+
+For ADO PAT, set `TF_VAR_ado_pat_value` via environment variable or configure in `env.hcl` (avoid committing secrets).
 
 ### 4. Deploy Everything
 
 ```bash
-# Deploy all layers with interactive prompts
+# Deploy all layers (recommended for initial deployment; prompts for ADO credentials)
 export TF_STATE_BUCKET='my-terraform-state-bucket'
-./deploy.sh deploy
+./deploy.sh deploy --update-ado-secret
 
-# Or deploy with auto-approval
-export TF_STATE_BUCKET='my-terraform-state-bucket'
-./deploy.sh --auto-approve deploy
+# Or deploy with auto-approval (CI/CD)
+./deploy.sh deploy --auto-approve --update-ado-secret
 
-# Or deploy specific layer only
-export TF_STATE_BUCKET='my-terraform-state-bucket'
-./deploy.sh --layer base deploy
+# Deploy specific layer only
+./deploy.sh deploy --layer base
+./deploy.sh deploy --layer middleware
+./deploy.sh deploy --layer application --update-ado-secret
+
+# Post-deployment: configure ClusterSecretStore and update ADO credentials
+./deploy.sh deploy --layer config --update-ado-secret
 ```
 
 ### 5. Verify Deployment
@@ -695,8 +675,9 @@ memory_optimized_agent = {
 #### RBAC and Service Accounts
 
 ```hcl
-# Custom IAM permissions for specific use cases
-custom_ado_execution_roles = {
+# Custom IAM permissions - add these entries to ado_execution_roles in env.hcl
+ado_execution_roles = {
+  # ... ado-agent, ado-iac-agent (defaults) ...
   ado-agent-s3 = {
     namespace            = "ado-agents"
     service_account_name = "ado-agent-s3"
@@ -766,6 +747,35 @@ restricted_container_security = {
   }
 }
 ```
+
+## IAM Configuration for ADO Agents
+
+ADO agent pods assume IAM roles via **IRSA (IAM Roles for Service Accounts)**. Pods receive short-lived credentials through the `eks.amazonaws.com/role-arn` annotation on their ServiceAccount—no long-lived credentials are stored in containers.
+
+For detailed documentation of how IAM roles and policies are defined and managed, see **[IAM_ADO_AGENTS.md](./docs/IAM_ADO_AGENTS.md)**. That document covers:
+
+- Configuration source (`ado_execution_roles` and `agent_pools` in `env.hcl`)
+- Terraform resources that create IAM roles, policies, and attachments
+- IRSA trust policy and OIDC integration
+- Linkage between roles and agent pools (keys must match)
+- Default roles (`ado-agent`, `ado-iac-agent`) and their permissions
+- Adding custom roles step-by-step
+- Policy examples (ECR, S3, cross-account assume role)
+- Troubleshooting
+
+### Summary
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| Role definition | `env.hcl` → `ado_execution_roles` | IAM role trust policy and permission statements |
+| Agent pool config | `env.hcl` → `agent_pools` | Links pool to ServiceAccount; keys must match `ado_execution_roles` |
+| Terraform | `application/main.tf` | Creates IAM role, managed policy, and attachment per role |
+| Helm | `serviceaccount.yaml` | Injects `eks.amazonaws.com/role-arn` annotation |
+| Base layer | OIDC provider | Required for IRSA; created with EKS cluster |
+
+### Deployer IAM Permissions
+
+The user or role running `deploy.sh` needs permissions for EKS, EC2, IAM, KMS, S3, Secrets Manager, ECR, and CloudWatch Logs. See the [Required IAM Permissions](#required-iam-permissions) section above.
 
 ## Operations
 
