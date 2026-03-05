@@ -103,11 +103,11 @@ Application Layer (depends on Base + Middleware)
 ## Layer Structure
 
 > 📖 **Configuration Guides**:
-> - [IAM Roles and Policies for ADO Agents](./docs/IAM_ADO_AGENTS.md) - How IAM roles are defined, created, and managed for agent pods
-> - [Fargate Profile Configuration](./docs/FARGATE_CONFIGURATION.md) - Comprehensive guide for configuring Fargate profiles
-> - [EKS Addon Split Solution](./docs/EKS_ADDON_SPLIT_SOLUTION.md) - **CRITICAL**: Split VPC CNI from other addons to prevent CoreDNS degraded state
-> - [EKS Addon Dependency Resolution](./docs/EKS_ADDON_DEPENDENCY_RESOLUTION.md) - Understanding VPC CNI and compute resource dependencies
-> - [Addons and Compute Resources](./docs/ADDONS_AND_COMPUTE.md) - Addon independence and dependency patterns
+> - [IAM Roles and Policies for ADO Agents](../docs/IAM_ADO_AGENTS.md) - How IAM roles are defined, created, and managed for agent pods
+> - [Fargate Profile Configuration](../docs/FARGATE_CONFIGURATION.md) - Comprehensive guide for configuring Fargate profiles
+> - [EKS Addon Correct Approach](../docs/EKS_ADDON_CORRECT_APPROACH.md) - Addon configuration and VPC CNI ordering
+> - [EKS Addon Dependency Resolution](../docs/EKS_ADDON_DEPENDENCY_RESOLUTION.md) - Understanding VPC CNI and compute resource dependencies
+> - [Addons and Compute Resources](../docs/ADDONS_AND_COMPUTE.md) - Addon independence and dependency patterns
 > - [Region Configuration](./check-region-config.sh) - Script to validate AWS region consistency
 
 ### Directory Structure
@@ -125,7 +125,7 @@ infrastructure-layered/
 │   ├── variables.tf                  # Configuration variables
 │   ├── outputs.tf                     # Outputs for other layers
 │   ├── terragrunt.hcl                 # Layer config (reads env.hcl)
-│   └── README.md                      # Base layer documentation
+│   └── (see docs/base-layer.md)       # Base layer documentation
 │
 ├── middleware/                        # Layer 2: Cluster Operators
 │   ├── main.tf                        # KEDA, ESO, buildkitd
@@ -133,7 +133,7 @@ infrastructure-layered/
 │   ├── outputs.tf                     # Outputs for app layer
 │   ├── remote_state.tf                # Base layer dependencies
 │   ├── terragrunt.hcl                 # Layer config (reads env.hcl)
-│   └── README.md                      # Middleware layer docs
+│   └── (see docs/middleware-layer.md) # Middleware layer docs
 │
 ├── application/                       # Layer 3: Applications
 │   ├── main.tf                        # ECR, secrets, agents
@@ -141,14 +141,14 @@ infrastructure-layered/
 │   ├── outputs.tf                     # Operational outputs
 │   ├── remote_state.tf                # Layer dependencies
 │   ├── terragrunt.hcl                 # Layer config (reads env.hcl)
-│   └── README.md                      # Application layer docs
+│   └── (see docs/application-layer.md) # Application layer docs
 │
 └── helm/                              # Helm Charts
     └── ado-agent-cluster/             # ADO agent deployment
         ├── Chart.yaml                 # Chart metadata
         ├── values.yaml               # Default values
         ├── values.schema.json        # Value validation
-        ├── README.md                 # Chart documentation
+        ├── (see docs/ado-agent-cluster-helm.md) # Chart documentation
         └── templates/                # Kubernetes manifests
             ├── _helpers.tpl          # Template helpers
             ├── serviceaccount.yaml   # IRSA service accounts
@@ -752,7 +752,7 @@ restricted_container_security = {
 
 ADO agent pods assume IAM roles via **IRSA (IAM Roles for Service Accounts)**. Pods receive short-lived credentials through the `eks.amazonaws.com/role-arn` annotation on their ServiceAccount—no long-lived credentials are stored in containers.
 
-For detailed documentation of how IAM roles and policies are defined and managed, see **[IAM_ADO_AGENTS.md](./docs/IAM_ADO_AGENTS.md)**. That document covers:
+For detailed documentation of how IAM roles and policies are defined and managed, see **[IAM_ADO_AGENTS.md](../docs/IAM_ADO_AGENTS.md)**. That document covers:
 
 - Configuration source (`ado_execution_roles` and `agent_pools` in `env.hcl`)
 - Terraform resources that create IAM roles, policies, and attachments

@@ -57,7 +57,7 @@ The deploying user/role needs permissions for:
 1. **Ensure base layer is deployed:**
    ```bash
    # Verify base layer outputs are available
-   cd ../base
+   cd infrastructure-layered/base
    terraform output
    ```
 
@@ -80,7 +80,7 @@ The deploying user/role needs permissions for:
 5. **Deploy using orchestration script (recommended):**
    ```bash
    # From infrastructure-layered/ directory
-   cd ..
+   cd infrastructure-layered
    ./deploy.sh --layer middleware deploy
    ```
 
@@ -93,21 +93,20 @@ The deploying user/role needs permissions for:
    terraform apply
    ```
 
-> **Note**: The orchestration script (`../deploy.sh`) handles S3 bucket name substitution automatically. If deploying manually, ensure the backend configuration in `main.tf` has the correct bucket name.
+> **Note**: The orchestration script (`deploy.sh` in infrastructure-layered) handles S3 bucket name substitution automatically. If deploying manually, ensure the backend configuration in `main.tf` has the correct bucket name.
 
 ## Post-Deployment Steps
 
-> **Note**: Post-deployment configuration is now handled by a centralized script that should be run AFTER all infrastructure layers are deployed.
+> **Note**: Post-deployment configuration is handled by the config layer in `deploy.sh`, run AFTER all Terraform layers are deployed.
 
-After deploying all layers (base + middleware + application), run the post-deployment script:
+After deploying all layers (base + middleware + application), run the config layer:
 
 ```bash
-# From the infrastructure-layered directory
-cd ..
-./post-deploy.sh
+cd infrastructure-layered
+./deploy.sh --layer config deploy
 ```
 
-The script will:
+The config layer will:
 1. Verify all infrastructure layers are deployed
 2. Auto-detect your cluster name and AWS region from Terraform state
 3. Configure kubectl access to your EKS cluster
@@ -115,7 +114,7 @@ The script will:
 5. Prompt you to inject the Azure DevOps PAT secret into AWS Secrets Manager
 6. Verify all components are working correctly
 
-See [Operations Guide](../../docs/OPERATIONS.md) for detailed instructions.
+See [Operations Guide](./OPERATIONS.md) for detailed instructions.
 
 > **Important**: The ClusterSecretStore cannot be created during the initial Terraform apply due to CRD timing constraints. The External Secrets Operator must install its CRDs before ClusterSecretStore resources can be created. The config layer in deploy.sh creates it via kubectl after middleware apply.
 
@@ -142,8 +141,8 @@ See [Operations Guide](../../docs/OPERATIONS.md) for detailed instructions.
 After deployment, verify components are running:
 
 ```bash
-# Option 1: Use the post-deploy script (recommended)
-./post-deploy-middleware.sh --verify-only
+# Option 1: Use deploy.sh config layer (recommended)
+./deploy.sh --layer config deploy
 
 # Option 2: Manual verification commands
 # Check KEDA operator
@@ -152,7 +151,7 @@ kubectl get scaledobjects -A  # Should be empty until application layer
 
 # Check External Secrets Operator
 kubectl get pods -n external-secrets-system
-kubectl get clustersecretstores  # Should show 'ado-secrets-store' after post-deploy script
+kubectl get clustersecretstores  # Should show 'ado-secrets-store' after config layer
 
 # Check Buildkitd (if enabled)
 kubectl get pods -n buildkit-system
@@ -162,7 +161,7 @@ kubectl get svc -n buildkit-system
 kubectl get namespaces | grep -E "(keda|external-secrets|ado-agents|buildkit)"
 ```
 
-> **Note**: The `ClusterSecretStore` will only appear after running the post-deployment script. The post-deploy script includes a comprehensive verification step that checks all middleware components.
+> **Note**: The `ClusterSecretStore` will only appear after running the config layer. The config layer includes a comprehensive verification step that checks all middleware components.
 
 ## Outputs
 

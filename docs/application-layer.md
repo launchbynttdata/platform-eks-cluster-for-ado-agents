@@ -186,8 +186,7 @@ export TF_STATE_BUCKET='your-terraform-state-bucket'
 ### Step 3: Deploy Using Orchestration Script (Recommended)
 
 ```bash
-# From infrastructure-layered/ directory
-cd ..
+# From repository root
 ./deploy.sh --layer application deploy
 ```
 
@@ -201,7 +200,7 @@ terraform plan
 terraform apply
 ```
 
-> **Note**: The orchestration script (`../deploy.sh`) handles S3 bucket name substitution automatically. If deploying manually, ensure the backend configuration in `main.tf` has the correct bucket name.
+> **Note**: The orchestration script (`deploy.sh` in infrastructure-layered) handles S3 bucket name substitution automatically. If deploying manually, ensure the backend configuration in `main.tf` has the correct bucket name.
 
 ### Step 4: Inject ADO PAT Secret
 
@@ -231,9 +230,7 @@ aws secretsmanager put-secret-value \
 unset ADO_PAT
 ```
 
-📖 **For detailed instructions, see:**
-- [ADO PAT Secret Injection Guide](../../docs/ADO_PAT_SECRET_INJECTION.md) - Full documentation
-- [Quick Reference](../../docs/QUICK_REF_ADO_PAT_SECRET.md) - TL;DR version
+📖 **For detailed instructions, see:** [OPERATIONS.md - ADO PAT Secret Management](./OPERATIONS.md#ado-pat-secret-management)
 
 ### Step 5: Verify Deployment
 

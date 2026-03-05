@@ -61,7 +61,7 @@ aws secretsmanager put-secret-value \
 ### Deploy All Layers Including Config
 ```bash
 # Deploys base → middleware → application → config (with prompt)
-./deploy-tg.sh deploy
+./deploy.sh deploy
 ```
 
 You'll be prompted after Terraform layers complete:
@@ -72,13 +72,13 @@ Deploy config layer (ClusterSecretStore + kubectl setup)? [y/N]
 ### Deploy Config Layer Only
 ```bash
 # Deploys only the config layer (requires all Terraform layers already deployed)
-./deploy-tg.sh deploy --layer config
+./deploy.sh deploy --layer config
 ```
 
 ### Update ADO PAT
 ```bash
 # Update ADO PAT in AWS Secrets Manager
-./deploy-tg.sh deploy --layer config --update-ado-secret
+./deploy.sh deploy --layer config --update-ado-secret
 ```
 
 You'll be prompted for:
@@ -88,7 +88,7 @@ You'll be prompted for:
 ### Skip Config Layer
 ```bash
 # Deploy only Terraform layers, skip config layer
-./deploy-tg.sh deploy --auto-approve
+./deploy.sh deploy --auto-approve
 ```
 
 ## Architecture
@@ -216,13 +216,13 @@ In CI/CD pipelines, you may want to:
 ### Skip Interactive Prompt
 ```bash
 # Deploy all Terraform layers without config layer
-./deploy-tg.sh deploy --auto-approve
+./deploy.sh deploy --auto-approve
 ```
 
 Then run config layer separately:
 ```bash
 # Deploy config layer non-interactively
-./deploy-tg.sh deploy --layer config --auto-approve
+./deploy.sh deploy --layer config --auto-approve
 ```
 
 ### Environment Variables
@@ -230,7 +230,7 @@ Set ADO PAT via environment variable to avoid prompts:
 ```bash
 export ADO_ORG_URL="https://dev.azure.com/yourorg"
 export ADO_PAT="your-pat-here"
-./deploy-tg.sh deploy --layer config --update-ado-secret
+./deploy.sh deploy --layer config --update-ado-secret
 ```
 
 ## Summary
