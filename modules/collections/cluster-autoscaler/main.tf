@@ -116,6 +116,12 @@ resource "kubernetes_cluster_role" "this" {
     resource_names = ["cluster-autoscaler"]
     verbs          = ["get", "update"]
   }
+
+  rule {
+    api_groups = ["resource.k8s.io"]
+    resources  = ["resourceclaims", "resourceslices", "deviceclasses"]
+    verbs      = ["get", "list", "watch"]
+  }
 }
 
 resource "kubernetes_cluster_role_binding" "this" {
