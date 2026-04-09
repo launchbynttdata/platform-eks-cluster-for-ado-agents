@@ -62,8 +62,8 @@ locals {
   node_auto_heal_namespace = try(data.terraform_remote_state.base.outputs.node_auto_heal_namespace, "kube-system")
   node_auto_heal_sa_name   = try(data.terraform_remote_state.base.outputs.node_auto_heal_service_account, "aws-node-termination-handler")
 
-  bk_region   = data.aws_region.current.name
-  bk_account  = data.aws_caller_identity.current.account_id
+  bk_region              = data.aws_region.current.name
+  bk_account             = data.aws_caller_identity.current.account_id
   buildkitd_registry_ids = length(var.buildkitd_ecr_registry_account_ids) > 0 ? var.buildkitd_ecr_registry_account_ids : [local.bk_account]
   buildkitd_ecr_repo_arns = length(var.buildkitd_ecr_repository_arns) > 0 ? var.buildkitd_ecr_repository_arns : [
     "arn:aws:ecr:${local.bk_region}:${local.bk_account}:repository/*"
