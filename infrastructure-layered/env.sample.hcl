@@ -246,6 +246,11 @@ locals {
   }
   
   buildkitd_storage_size = "50Gi"
+
+  # Optional: ECR accounts / ARNs for BuildKit IRSA (empty in sample = cluster account only in Terraform)
+  # buildkitd_ecr_registry_account_ids = ["111111111111", "222222222222"]
+  # buildkitd_ecr_repository_arns      = ["arn:aws:ecr:us-west-2:222222222222:repository/*"]
+  # buildkitd_kms_key_arn_patterns     = ["arn:aws:kms:us-west-2:222222222222:key/*"]
   
   # =============================================================================
   # Application Layer Configuration

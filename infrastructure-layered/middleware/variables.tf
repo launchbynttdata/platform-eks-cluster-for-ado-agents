@@ -287,6 +287,24 @@ variable "buildkitd_hpa_target_memory_utilization_percentage" {
   default     = 70
 }
 
+variable "buildkitd_ecr_registry_account_ids" {
+  description = "AWS account IDs for ECR registries the BuildKit daemon uses (docker credHelpers + IAM). Empty = cluster account only."
+  type        = list(string)
+  default     = []
+}
+
+variable "buildkitd_ecr_repository_arns" {
+  description = "ECR repository ARNs BuildKit may pull and push. Empty = arn:aws:ecr:<region>:<cluster_account>:repository/*"
+  type        = list(string)
+  default     = []
+}
+
+variable "buildkitd_kms_key_arn_patterns" {
+  description = "KMS key ARN patterns for ECR customer-managed encryption. Empty = arn:aws:kms:<region>:<cluster_account>:key/*"
+  type        = list(string)
+  default     = []
+}
+
 # Additional Tags
 variable "additional_tags" {
   description = "Additional tags to apply to resources (merged with base layer tags)"

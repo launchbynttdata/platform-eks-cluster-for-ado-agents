@@ -114,6 +114,9 @@ inputs = {
   buildkitd_hpa_min_replicas = local.env.locals.buildkitd_hpa_min_replicas
   buildkitd_hpa_max_replicas = local.env.locals.buildkitd_hpa_max_replicas
   buildkitd_hpa_target_memory_utilization_percentage = local.env.locals.buildkitd_hpa_target_memory_utilization_percentage
+  buildkitd_ecr_registry_account_ids    = try(local.env.locals.buildkitd_ecr_registry_account_ids, [])
+  buildkitd_ecr_repository_arns         = try(local.env.locals.buildkitd_ecr_repository_arns, [])
+  buildkitd_kms_key_arn_patterns        = try(local.env.locals.buildkitd_kms_key_arn_patterns, [])
 
   # Node auto-heal / AWS Node Termination Handler configuration
   node_auto_heal_daemonset_node_selector = local.env.locals.node_auto_heal_daemonset_node_selector

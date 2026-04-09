@@ -61,6 +61,22 @@ locals {
   node_auto_heal_role_arn  = try(data.terraform_remote_state.base.outputs.node_auto_heal_role_arn, null)
   node_auto_heal_namespace = try(data.terraform_remote_state.base.outputs.node_auto_heal_namespace, "kube-system")
   node_auto_heal_sa_name   = try(data.terraform_remote_state.base.outputs.node_auto_heal_service_account, "aws-node-termination-handler")
+
+  bk_region   = data.aws_region.current.name
+  bk_account  = data.aws_caller_identity.current.account_id
+  buildkitd_registry_ids = length(var.buildkitd_ecr_registry_account_ids) > 0 ? var.buildkitd_ecr_registry_account_ids : [local.bk_account]
+  buildkitd_ecr_repo_arns = length(var.buildkitd_ecr_repository_arns) > 0 ? var.buildkitd_ecr_repository_arns : [
+    "arn:aws:ecr:${local.bk_region}:${local.bk_account}:repository/*"
+  ]
+  buildkitd_kms_patterns = length(var.buildkitd_kms_key_arn_patterns) > 0 ? var.buildkitd_kms_key_arn_patterns : [
+    "arn:aws:kms:${local.bk_region}:${local.bk_account}:key/*"
+  ]
+  buildkitd_docker_config_json = jsonencode({
+    credHelpers = {
+      for acc in local.buildkitd_registry_ids :
+      "${acc}.dkr.ecr.${local.bk_region}.amazonaws.com" => "ecr-login"
+    }
+  })
 }
 
 # KEDA Operator IAM Role
@@ -348,6 +364,99 @@ module "cluster_autoscaler" {
   service_account_name = "cluster-autoscaler"
 }
 
+# BuildKit IRSA: registry operations run on the daemon, not the ADO agent pod.
+module "buildkit_irsa_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  count   = var.enable_buildkitd ? 1 : 0
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+
+  name = "${local.cluster_name}-buildkitd-role"
+
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRoleWithWebIdentity"]
+      principals = [
+        {
+          type        = "Federated"
+          identifiers = [data.terraform_remote_state.base.outputs.oidc_provider_arn]
+        }
+      ]
+      conditions = [
+        {
+          test     = "StringEquals"
+          variable = "${local.cluster_oidc_host}:sub"
+          values   = ["system:serviceaccount:${var.buildkitd_namespace}:buildkitd"]
+        },
+        {
+          test     = "StringEquals"
+          variable = "${local.cluster_oidc_host}:aud"
+          values   = ["sts.amazonaws.com"]
+        }
+      ]
+    }
+  ]
+
+  tags = merge(local.common_tags, {
+    Role      = "buildkitd"
+    Component = "buildkitd"
+  })
+}
+
+module "buildkit_irsa_policy" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  count   = var.enable_buildkitd ? 1 : 0
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  version = "~> 0.1"
+
+  policy_name = "${local.cluster_name}-buildkitd-ecr-policy"
+
+  policy_statement = {
+    ecr_get_auth = {
+      sid       = "ECRGetAuth"
+      actions   = ["ecr:GetAuthorizationToken"]
+      resources = ["*"]
+    }
+    ecr_push_pull = {
+      sid = "ECRPushPull"
+      actions = [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:PutImage"
+      ]
+      resources = local.buildkitd_ecr_repo_arns
+    }
+    kms_for_ecr = {
+      sid = "KMSForECR"
+      actions = [
+        "kms:Decrypt",
+        "kms:DescribeKey",
+        "kms:GenerateDataKey"
+      ]
+      resources = local.buildkitd_kms_patterns
+    }
+  }
+
+  tags = merge(local.common_tags, {
+    Role      = "buildkitd"
+    Component = "buildkitd"
+  })
+}
+
+module "buildkit_irsa_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  count   = var.enable_buildkitd ? 1 : 0
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+
+  role_name  = module.buildkit_irsa_role[0].role_name
+  policy_arn = module.buildkit_irsa_policy[0].policy_arn
+}
+
 # Buildkitd Service (standalone deployment for cluster-wide availability)
 resource "kubernetes_namespace" "buildkit" {
   count = var.enable_buildkitd ? 1 : 0
@@ -360,6 +469,31 @@ resource "kubernetes_namespace" "buildkit" {
       "pod-security.kubernetes.io/audit"   = "privileged"
       "pod-security.kubernetes.io/warn"    = "privileged"
     }
+  }
+}
+
+resource "kubernetes_service_account" "buildkitd" {
+  count = var.enable_buildkitd ? 1 : 0
+
+  metadata {
+    name      = "buildkitd"
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+    annotations = {
+      "eks.amazonaws.com/role-arn" = module.buildkit_irsa_role[0].role_arn
+    }
+  }
+}
+
+resource "kubernetes_config_map" "buildkitd_docker_config" {
+  count = var.enable_buildkitd ? 1 : 0
+
+  metadata {
+    name      = "buildkitd-docker-config"
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+  }
+
+  data = {
+    "config.json" = local.buildkitd_docker_config_json
   }
 }
 
@@ -415,6 +549,8 @@ resource "kubernetes_deployment" "buildkitd" {
       }
 
       spec {
+        service_account_name = kubernetes_service_account.buildkitd[0].metadata[0].name
+
         # Use node selector for EC2 nodes if available
         node_selector = var.buildkitd_node_selector
 
@@ -429,6 +565,31 @@ resource "kubernetes_deployment" "buildkitd" {
           }
         }
 
+        init_container {
+          name    = "install-ecr-credential-helper"
+          image   = "public.ecr.aws/docker/library/alpine:3.20"
+          command = ["/bin/sh", "-c"]
+          args = [
+            "set -eu; apk add --no-cache curl ca-certificates; curl -sSL -o /helper/docker-credential-ecr-login \"https://github.com/awslabs/amazon-ecr-credential-helper/releases/download/v0.10.1/docker-credential-ecr-login-linux-amd64\"; chmod +x /helper/docker-credential-ecr-login"
+          ]
+
+          volume_mount {
+            name       = "ecr-helper-bin"
+            mount_path = "/helper"
+          }
+
+          resources {
+            requests = {
+              cpu    = "100m"
+              memory = "64Mi"
+            }
+            limits = {
+              cpu    = "500m"
+              memory = "128Mi"
+            }
+          }
+        }
+
         container {
           name              = "buildkitd"
           image             = var.buildkitd_image
@@ -438,6 +599,26 @@ resource "kubernetes_deployment" "buildkitd" {
             container_port = 1234
             name           = "buildkitd"
             protocol       = "TCP"
+          }
+
+          env {
+            name  = "AWS_DEFAULT_REGION"
+            value = data.aws_region.current.name
+          }
+
+          env {
+            name  = "AWS_EC2_METADATA_DISABLED"
+            value = "true"
+          }
+
+          env {
+            name  = "DOCKER_CONFIG"
+            value = "/home/user/.docker"
+          }
+
+          env {
+            name  = "PATH"
+            value = "/ecr:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
           }
 
           # Enable debug logging and expose the TCP listener without TLS. Rootless mode
@@ -514,6 +695,34 @@ resource "kubernetes_deployment" "buildkitd" {
             name       = "buildkitd-config"
           }
 
+          volume_mount {
+            mount_path = "/ecr"
+            name       = "ecr-helper-bin"
+            read_only  = true
+          }
+
+          volume_mount {
+            mount_path = "/home/user/.docker"
+            name       = "buildkit-docker-config"
+            read_only  = true
+          }
+
+        }
+
+        volume {
+          name = "ecr-helper-bin"
+          empty_dir {}
+        }
+
+        volume {
+          name = "buildkit-docker-config"
+          config_map {
+            name = kubernetes_config_map.buildkitd_docker_config[0].metadata[0].name
+            items {
+              key  = "config.json"
+              path = "config.json"
+            }
+          }
         }
 
         volume {
