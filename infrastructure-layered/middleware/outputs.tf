@@ -86,6 +86,11 @@ output "buildkitd_short_name" {
   value       = var.enable_buildkitd ? "buildkitd:1234" : null
 }
 
+output "buildkit_irsa_role_arn" {
+  description = "IRSA role for buildkitd pods; add to cross-account ECR repository policies when the daemon pushes to other accounts"
+  value       = var.enable_buildkitd ? module.buildkit_irsa_role[0].role_arn : null
+}
+
 # Common Information
 output "aws_region" {
   description = "AWS region"

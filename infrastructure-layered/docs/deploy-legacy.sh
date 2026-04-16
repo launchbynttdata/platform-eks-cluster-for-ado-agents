@@ -1083,7 +1083,7 @@ create_cluster_secret_store() {
     
     # Create the ClusterSecretStore manifest
     if cat <<EOF | kubectl apply -f -
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ClusterSecretStore
 metadata:
   name: ${css_name}

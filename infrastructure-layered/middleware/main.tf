@@ -61,6 +61,34 @@ locals {
   node_auto_heal_role_arn  = try(data.terraform_remote_state.base.outputs.node_auto_heal_role_arn, null)
   node_auto_heal_namespace = try(data.terraform_remote_state.base.outputs.node_auto_heal_namespace, "kube-system")
   node_auto_heal_sa_name   = try(data.terraform_remote_state.base.outputs.node_auto_heal_service_account, "aws-node-termination-handler")
+
+  bk_region              = data.aws_region.current.name
+  bk_account             = data.aws_caller_identity.current.account_id
+  buildkitd_registry_ids = length(var.buildkitd_ecr_registry_account_ids) > 0 ? var.buildkitd_ecr_registry_account_ids : [local.bk_account]
+  buildkitd_ecr_repo_arns = length(var.buildkitd_ecr_repository_arns) > 0 ? var.buildkitd_ecr_repository_arns : [
+    "arn:aws:ecr:${local.bk_region}:${local.bk_account}:repository/*"
+  ]
+  buildkitd_kms_patterns = length(var.buildkitd_kms_key_arn_patterns) > 0 ? var.buildkitd_kms_key_arn_patterns : [
+    "arn:aws:kms:${local.bk_region}:${local.bk_account}:key/*"
+  ]
+  buildkitd_docker_config_json = jsonencode({
+    credHelpers = {
+      for acc in local.buildkitd_registry_ids :
+      "${acc}.dkr.ecr.${local.bk_region}.amazonaws.com" => "ecr-login"
+    }
+  })
+
+  # kubernetes_manifest uses Kubernetes API field names (camelCase).
+  buildkitd_tolerations_for_manifest = [
+    for t in var.buildkitd_tolerations : merge(
+      {
+        key      = t.key
+        operator = t.operator
+        effect   = t.effect
+      },
+      try(t.value, null) == null || try(t.value, "") == "" ? {} : { value = t.value }
+    )
+  ]
 }
 
 # KEDA Operator IAM Role
@@ -348,6 +376,99 @@ module "cluster_autoscaler" {
   service_account_name = "cluster-autoscaler"
 }
 
+# BuildKit IRSA: registry operations run on the daemon, not the ADO agent pod.
+module "buildkit_irsa_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  count   = var.enable_buildkitd ? 1 : 0
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
+  version = "~> 0.1"
+
+  name = "${local.cluster_name}-buildkitd-role"
+
+  assume_role_policy = [
+    {
+      actions = ["sts:AssumeRoleWithWebIdentity"]
+      principals = [
+        {
+          type        = "Federated"
+          identifiers = [data.terraform_remote_state.base.outputs.oidc_provider_arn]
+        }
+      ]
+      conditions = [
+        {
+          test     = "StringEquals"
+          variable = "${local.cluster_oidc_host}:sub"
+          values   = ["system:serviceaccount:${var.buildkitd_namespace}:buildkitd"]
+        },
+        {
+          test     = "StringEquals"
+          variable = "${local.cluster_oidc_host}:aud"
+          values   = ["sts.amazonaws.com"]
+        }
+      ]
+    }
+  ]
+
+  tags = merge(local.common_tags, {
+    Role      = "buildkitd"
+    Component = "buildkitd"
+  })
+}
+
+module "buildkit_irsa_policy" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  count   = var.enable_buildkitd ? 1 : 0
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
+  version = "~> 0.1"
+
+  policy_name = "${local.cluster_name}-buildkitd-ecr-policy"
+
+  policy_statement = {
+    ecr_get_auth = {
+      sid       = "ECRGetAuth"
+      actions   = ["ecr:GetAuthorizationToken"]
+      resources = ["*"]
+    }
+    ecr_push_pull = {
+      sid = "ECRPushPull"
+      actions = [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:PutImage"
+      ]
+      resources = local.buildkitd_ecr_repo_arns
+    }
+    kms_for_ecr = {
+      sid = "KMSForECR"
+      actions = [
+        "kms:Decrypt",
+        "kms:DescribeKey",
+        "kms:GenerateDataKey"
+      ]
+      resources = local.buildkitd_kms_patterns
+    }
+  }
+
+  tags = merge(local.common_tags, {
+    Role      = "buildkitd"
+    Component = "buildkitd"
+  })
+}
+
+module "buildkit_irsa_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
+  count   = var.enable_buildkitd ? 1 : 0
+  source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
+  version = "~> 0.1"
+
+  role_name  = module.buildkit_irsa_role[0].role_name
+  policy_arn = module.buildkit_irsa_policy[0].policy_arn
+}
+
 # Buildkitd Service (standalone deployment for cluster-wide availability)
 resource "kubernetes_namespace" "buildkit" {
   count = var.enable_buildkitd ? 1 : 0
@@ -360,6 +481,31 @@ resource "kubernetes_namespace" "buildkit" {
       "pod-security.kubernetes.io/audit"   = "privileged"
       "pod-security.kubernetes.io/warn"    = "privileged"
     }
+  }
+}
+
+resource "kubernetes_service_account" "buildkitd" {
+  count = var.enable_buildkitd ? 1 : 0
+
+  metadata {
+    name      = "buildkitd"
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+    annotations = {
+      "eks.amazonaws.com/role-arn" = module.buildkit_irsa_role[0].role_arn
+    }
+  }
+}
+
+resource "kubernetes_config_map" "buildkitd_docker_config" {
+  count = var.enable_buildkitd ? 1 : 0
+
+  metadata {
+    name      = "buildkitd-docker-config"
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+  }
+
+  data = {
+    "config.json" = local.buildkitd_docker_config_json
   }
 }
 
@@ -379,169 +525,177 @@ resource "kubernetes_config_map" "buildkitd_config" {
   }
 }
 
-resource "kubernetes_deployment" "buildkitd" {
-  # Rootless BuildKit deployment aligned with https://github.com/moby/buildkit/tree/master/examples/kubernetes
-  # checkov:skip=CKV_K8S_43:Using tag-based image references for maintainability. Digest-based references make updates difficult and provide minimal security benefit in this controlled environment
-  # checkov:skip=CKV_K8S_14:Image tag is passed as variable. 
+# Rootless BuildKit: use kubernetes_manifest so we can set securityContext.appArmorProfile (K8s 1.30+).
+# The kubernetes_deployment resource schema does not expose appArmorProfile; the old Pod annotation is deprecated.
+# checkov:skip=CKV_K8S_43:Image tag passed via variable for maintainability.
+# checkov:skip=CKV_K8S_14:Image tag passed via variable.
+resource "kubernetes_manifest" "buildkitd" {
   count = var.enable_buildkitd ? 1 : 0
 
-  metadata {
-    name      = "buildkitd"
-    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
-
-    labels = {
-      app = "buildkitd"
-    }
-  }
-
-  spec {
-    replicas = var.buildkitd_replicas
-
-    selector {
-      match_labels = {
+  manifest = {
+    apiVersion = "apps/v1"
+    kind       = "Deployment"
+    metadata = {
+      name      = "buildkitd"
+      namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+      labels = {
         app = "buildkitd"
       }
     }
-
-    template {
-      metadata {
-        labels = {
+    spec = {
+      replicas = var.buildkitd_replicas
+      selector = {
+        matchLabels = {
           app = "buildkitd"
         }
-
-        annotations = {
-          "container.apparmor.security.beta.kubernetes.io/buildkitd" = "unconfined"
-        }
       }
-
-      spec {
-        # Use node selector for EC2 nodes if available
-        node_selector = var.buildkitd_node_selector
-
-        # Tolerations for dedicated buildkit nodes
-        dynamic "toleration" {
-          for_each = var.buildkitd_tolerations
-          content {
-            key      = toleration.value.key
-            operator = toleration.value.operator
-            value    = toleration.value.value
-            effect   = toleration.value.effect
+      template = {
+        metadata = {
+          labels = {
+            app = "buildkitd"
           }
         }
-
-        container {
-          name              = "buildkitd"
-          image             = var.buildkitd_image
-          image_pull_policy = "Always"
-
-          port {
-            container_port = 1234
-            name           = "buildkitd"
-            protocol       = "TCP"
-          }
-
-          # Enable debug logging and expose the TCP listener without TLS. Rootless mode
-          # requires the no-process-sandbox flag to avoid privileged operations.
-          args = [
-            "--debug",
-            "--addr", "tcp://0.0.0.0:1234",
-            "--oci-worker-no-process-sandbox",
-            "--config", "/etc/buildkit/buildkitd.toml"
+        spec = {
+          serviceAccountName = kubernetes_service_account.buildkitd[0].metadata[0].name
+          nodeSelector         = var.buildkitd_node_selector
+          tolerations          = local.buildkitd_tolerations_for_manifest
+          initContainers = [
+            {
+              name  = "install-ecr-credential-helper"
+              image = "public.ecr.aws/docker/library/alpine:3.20"
+              command = ["/bin/sh", "-c"]
+              args = [
+                "set -eu; apk add --no-cache curl ca-certificates; curl -sSL -o /helper/docker-credential-ecr-login \"https://github.com/awslabs/amazon-ecr-credential-helper/releases/download/v0.12.0/docker-credential-ecr-login-linux-amd64\"; chmod +x /helper/docker-credential-ecr-login"
+              ]
+              volumeMounts = [
+                {
+                  name      = "ecr-helper-bin"
+                  mountPath = "/helper"
+                }
+              ]
+              resources = {
+                requests = {
+                  cpu    = "100m"
+                  memory = "64Mi"
+                }
+                limits = {
+                  cpu    = "500m"
+                  memory = "128Mi"
+                }
+              }
+            }
           ]
-
-
-          # Rootless deployment runs as an unprivileged user with explicit seccomp/AppArmor
-          # settings, matching the upstream example.
-          security_context {
-            run_as_user               = 1000
-            run_as_group              = 1000
-            run_as_non_root           = true
-            read_only_root_filesystem = false
-            # Allow setuid helpers like newuidmap/newgidmap to initialize user namespaces
-            allow_privilege_escalation = true
-
-            seccomp_profile {
-              type = "Unconfined"
+          containers = [
+            {
+              name            = "buildkitd"
+              image           = var.buildkitd_image
+              imagePullPolicy = "Always"
+              ports = [
+                {
+                  name          = "buildkitd"
+                  containerPort = 1234
+                  protocol      = "TCP"
+                }
+              ]
+              env = [
+                { name = "AWS_DEFAULT_REGION", value = data.aws_region.current.name },
+                { name = "AWS_EC2_METADATA_DISABLED", value = "true" },
+                { name = "DOCKER_CONFIG", value = "/home/user/.docker" },
+                { name = "PATH", value = "/ecr:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }
+              ]
+              args = [
+                "--debug",
+                "--addr", "tcp://0.0.0.0:1234",
+                "--oci-worker-no-process-sandbox",
+                "--config", "/etc/buildkit/buildkitd.toml"
+              ]
+              securityContext = {
+                runAsUser                = 1000
+                runAsGroup               = 1000
+                runAsNonRoot             = true
+                readOnlyRootFilesystem   = false
+                allowPrivilegeEscalation = true
+                seccompProfile = {
+                  type = "Unconfined"
+                }
+                appArmorProfile = {
+                  type = "Unconfined"
+                }
+              }
+              readinessProbe = {
+                tcpSocket = {
+                  port = 1234
+                }
+                initialDelaySeconds = 5
+                periodSeconds       = 10
+              }
+              livenessProbe = {
+                tcpSocket = {
+                  port = 1234
+                }
+                initialDelaySeconds = 10
+                periodSeconds       = 20
+              }
+              resources = {
+                requests = {
+                  cpu    = var.buildkitd_resources.requests.cpu
+                  memory = var.buildkitd_resources.requests.memory
+                }
+                limits = {
+                  cpu    = var.buildkitd_resources.limits.cpu
+                  memory = var.buildkitd_resources.limits.memory
+                }
+              }
+              volumeMounts = [
+                { name = "tmp", mountPath = "/tmp" },
+                { name = "buildkit-rootless", mountPath = "/home/user/.local/share/buildkit" },
+                { name = "run", mountPath = "/run" },
+                { name = "buildkitd-config", mountPath = "/etc/buildkit" },
+                { name = "ecr-helper-bin", mountPath = "/ecr", readOnly = true },
+                { name = "buildkit-docker-config", mountPath = "/home/user/.docker", readOnly = true }
+              ]
             }
-          }
-
-          # Readiness probe to ensure buildkitd is ready before routing traffic
-          readiness_probe {
-            tcp_socket {
-              port = 1234
+          ]
+          volumes = [
+            { name = "ecr-helper-bin", emptyDir = {} },
+            {
+              name = "buildkit-docker-config"
+              configMap = {
+                name = kubernetes_config_map.buildkitd_docker_config[0].metadata[0].name
+                items = [
+                  {
+                    key  = "config.json"
+                    path = "config.json"
+                  }
+                ]
+              }
+            },
+            {
+              name = "buildkitd-config"
+              configMap = {
+                name = kubernetes_config_map.buildkitd_config[0].metadata[0].name
+              }
+            },
+            { name = "tmp", emptyDir = {} },
+            { name = "run", emptyDir = {} },
+            {
+              name = "buildkit-rootless"
+              emptyDir = {
+                sizeLimit = var.buildkitd_storage_size
+              }
             }
-            initial_delay_seconds = 5
-            period_seconds        = 10
-          }
-
-          # Liveness probe to restart unhealthy buildkitd pods
-          liveness_probe {
-            tcp_socket {
-              port = 1234
-            }
-            initial_delay_seconds = 10
-            period_seconds        = 20
-          }
-
-          resources {
-            requests = {
-              cpu    = var.buildkitd_resources.requests.cpu
-              memory = var.buildkitd_resources.requests.memory
-            }
-            limits = {
-              cpu    = var.buildkitd_resources.limits.cpu
-              memory = var.buildkitd_resources.limits.memory
-            }
-          }
-
-          volume_mount {
-            mount_path = "/tmp"
-            name       = "tmp"
-          }
-
-          volume_mount {
-            mount_path = "/home/user/.local/share/buildkit"
-            name       = "buildkit-rootless"
-          }
-
-          volume_mount {
-            mount_path = "/run"
-            name       = "run"
-          }
-
-          volume_mount {
-            mount_path = "/etc/buildkit"
-            name       = "buildkitd-config"
-          }
-
-        }
-
-        volume {
-          name = "buildkitd-config"
-          config_map {
-            name = kubernetes_config_map.buildkitd_config[0].metadata[0].name
-          }
-        }
-
-        volume {
-          name = "tmp"
-          empty_dir {}
-        }
-
-        volume {
-          name = "run"
-          empty_dir {}
-        }
-
-        volume {
-          name = "buildkit-rootless"
-          empty_dir {
-            size_limit = var.buildkitd_storage_size
-          }
+          ]
         }
       }
     }
   }
+
+  computed_fields = [
+    "metadata.generation",
+    "metadata.resourceVersion",
+    "metadata.uid",
+    "status",
+  ]
 }
 
 resource "kubernetes_service" "buildkitd" {
@@ -637,7 +791,7 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "buildkitd" {
     }
   }
 
-  depends_on = [kubernetes_deployment.buildkitd]
+  depends_on = [kubernetes_manifest.buildkitd]
 }
 
 # AWS Node Termination Handler (queue processor mode)

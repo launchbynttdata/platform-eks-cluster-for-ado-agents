@@ -56,3 +56,5 @@ terraform.rc
 # Environment-specific Terragrunt config (keep sample)
 infrastructure-layered/env.hcl
 !infrastructure-layered/env.sample.hcl
+
+logs/
