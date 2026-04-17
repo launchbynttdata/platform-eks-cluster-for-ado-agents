@@ -2,6 +2,9 @@
   "$schema": "https://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
+    "spnAuthEnabled": {
+      "type": "boolean"
+    },
     "global": {
       "type": "object",
       "properties": {
@@ -89,7 +92,10 @@
                   "properties": {
                     "secretName": {"type": "string"},
                     "type": {"type": "string"},
-                    "refreshInterval": {"type": "string"}
+                    "refreshInterval": {"type": "string"},
+                    "creationPolicy": {"type": "string", "enum": ["Owner", "Merge"]},
+                    "includeTemplate": {"type": "boolean"},
+                    "labels": {"type": "object"}
                   },
                   "required": ["secretName"]
                 },

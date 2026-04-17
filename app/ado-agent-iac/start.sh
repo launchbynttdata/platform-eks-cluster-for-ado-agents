@@ -22,17 +22,21 @@ if [ -z "${AZP_URL}" ]; then
   fi
 fi
 
-if [ -n "$AZP_CLIENTID" ]; then
-  echo "Using service principal credentials to get token"
+# SPN takes priority over PAT: when all Entra app fields are set, obtain an Azure DevOps-scoped token.
+if [ -n "${AZP_CLIENTID:-}" ] && [ -n "${AZP_CLIENTSECRET:-}" ] && [ -n "${AZP_TENANTID:-}" ]; then
+  echo "Using service principal credentials for Azure DevOps (SPN priority over PAT)"
   az login --allow-no-subscriptions --service-principal --username "$AZP_CLIENTID" --password "$AZP_CLIENTSECRET" --tenant "$AZP_TENANTID"
-  # adapted from https://learn.microsoft.com/en-us/azure/databricks/dev-tools/user-aad-token
-  AZP_TOKEN=$(az account get-access-token --query accessToken --output tsv)
+  # Azure DevOps resource ID (not ARM default). See https://learn.microsoft.com/en-us/azure/devops/cli/entra-tokens
+  AZP_TOKEN=$(az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken --output tsv)
   echo "Token retrieved"
+elif [ -n "${AZP_CLIENTID:-}" ] || [ -n "${AZP_CLIENTSECRET:-}" ] || [ -n "${AZP_TENANTID:-}" ]; then
+  echo 1>&2 "error: SPN auth requires AZP_CLIENTID, AZP_CLIENTSECRET, and AZP_TENANTID"
+  exit 1
 fi
 
 if [ -z "${AZP_TOKEN_FILE}" ]; then
   if [ -z "${AZP_TOKEN}" ]; then
-    echo 1>&2 "error: missing AZP_TOKEN environment variable"
+    echo 1>&2 "error: missing AZP_TOKEN (set PAT/org secret) or complete SPN environment variables"
     exit 1
   fi
 

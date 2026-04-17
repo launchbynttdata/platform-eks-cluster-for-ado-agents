@@ -23,13 +23,18 @@ output "ecr_repositories" {
 # =============================================================================
 
 output "ado_pat_secret" {
-  description = "ADO PAT secret information"
+  description = "ADO PAT/org secret information (Terraform-managed)"
   value = {
     name = aws_secretsmanager_secret.ado_pat.name
     arn  = aws_secretsmanager_secret.ado_pat.arn
     id   = aws_secretsmanager_secret.ado_pat.id
   }
   sensitive = true
+}
+
+output "ado_spn_credentials_secret_arn" {
+  description = "When set, ARN of the Secrets Manager secret holding Entra SPN JSON (ClientId, ClientSecret, TenantId) synced by ESO"
+  value       = var.ado_spn_credentials_secret_arn
 }
 
 # =============================================================================
@@ -93,7 +98,9 @@ output "application_summary" {
 
     # Security configuration
     secrets = {
-      ado_pat_secret_name = aws_secretsmanager_secret.ado_pat.name
+      ado_pat_secret_name              = aws_secretsmanager_secret.ado_pat.name
+      ado_spn_auth_enabled             = var.ado_spn_credentials_secret_arn != ""
+      ado_spn_credentials_secret_arn = var.ado_spn_credentials_secret_arn != "" ? var.ado_spn_credentials_secret_arn : null
     }
 
     # Deployment metadata
@@ -133,6 +140,7 @@ output "operational_info" {
     aws_commands = {
       view_secret   = "aws secretsmanager get-secret-value --secret-id ${aws_secretsmanager_secret.ado_pat.name} --query SecretString --output text"
       update_secret = "aws secretsmanager update-secret --secret-id ${aws_secretsmanager_secret.ado_pat.name} --secret-string '{\"personalAccessToken\":\"NEW_PAT\",\"organization\":\"${var.ado_org}\",\"adourl\":\"${var.ado_url}\"}'"
+      spn_note      = var.ado_spn_credentials_secret_arn != "" ? "SPN credentials are maintained in the separate secret referenced by ado_spn_credentials_secret_arn (not updated by update_secret above)." : "Optional: set ado_spn_credentials_secret_arn for Entra SPN agent auth (JSON keys ClientId, ClientSecret, TenantId)."
     }
 
     # Monitoring and observability

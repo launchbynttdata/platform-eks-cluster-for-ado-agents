@@ -195,7 +195,10 @@ module "eso_ado_secret_access_policy" {
         "secretsmanager:GetSecretValue",
         "secretsmanager:DescribeSecret"
       ]
-      resources = [aws_secretsmanager_secret.ado_pat.arn]
+      resources = concat(
+        [aws_secretsmanager_secret.ado_pat.arn],
+        var.ado_spn_credentials_secret_arn != "" ? [var.ado_spn_credentials_secret_arn] : []
+      )
     }
   }
 
@@ -215,8 +218,12 @@ module "eso_ado_secret_access_policy_attachment" {
 locals {
   ado_secret_name          = data.terraform_remote_state.middleware.outputs.ado_secret_name
   ado_external_secret_name = "${local.ado_secret_name}-secret"
+  ado_spn_external_secret_name = "${local.ado_secret_name}-spn-secret"
+  ado_spn_auth_enabled         = var.ado_spn_credentials_secret_arn != ""
 
   helm_values = {
+    spnAuthEnabled = local.ado_spn_auth_enabled
+
     global = {
       namespace   = data.terraform_remote_state.middleware.outputs.ado_agents_namespace
       clusterName = local.cluster_name
@@ -282,24 +289,48 @@ locals {
     externalSecrets = {
       enabled                = true
       clusterSecretStoreName = data.terraform_remote_state.middleware.outputs.cluster_secret_store_name
-      secrets = {
-        "${local.ado_external_secret_name}" = {
-          aws = {
-            secretName = aws_secretsmanager_secret.ado_pat.name
-            region     = data.aws_region.current.name
+      secrets = merge(
+        {
+          "${local.ado_external_secret_name}" = {
+            aws = {
+              secretName = aws_secretsmanager_secret.ado_pat.name
+              region     = data.aws_region.current.name
+            }
+            k8s = {
+              secretName        = local.ado_secret_name
+              type              = "Opaque"
+              refreshInterval   = var.secret_refresh_interval
+              creationPolicy    = "Owner"
+              includeTemplate   = true
+            }
+            data = {
+              personalAccessToken = "personalAccessToken"
+              organization        = "organization"
+              adourl              = "adourl"
+            }
           }
-          k8s = {
-            secretName      = local.ado_secret_name
-            type            = "Opaque"
-            refreshInterval = var.secret_refresh_interval
+        },
+        local.ado_spn_auth_enabled ? {
+          "${local.ado_spn_external_secret_name}" = {
+            aws = {
+              secretName = var.ado_spn_credentials_secret_arn
+              region     = data.aws_region.current.name
+            }
+            k8s = {
+              secretName      = local.ado_secret_name
+              type            = "Opaque"
+              refreshInterval = var.secret_refresh_interval
+              creationPolicy  = "Merge"
+              includeTemplate = false
+            }
+            data = {
+              clientId     = "ClientId"
+              clientSecret = "ClientSecret"
+              tenantId     = "TenantId"
+            }
           }
-          data = {
-            personalAccessToken = "personalAccessToken"
-            organization        = "organization"
-            adourl              = "adourl"
-          }
-        }
-      }
+        } : {}
+      )
     }
 
     buildkit = {

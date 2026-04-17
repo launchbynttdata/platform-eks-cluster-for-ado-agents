@@ -2,6 +2,9 @@
 # This is a YAML-formatted file.
 # Declare variables to be substituted into your templates.
 
+# When true, agent pods load Entra SPN keys (clientId, clientSecret, tenantId) from the ADO Kubernetes secret (second ExternalSecret merge).
+spnAuthEnabled: false
+
 # Global configuration
 global:
   # Cluster and namespace information (typically provided by Terraform)

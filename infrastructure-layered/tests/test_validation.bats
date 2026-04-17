@@ -63,6 +63,10 @@ teardown() {
     [ -f "${TEST_SCRIPT_DIR}/common.hcl" ]
 }
 
+@test "deploy.sh documents TF_VAR_ado_spn_credentials_secret_arn" {
+    grep -q 'TF_VAR_ado_spn_credentials_secret_arn' "${TEST_SCRIPT_DIR}/deploy.sh"
+}
+
 @test "deploy_config_layer: fails early when base cluster_name output missing" {
     get_terragrunt_output_raw() { :; }
 

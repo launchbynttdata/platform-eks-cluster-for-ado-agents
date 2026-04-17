@@ -30,10 +30,10 @@ terraform {
     execute  = ["echo", "⏳ Application layer depends on base and middleware layers..."]
   }
   
-  # Check for ADO PAT environment variable
-  before_hook "check_ado_pat" {
+  # Warn when neither PAT nor SPN secret ARN is configured for application auth
+  before_hook "check_ado_auth" {
     commands = ["apply", "plan"]
-    execute  = ["bash", "-c", "if [ -z \"$TF_VAR_ado_pat_value\" ]; then echo '⚠️  Warning: TF_VAR_ado_pat_value not set. ADO agents will not authenticate.'; fi"]
+    execute  = ["bash", "-c", "if [ -z \"$TF_VAR_ado_pat_value\" ] && [ -z \"$TF_VAR_ado_spn_credentials_secret_arn\" ]; then echo '⚠️  Warning: neither TF_VAR_ado_pat_value nor TF_VAR_ado_spn_credentials_secret_arn set. Agents may not authenticate; KEDA still needs PAT in the org secret when autoscaling is enabled.'; fi"]
   }
   
   after_hook "application_deployed" {
@@ -115,9 +115,10 @@ inputs = {
   # Azure DevOps Configuration
   ado_org                 = local.env.locals.ado_org
   ado_url                 = local.env.locals.ado_url
-  ado_pat_secret_name     = local.env.locals.ado_pat_secret_name
-  secret_recovery_days    = local.env.locals.secret_recovery_days
-  secret_refresh_interval = local.env.locals.secret_refresh_interval
+  ado_pat_secret_name              = local.env.locals.ado_pat_secret_name
+  ado_spn_credentials_secret_arn   = try(local.env.locals.ado_spn_credentials_secret_arn, "")
+  secret_recovery_days             = local.env.locals.secret_recovery_days
+  secret_refresh_interval          = local.env.locals.secret_refresh_interval
   
   # NOTE: ado_pat_value should be provided via environment variable:
   # export TF_VAR_ado_pat_value="your-pat-here"
