@@ -116,6 +116,20 @@ variable "ado_url" {
   }
 }
 
+variable "ado_spn_credentials_secret_arn" {
+  description = "Optional ARN of an AWS Secrets Manager secret whose SecretString is JSON with ClientId, ClientSecret, TenantId (PascalCase) for Entra app agent authentication"
+  type        = string
+  default     = ""
+
+  validation {
+    condition = (
+      var.ado_spn_credentials_secret_arn == "" ||
+      can(regex("^arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+", var.ado_spn_credentials_secret_arn))
+    )
+    error_message = "When set, ado_spn_credentials_secret_arn must be a valid AWS Secrets Manager secret ARN."
+  }
+}
+
 variable "secret_recovery_days" {
   description = "Number of days to retain deleted secrets for recovery"
   type        = number

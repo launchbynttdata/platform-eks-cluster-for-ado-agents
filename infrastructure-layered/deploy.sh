@@ -129,7 +129,8 @@ Options:
 Environment Variables:
   TF_STATE_BUCKET     S3 bucket for Terraform state (required)
   TF_STATE_REGION     Region for state bucket (optional, uses AWS_REGION)
-  TF_VAR_ado_pat_value    ADO Personal Access Token (required for application layer)
+  TF_VAR_ado_pat_value    ADO Personal Access Token (optional if SPN ARN is set; KEDA still needs PAT when autoscaling is on)
+  TF_VAR_ado_spn_credentials_secret_arn   Secrets Manager ARN for JSON keys ClientId, ClientSecret, TenantId (optional)
   AWS_REGION          AWS region (optional, can be set in env.hcl)
   AWS_PROFILE         AWS profile to use (optional)
 
@@ -475,7 +476,13 @@ apply_layer() {
         log_error "Failed to initialize ${layer} layer before applying"
         return 1
     fi
-    
+
+    if [[ "${layer}" == "application" ]]; then
+        if ! validate_ado_spn_credentials_secret_arn; then
+            return 1
+        fi
+    fi
+
     local apply_args=()
     if [[ "${AUTO_APPROVE}" == "true" ]]; then
         apply_args+=("--non-interactive")
@@ -702,6 +709,43 @@ show_all_status() {
     done
 }
 
+# When TF_VAR_ado_spn_credentials_secret_arn is set, verify the secret is readable and JSON has required keys (values are not logged).
+validate_ado_spn_credentials_secret_arn() {
+    local arn="${TF_VAR_ado_spn_credentials_secret_arn:-}"
+    if [[ -z "${arn}" ]]; then
+        return 0
+    fi
+
+    log_info "Validating ADO SPN credentials secret (structure only)..."
+
+    local region="${AWS_REGION_OVERRIDE:-${AWS_REGION:-}}"
+    if [[ -z "${region}" ]]; then
+        region=$(aws configure get region 2>/dev/null || echo "us-west-2")
+    fi
+
+    local secret_json
+    if ! secret_json=$(aws secretsmanager get-secret-value \
+        --secret-id "${arn}" \
+        --region "${region}" \
+        --query SecretString \
+        --output text 2>/dev/null); then
+        log_error "Could not read SPN secret from Secrets Manager (ARN, region, or IAM)."
+        return 1
+    fi
+
+    if ! echo "${secret_json}" | jq -e \
+        'type == "object"
+        and (.ClientId | type == "string" and length > 0)
+        and (.ClientSecret | type == "string" and length > 0)
+        and (.TenantId | type == "string" and length > 0)' >/dev/null 2>&1; then
+        log_error "SPN secret must be JSON with non-empty string keys ClientId, ClientSecret, TenantId."
+        return 1
+    fi
+
+    log_success "ADO SPN credentials secret validated"
+    return 0
+}
+
 configure_kubectl() {
     local base_dir="$1"
     
@@ -739,15 +783,21 @@ prompt_for_ado_credentials() {
     log "Azure DevOps Credentials Required"
     log "=================================="
     log ""
-    log "To update the ADO PAT secret, provide credentials via environment variables or prompts."
+    log "To update the ADO PAT/org secret, provide credentials via environment variables or prompts."
     log "The secret will be synced to Kubernetes via External Secrets Operator."
+    log "SPN credentials use TF_VAR_ado_spn_credentials_secret_arn and are not changed by this prompt."
     log ""
     
-    # Check for ADO_PAT environment variable first, then prompt
+    # Check for ADO_PAT environment variable first, then prompt (PAT optional when SPN ARN is configured)
     if [[ -z "${ADO_PAT:-}" ]]; then
-        log_info "ADO_PAT environment variable not set"
-        read -rsp "Enter Azure DevOps PAT Token: " ADO_PAT
-        echo ""
+        if [[ -n "${TF_VAR_ado_spn_credentials_secret_arn:-}" ]]; then
+            log_info "ADO_PAT not set; TF_VAR_ado_spn_credentials_secret_arn is set (SPN-only agent auth allowed)"
+            ADO_PAT=""
+        else
+            log_info "ADO_PAT environment variable not set"
+            read -rsp "Enter Azure DevOps PAT Token: " ADO_PAT
+            echo ""
+        fi
     else
         log_info "Using ADO_PAT from environment variable"
     fi
@@ -760,9 +810,12 @@ prompt_for_ado_credentials() {
         log_info "Using ADO_ORG_URL from environment variable"
     fi
     
-    if [[ -z "${ADO_ORG_URL}" || -z "${ADO_PAT}" ]]; then
-        log_error "Organization URL and PAT token are required"
-        log_error "Set via environment variables: ADO_PAT and ADO_ORG_URL"
+    if [[ -z "${ADO_ORG_URL}" ]]; then
+        log_error "Organization URL is required (ADO_ORG_URL)"
+        return 1
+    fi
+    if [[ -z "${ADO_PAT:-}" ]] && [[ -z "${TF_VAR_ado_spn_credentials_secret_arn:-}" ]]; then
+        log_error "Provide ADO_PAT or set TF_VAR_ado_spn_credentials_secret_arn for SPN-only agent auth"
         return 1
     fi
     
@@ -845,10 +898,10 @@ inject_ado_secret() {
     local cluster_name="$1"
     local region="$2"
     
-    log_info "Updating ADO PAT in AWS Secrets Manager..."
+    log_info "Updating ADO PAT/org secret in AWS Secrets Manager..."
     
-    if [[ -z "${ADO_PAT:-}" ]]; then
-        log_error "ADO_PAT not set. Run with credential prompting first."
+    if [[ -z "${ADO_PAT:-}" ]] && [[ -z "${TF_VAR_ado_spn_credentials_secret_arn:-}" ]]; then
+        log_error "ADO_PAT not set and TF_VAR_ado_spn_credentials_secret_arn not set. Run with credential prompting first."
         return 1
     fi
     
@@ -883,7 +936,7 @@ inject_ado_secret() {
         # Create JSON structure matching Terraform expectations without shell interpolation risks.
         local secret_json
         secret_json=$(jq -nc \
-            --arg pat "${ADO_PAT}" \
+            --arg pat "${ADO_PAT:-}" \
             --arg org "${org_name}" \
             --arg url "${ADO_ORG_URL}" \
             '{"personalAccessToken": $pat, "organization": $org, "adourl": $url}')
@@ -1113,8 +1166,9 @@ deploy_config_layer() {
     log_info "Check External Secrets:"
     log_info "  kubectl get externalsecrets -A"
     log_info ""
-    log_info "To update ADO PAT later:"
+    log_info "To update ADO PAT/org secret later:"
     log_info "  ./${SCRIPT_NAME} deploy --layer config --update-ado-secret"
+    log_info "SPN JSON secret: update the secret at TF_VAR_ado_spn_credentials_secret_arn in AWS (not via this script)."
     echo
     
     return 0

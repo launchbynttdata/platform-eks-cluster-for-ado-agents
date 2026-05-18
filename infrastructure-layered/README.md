@@ -311,6 +311,8 @@ ado_url = "https://dev.azure.com/your-ado-organization"
 
 For ADO PAT, set `TF_VAR_ado_pat_value` via environment variable or configure in `env.hcl` (avoid committing secrets).
 
+For Entra **service principal** agent authentication, set `ado_spn_credentials_secret_arn` in `env.hcl` (or `TF_VAR_ado_spn_credentials_secret_arn`) to the **ARN** of an existing AWS Secrets Manager secret whose `SecretString` is JSON with keys **`ClientId`**, **`ClientSecret`**, and **`TenantId`** (PascalCase). Terraform does not write that secret; External Secrets Operator reads it and merges `clientId`, `clientSecret`, and `tenantId` into the same Kubernetes `Secret` as the PAT/org fields. Agents prefer SPN when those keys are present. **KEDA** `azure-pipelines` autoscaling still uses the PAT from the PAT/org secret when enabled, so keep a PAT there for scaler auth unless you have an alternative.
+
 ### 4. Deploy Everything
 
 ```bash

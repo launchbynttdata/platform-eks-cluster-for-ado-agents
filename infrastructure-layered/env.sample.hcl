@@ -260,6 +260,8 @@ locals {
   ado_org             = "launch-dso"
   ado_url             = "https://dev.azure.com/launch-dso"
   ado_pat_secret_name = "ado-agent-pat"
+  # Optional: Secrets Manager secret ARN; SecretString JSON: ClientId, ClientSecret, TenantId
+  ado_spn_credentials_secret_arn = ""
   secret_recovery_days = 7
   secret_refresh_interval = "5m"
   
