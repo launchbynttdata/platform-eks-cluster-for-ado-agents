@@ -1,5 +1,6 @@
 {{- range $poolName, $poolConfig := .Values.agentPools }}
 {{- if and $poolConfig.enabled $poolConfig.autoscaling.enabled }}
+{{- $kedaAuthMode := dig "kedaAuth" "mode" "pat" $poolConfig }}
 ---
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
@@ -18,7 +19,9 @@ spec:
   - type: azure-pipelines
     metadata:
       organizationURLFromEnv: "AZP_URL"
+      {{- if ne $kedaAuthMode "azure_workload" }}
       personalAccessTokenFromEnv: "AZP_TOKEN"
+      {{- end }}
       poolName: {{ $poolConfig.ado.poolName | quote }}
       targetPipelinesQueueLength: {{ $poolConfig.autoscaling.targetPipelinesQueueLength | quote }}
     authenticationRef:

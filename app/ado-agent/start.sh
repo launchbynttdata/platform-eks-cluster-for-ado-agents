@@ -22,11 +22,28 @@ if [ -z "${AZP_URL}" ]; then
   fi
 fi
 
-if [ -n "$AZP_CLIENTID" ]; then
-  echo "Using service principal credentials to get token"
+if [ "${AZP_AUTH_MODE:-pat}" = "azure_workload" ]; then
+  if [ -z "${AZURE_FEDERATED_TOKEN_FILE}" ] || [ -z "${AZURE_CLIENT_ID}" ] || [ -z "${AZURE_TENANT_ID}" ]; then
+    echo 1>&2 "error: missing Azure Workload Identity environment variables"
+    exit 1
+  fi
+
+  echo "Using Azure Workload Identity credentials to get Azure DevOps token"
+  az login \
+    --allow-no-subscriptions \
+    --service-principal \
+    --username "$AZURE_CLIENT_ID" \
+    --tenant "$AZURE_TENANT_ID" \
+    --federated-token "$(cat "$AZURE_FEDERATED_TOKEN_FILE")"
+
+  AZP_TOKEN_RESOURCE="${AZP_TOKEN_RESOURCE:-499b84ac-1321-427f-aa17-267ca6975798}"
+  AZP_TOKEN=$(az account get-access-token --resource "$AZP_TOKEN_RESOURCE" --query accessToken --output tsv)
+  echo "Token retrieved"
+elif [ -n "$AZP_CLIENTID" ]; then
+  echo "Using service principal credentials to get Azure DevOps token"
   az login --allow-no-subscriptions --service-principal --username "$AZP_CLIENTID" --password "$AZP_CLIENTSECRET" --tenant "$AZP_TENANTID"
-  # adapted from https://learn.microsoft.com/en-us/azure/databricks/dev-tools/user-aad-token
-  AZP_TOKEN=$(az account get-access-token --query accessToken --output tsv)
+  AZP_TOKEN_RESOURCE="${AZP_TOKEN_RESOURCE:-499b84ac-1321-427f-aa17-267ca6975798}"
+  AZP_TOKEN=$(az account get-access-token --resource "$AZP_TOKEN_RESOURCE" --query accessToken --output tsv)
   echo "Token retrieved"
 fi
 
@@ -56,7 +73,7 @@ cleanup() {
     # If the agent has some running jobs, the configuration removal process will fail.
     # So, give it some time to finish the job.
     while true; do
-      ./config.sh remove --unattended --auth "PAT" --token $(cat "${AZP_TOKEN_FILE}") && break
+      ./config.sh remove --unattended --auth "PAT" --token "$(cat "${AZP_TOKEN_FILE}")" && break
 
       echo "Retrying in 30 seconds..."
       sleep 30
@@ -76,15 +93,15 @@ export VSO_AGENT_IGNORE="AZP_TOKEN,AZP_TOKEN_FILE"
 print_header "1. Determining matching Azure Pipelines agent..."
 
 AZP_AGENT_PACKAGES=$(curl -LsS \
-    -u user:$(cat "${AZP_TOKEN_FILE}") \
+    -u "user:$(cat "${AZP_TOKEN_FILE}")" \
     -H "Accept:application/json" \
     "${AZP_URL}/_apis/distributedtask/packages/agent?platform=${agent_pkg_arch}&top=1")
 
 AZP_AGENT_PACKAGE_LATEST_URL=$(echo "${AZP_AGENT_PACKAGES}" | jq -r ".value[0].downloadUrl")
 
-if [ -z "${AZP_AGENT_PACKAGE_LATEST_URL}" -o "${AZP_AGENT_PACKAGE_LATEST_URL}" == "null" ]; then
+if [ -z "${AZP_AGENT_PACKAGE_LATEST_URL}" ] || [ "${AZP_AGENT_PACKAGE_LATEST_URL}" = "null" ]; then
   echo 1>&2 "error: could not determine a matching Azure Pipelines agent"
-  echo 1>&2 "check that account "${AZP_URL}" is correct and the token is valid for that account"
+  echo 1>&2 "check that account ${AZP_URL} is correct and the token is valid for that account"
   exit 1
 fi
 
@@ -92,6 +109,7 @@ print_header "2. Downloading and extracting Azure Pipelines agent..."
 
 curl -LsS "${AZP_AGENT_PACKAGE_LATEST_URL}" | tar -xz & wait $!
 
+# shellcheck source=/dev/null
 source ./env.sh
 
 trap "cleanup; exit 0" EXIT
@@ -105,7 +123,7 @@ print_header "3. Configuring Azure Pipelines agent..."
   --agent "${AZP_AGENT_NAME:-$(hostname)}" \
   --url "${AZP_URL}" \
   --auth "PAT" \
-  --token $(cat "${AZP_TOKEN_FILE}") \
+  --token "$(cat "${AZP_TOKEN_FILE}")" \
   --pool "${AZP_POOL:-Default}" \
   --work "${AZP_WORK:-_work}" \
   --replace \

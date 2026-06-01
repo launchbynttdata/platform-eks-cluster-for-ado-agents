@@ -28,8 +28,13 @@ locals {
     },
     var.additional_tags
   )
-  cluster_oidc_host          = replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")
-  ado_secret_name            = var.ado_secret_name
+  cluster_oidc_host = replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")
+  ado_secret_name   = var.ado_secret_name
+  keda_azure_workload_identity_enabled = (
+    var.install_azure_workload_identity
+    && var.keda_azure_workload_identity_client_id != ""
+    && var.azure_tenant_id != ""
+  )
   cluster_autoscaler_enabled = try(data.terraform_remote_state.base.outputs.cluster_autoscaler_role_arn, null) != null
   cluster_autoscaler_base_args = [
     "./cluster-autoscaler",
@@ -89,6 +94,35 @@ locals {
       try(t.value, null) == null || try(t.value, "") == "" ? {} : { value = t.value }
     )
   ]
+}
+
+# Azure Workload Identity webhook for federating EKS service accounts with Microsoft Entra.
+resource "helm_release" "azure_workload_identity" {
+  count = var.install_azure_workload_identity ? 1 : 0
+
+  name             = "workload-identity-webhook"
+  repository       = "https://azure.github.io/azure-workload-identity/charts"
+  chart            = "workload-identity-webhook"
+  version          = var.azure_workload_identity_chart_version
+  namespace        = var.azure_workload_identity_namespace
+  create_namespace = true
+
+  values = [
+    yamlencode({
+      azureTenantID = var.azure_tenant_id
+    })
+  ]
+
+  wait            = true
+  timeout         = 600
+  cleanup_on_fail = true
+
+  lifecycle {
+    precondition {
+      condition     = var.azure_tenant_id != ""
+      error_message = "azure_tenant_id must be set when install_azure_workload_identity is true."
+    }
+  }
 }
 
 # KEDA Operator IAM Role
@@ -280,6 +314,10 @@ module "keda_operator" {
     "eks.amazonaws.com/role-arn" = module.keda_operator_role.role_arn
   }
 
+  azure_workload_identity_enabled   = local.keda_azure_workload_identity_enabled
+  azure_workload_identity_client_id = var.keda_azure_workload_identity_client_id
+  azure_workload_identity_tenant_id = var.azure_tenant_id
+
   create_ado_secret    = false # ADO secret will be managed by application layer
   eso_managed_secret   = true  # ESO will manage the secret
   ado_secret_name      = local.ado_secret_name
@@ -305,6 +343,10 @@ module "keda_operator" {
     value    = "fargate"
     effect   = "NoSchedule"
   }]
+
+  depends_on = [
+    helm_release.azure_workload_identity
+  ]
 }
 
 # Metrics Server (Helm-managed to allow custom arguments)
@@ -557,12 +599,12 @@ resource "kubernetes_manifest" "buildkitd" {
         }
         spec = {
           serviceAccountName = kubernetes_service_account.buildkitd[0].metadata[0].name
-          nodeSelector         = var.buildkitd_node_selector
-          tolerations          = local.buildkitd_tolerations_for_manifest
+          nodeSelector       = var.buildkitd_node_selector
+          tolerations        = local.buildkitd_tolerations_for_manifest
           initContainers = [
             {
-              name  = "install-ecr-credential-helper"
-              image = "public.ecr.aws/docker/library/alpine:3.20"
+              name    = "install-ecr-credential-helper"
+              image   = "public.ecr.aws/docker/library/alpine:3.20"
               command = ["/bin/sh", "-c"]
               args = [
                 "set -eu; apk add --no-cache curl ca-certificates; curl -sSL -o /helper/docker-credential-ecr-login \"https://github.com/awslabs/amazon-ecr-credential-helper/releases/download/v0.12.0/docker-credential-ecr-login-linux-amd64\"; chmod +x /helper/docker-credential-ecr-login"

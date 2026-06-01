@@ -260,6 +260,16 @@ variable "agent_pools" {
       max_replicas        = number
       target_queue_length = number
     })
+    keda_auth = optional(object({
+      mode      = optional(string, "pat")
+      client_id = optional(string, "")
+      tenant_id = optional(string, "")
+    }), {})
+    agent_auth = optional(object({
+      mode      = optional(string, "pat")
+      client_id = optional(string, "")
+      tenant_id = optional(string, "")
+    }), {})
     tolerations = list(object({
       key      = string
       operator = string
@@ -360,6 +370,36 @@ variable "agent_pools" {
       volume_mounts = []
       volumes       = []
     }
+  }
+
+  validation {
+    condition = alltrue([
+      for _, pool in var.agent_pools : contains(["pat", "azure_workload"], try(pool.keda_auth.mode, "pat"))
+    ])
+    error_message = "agent_pools[*].keda_auth.mode must be either \"pat\" or \"azure_workload\"."
+  }
+
+  validation {
+    condition = alltrue([
+      for _, pool in var.agent_pools : contains(["pat", "azure_workload"], try(pool.agent_auth.mode, "pat"))
+    ])
+    error_message = "agent_pools[*].agent_auth.mode must be either \"pat\" or \"azure_workload\"."
+  }
+
+  validation {
+    condition = alltrue([
+      for _, pool in var.agent_pools :
+      try(pool.keda_auth.mode, "pat") != "azure_workload" || try(pool.keda_auth.client_id, "") != ""
+    ])
+    error_message = "agent_pools[*].keda_auth.client_id is required when keda_auth.mode is \"azure_workload\"."
+  }
+
+  validation {
+    condition = alltrue([
+      for _, pool in var.agent_pools :
+      try(pool.agent_auth.mode, "pat") != "azure_workload" || try(pool.agent_auth.client_id, "") != ""
+    ])
+    error_message = "agent_pools[*].agent_auth.client_id is required when agent_auth.mode is \"azure_workload\"."
   }
 }
 

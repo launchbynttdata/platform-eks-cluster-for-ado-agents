@@ -44,7 +44,37 @@ variable "keda_namespace" {
 variable "keda_version" {
   description = "Version of KEDA operator to install"
   type        = string
-  default     = "2.17.2"
+  default     = "2.19.0"
+}
+
+variable "keda_azure_workload_identity_client_id" {
+  description = "Microsoft Entra application or user-assigned managed identity client ID used by the KEDA operator when Azure Workload Identity is enabled. Leave empty to keep KEDA on non-Azure auth paths."
+  type        = string
+  default     = ""
+}
+
+variable "install_azure_workload_identity" {
+  description = "Whether to install the Azure Workload Identity mutating admission webhook."
+  type        = bool
+  default     = false
+}
+
+variable "azure_workload_identity_namespace" {
+  description = "Kubernetes namespace for the Azure Workload Identity webhook."
+  type        = string
+  default     = "azure-workload-identity-system"
+}
+
+variable "azure_workload_identity_chart_version" {
+  description = "Helm chart version for the Azure Workload Identity webhook."
+  type        = string
+  default     = "1.5.1"
+}
+
+variable "azure_tenant_id" {
+  description = "Microsoft Entra tenant ID used by Azure Workload Identity."
+  type        = string
+  default     = ""
 }
 
 variable "keda_enable_cloudeventsource" {

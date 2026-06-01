@@ -156,7 +156,7 @@ ado_execution_roles = {
 1. Base layer deployed and healthy
 2. Middleware layer deployed and healthy
 3. S3 bucket for remote state exists
-4. Azure DevOps organization and PAT available
+4. Azure DevOps organization available, plus either a PAT or Microsoft Entra workload identity federation for migrated pools
 
 ### Step 1: Configure Variables
 
@@ -173,7 +173,7 @@ remote_state_region = "us-east-1"
 ado_org            = "your-ado-org"
 ado_url            = "https://dev.azure.com/your-ado-org"
 
-# Set PAT via environment variable (recommended)
+# Set PAT via environment variable when using the default PAT auth mode
 export TF_VAR_ado_pat_value="your-personal-access-token"
 ```
 

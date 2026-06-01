@@ -1,5 +1,6 @@
 {{- range $poolName, $poolConfig := .Values.agentPools }}
 {{- if $poolConfig.enabled }}
+{{- $agentAuthMode := dig "agentAuth" "mode" "pat" $poolConfig }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -22,6 +23,9 @@ spec:
     metadata:
       labels:
         {{- include "ado-agent-cluster.agentPoolSelectorLabels" (dict "root" $ "poolName" $poolName) | nindent 8 }}
+        {{- if eq $agentAuthMode "azure_workload" }}
+        azure.workload.identity/use: "true"
+        {{- end }}
         {{- with $poolConfig.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -63,11 +67,15 @@ spec:
             secretKeyRef:
               name: {{ $poolConfig.ado.secretName }}
               key: adourl
+        - name: AZP_AUTH_MODE
+          value: {{ $agentAuthMode | quote }}
+        {{- if ne $agentAuthMode "azure_workload" }}
         - name: AZP_TOKEN
           valueFrom:
             secretKeyRef:
               name: {{ $poolConfig.ado.secretName }}
               key: personalAccessToken
+        {{- end }}
         - name: AZP_POOL
           value: {{ $poolConfig.ado.poolName | quote }}
         - name: POD_NAME

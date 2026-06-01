@@ -6,6 +6,7 @@ This Helm chart deploys Azure DevOps (ADO) agents on Kubernetes with KEDA-based 
 
 - **Multiple Agent Pools**: Support for multiple ADO agent pools with different configurations
 - **KEDA Autoscaling**: Event-driven autoscaling based on ADO pipeline queue length
+- **Auth Migration**: Per-pool PAT or Azure Workload Identity auth for KEDA and agent registration
 - **External Secrets**: Automatic secret synchronization from AWS Secrets Manager
 - **Flexible Configuration**: Configurable resources, tolerations, node selectors per pool
 - **Security**: IRSA (IAM Roles for Service Accounts) integration for secure AWS access
@@ -17,7 +18,8 @@ This Helm chart deploys Azure DevOps (ADO) agents on Kubernetes with KEDA-based 
 - Helm 3.8.0+
 - KEDA operator installed in the cluster  
 - External Secrets Operator installed in the cluster
-- AWS Secrets Manager containing ADO PAT and organization info
+- AWS Secrets Manager containing ADO organization info and PAT when using the default PAT auth mode
+- Azure Workload Identity webhook and Entra federated credentials when using `azure_workload` auth mode
 
 ## Installation
 
@@ -81,6 +83,7 @@ Each agent pool supports:
 - **Container Image**: Repository, tag, and pull policy
 - **Resources**: CPU and memory requests/limits  
 - **Autoscaling**: Min/max replicas and scaling trigger configuration
+- **Authentication**: Optional `kedaAuth` and `agentAuth` blocks; both default to PAT and can be switched independently to `azure_workload`
 - **Node Assignment**: Node selectors, tolerations, and affinity rules
 - **Security**: Service account and IAM role configuration
 
@@ -125,6 +128,10 @@ externalSecrets:
 | agentPools.*.resources.requests.memory | string | `"1Gi"` | Memory request |
 | agentPools.*.autoscaling.minReplicas | int | `0` | Minimum replicas |
 | agentPools.*.autoscaling.maxReplicas | int | `10` | Maximum replicas |
+| agentPools.*.kedaAuth.mode | string | `"pat"` | KEDA scaler auth mode: `pat` or `azure_workload` |
+| agentPools.*.kedaAuth.clientId | string | `""` | Entra client ID for KEDA scaler auth when using Azure Workload Identity |
+| agentPools.*.agentAuth.mode | string | `"pat"` | Agent registration auth mode: `pat` or `azure_workload` |
+| agentPools.*.agentAuth.clientId | string | `""` | Entra client ID for agent registration when using Azure Workload Identity |
 
 ### Security Settings
 

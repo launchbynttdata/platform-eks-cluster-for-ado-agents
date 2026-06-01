@@ -43,6 +43,15 @@ agentPools:
       maxReplicas: 10
       targetPipelinesQueueLength: 1
       triggerAuthenticationName: ""  # Will be generated from pool name
+    # Auth modes: "pat" or "azure_workload"
+    kedaAuth:
+      mode: pat
+      clientId: ""
+      tenantId: ""
+    agentAuth:
+      mode: pat
+      clientId: ""
+      tenantId: ""
     # Node assignment
     tolerations:
       - key: "ks.amazonaws.com/compute-type"
@@ -83,6 +92,15 @@ agentPools:
       maxReplicas: 5
       targetPipelinesQueueLength: 1
       triggerAuthenticationName: ""  # Will be generated from pool name
+    # Auth modes: "pat" or "azure_workload"
+    kedaAuth:
+      mode: pat
+      clientId: ""
+      tenantId: ""
+    agentAuth:
+      mode: pat
+      clientId: ""
+      tenantId: ""
     # Node assignment
     tolerations:
       - key: "ks.amazonaws.com/compute-type"

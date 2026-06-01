@@ -265,6 +265,18 @@ locals {
             targetPipelinesQueueLength = pool_config.autoscaling.target_queue_length
           }
 
+          kedaAuth = {
+            mode     = try(pool_config.keda_auth.mode, "pat")
+            clientId = try(pool_config.keda_auth.client_id, "")
+            tenantId = try(pool_config.keda_auth.tenant_id, "")
+          }
+
+          agentAuth = {
+            mode     = try(pool_config.agent_auth.mode, "pat")
+            clientId = try(pool_config.agent_auth.client_id, "")
+            tenantId = try(pool_config.agent_auth.tenant_id, "")
+          }
+
           tolerations  = pool_config.tolerations
           nodeSelector = pool_config.node_selector
           affinity     = pool_config.affinity

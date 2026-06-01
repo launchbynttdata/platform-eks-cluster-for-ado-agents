@@ -18,6 +18,16 @@ output "keda_installed" {
   value       = var.install_keda
 }
 
+output "azure_workload_identity_installed" {
+  description = "Whether Azure Workload Identity webhook is installed"
+  value       = var.install_azure_workload_identity
+}
+
+output "azure_workload_identity_namespace" {
+  description = "Kubernetes namespace where Azure Workload Identity webhook is installed"
+  value       = var.azure_workload_identity_namespace
+}
+
 # External Secrets Operator Information
 output "eso_namespace" {
   description = "Kubernetes namespace where External Secrets Operator is installed"

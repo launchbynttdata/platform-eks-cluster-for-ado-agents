@@ -124,6 +124,7 @@ See [Operations Guide](./OPERATIONS.md) for detailed instructions.
 - **Namespace**: KEDA creates both its own namespace and the ADO agents namespace
 - **IAM Permissions**: Configured for Azure DevOps pipeline scaling
 - **Service Account**: Automatically annotated with IRSA role ARN
+- **Azure Workload Identity**: Optional webhook and KEDA pod identity settings can be enabled for Microsoft Entra federation from EKS.
 
 ### ESO Configuration
 - **Webhook**: Disabled by default for Fargate compatibility
