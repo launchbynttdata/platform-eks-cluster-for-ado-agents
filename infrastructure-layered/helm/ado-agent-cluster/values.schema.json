@@ -59,6 +59,22 @@
                 "maxReplicas": {"type": "integer", "minimum": 1},
                 "targetPipelinesQueueLength": {"type": "integer", "minimum": 1}
               }
+            },
+            "kedaAuth": {
+              "type": "object",
+              "properties": {
+                "mode": {"type": "string", "enum": ["pat", "azure_workload"]},
+                "clientId": {"type": "string"},
+                "tenantId": {"type": "string"}
+              }
+            },
+            "agentAuth": {
+              "type": "object",
+              "properties": {
+                "mode": {"type": "string", "enum": ["pat", "azure_workload"]},
+                "clientId": {"type": "string"},
+                "tenantId": {"type": "string"}
+              }
             }
           },
           "required": ["enabled", "name", "ado", "image", "serviceAccount"]

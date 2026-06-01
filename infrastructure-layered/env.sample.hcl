@@ -163,11 +163,16 @@ locals {
   # =============================================================================
   
   # KEDA Configuration
-  install_keda                         = true
-  keda_namespace                       = "keda-system"
-  keda_version                         = "2.17.2"
-  keda_enable_cloudeventsource         = false
-  keda_enable_cluster_cloudeventsource = false
+  install_keda                          = true
+  keda_namespace                        = "keda-system"
+  keda_version                          = "2.19.0"
+  install_azure_workload_identity        = false
+  azure_workload_identity_namespace      = "azure-workload-identity-system"
+  azure_workload_identity_chart_version  = "1.5.1"
+  azure_tenant_id                        = ""
+  keda_azure_workload_identity_client_id = ""
+  keda_enable_cloudeventsource          = false
+  keda_enable_cluster_cloudeventsource  = false
 
   # Metrics Server Configuration (Helm-managed)
   install_metrics_server        = true

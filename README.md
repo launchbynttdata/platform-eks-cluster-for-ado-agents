@@ -45,7 +45,7 @@ This repository uses [.tool-versions](.tool-versions) for version pinning. We re
 
 - **AWS account** with appropriate permissions (EKS, IAM, S3, Secrets Manager, ECR, KMS, etc.)
 - **S3 bucket** for Terraform state (Terraform >= 1.10 uses native S3 lockfiles; no DynamoDB table required)
-- **Azure DevOps** organization, Personal Access Token (PAT), and agent pool(s)
+- **Azure DevOps** organization and agent pool(s); use a Personal Access Token (PAT) by default or Microsoft Entra workload identity after federation is configured
 - **VPC and subnets** (or use defaults from configuration)
 
 ## Getting Started

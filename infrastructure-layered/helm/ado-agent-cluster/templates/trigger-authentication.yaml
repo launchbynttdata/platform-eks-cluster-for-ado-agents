@@ -1,5 +1,8 @@
 {{- range $poolName, $poolConfig := .Values.agentPools }}
 {{- if and $poolConfig.enabled $poolConfig.autoscaling.enabled }}
+{{- $kedaAuthMode := dig "kedaAuth" "mode" "pat" $poolConfig }}
+{{- $kedaClientId := dig "kedaAuth" "clientId" "" $poolConfig }}
+{{- $kedaTenantId := dig "kedaAuth" "tenantId" "" $poolConfig }}
 ---
 apiVersion: keda.sh/v1alpha1
 kind: TriggerAuthentication
@@ -10,9 +13,20 @@ metadata:
     {{- include "ado-agent-cluster.labels" $ | nindent 4 }}
     app.kubernetes.io/component: {{ $poolName }}
 spec:
+  {{- if eq $kedaAuthMode "azure_workload" }}
+  podIdentity:
+    provider: azure-workload
+    {{- if $kedaClientId }}
+    identityId: {{ $kedaClientId | quote }}
+    {{- end }}
+    {{- if $kedaTenantId }}
+    identityTenantId: {{ $kedaTenantId | quote }}
+    {{- end }}
+  {{- else }}
   secretTargetRef:
   - parameter: personalAccessToken
     name: {{ $poolConfig.ado.secretName }}
     key: personalAccessToken
+  {{- end }}
 {{- end }}
 {{- end }}

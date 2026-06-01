@@ -62,6 +62,14 @@ resource "helm_release" "keda" {
         annotations = var.service_account_annotations
       }
 
+      podIdentity = {
+        azureWorkload = {
+          enabled  = var.azure_workload_identity_enabled
+          clientId = var.azure_workload_identity_client_id
+          tenantId = var.azure_workload_identity_tenant_id
+        }
+      }
+
       podSecurityContext = {
         runAsNonRoot = true
         runAsUser    = 1001

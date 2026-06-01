@@ -22,19 +22,19 @@ include "common" {
 # Specify the Terraform source
 terraform {
   source = "."
-  
+
   # Ensure base layer is applied before middleware
   before_hook "check_base_dependency" {
     commands = ["apply", "plan"]
     execute  = ["echo", "⏳ Middleware layer depends on base layer outputs..."]
   }
-  
+
   after_hook "middleware_deployed" {
     commands     = ["apply"]
     execute      = ["bash", "-c", "echo '✅ Middleware layer deployed. KEDA and ESO are now available in the cluster.'"]
     run_on_error = false
   }
-  
+
   # Validate kubectl access before applying
   before_hook "validate_kubectl" {
     commands = ["apply"]
@@ -55,11 +55,11 @@ locals {
 
 dependency "base" {
   config_path = "../base"
-  
+
   # Mock outputs allow running plan/validate before base layer exists
   mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
   mock_outputs_merge_strategy_with_state  = "shallow"
-  
+
   mock_outputs = local.common.locals.mock_outputs_base
 }
 
@@ -70,53 +70,58 @@ dependency "base" {
 
 inputs = {
   # Remote state configuration
-  remote_state_bucket = get_env("TF_STATE_BUCKET")
+  remote_state_bucket      = get_env("TF_STATE_BUCKET")
   remote_state_environment = local.env.locals.environment
-  base_state_key      = "base/terraform.tfstate"
+  base_state_key           = "base/terraform.tfstate"
 
-  
+
   # KEDA Configuration
-  install_keda                         = local.env.locals.install_keda
-  keda_namespace                       = local.env.locals.keda_namespace
-  keda_version                         = local.env.locals.keda_version
-  keda_enable_cloudeventsource         = local.env.locals.keda_enable_cloudeventsource
-  keda_enable_cluster_cloudeventsource = local.env.locals.keda_enable_cluster_cloudeventsource
-  install_metrics_server               = local.env.locals.install_metrics_server
-  metrics_server_namespace             = local.env.locals.metrics_server_namespace
-  metrics_server_chart_version         = local.env.locals.metrics_server_chart_version
-  metrics_server_args                  = local.env.locals.metrics_server_args
-  metrics_server_node_selector         = local.env.locals.metrics_server_node_selector
-  metrics_server_tolerations           = local.env.locals.metrics_server_tolerations
-  metrics_server_resources             = local.env.locals.metrics_server_resources
-  
+  install_keda                           = local.env.locals.install_keda
+  keda_namespace                         = local.env.locals.keda_namespace
+  keda_version                           = local.env.locals.keda_version
+  keda_azure_workload_identity_client_id = try(local.env.locals.keda_azure_workload_identity_client_id, "")
+  install_azure_workload_identity        = try(local.env.locals.install_azure_workload_identity, false)
+  azure_workload_identity_namespace      = try(local.env.locals.azure_workload_identity_namespace, "azure-workload-identity-system")
+  azure_workload_identity_chart_version  = try(local.env.locals.azure_workload_identity_chart_version, "1.5.1")
+  azure_tenant_id                        = try(local.env.locals.azure_tenant_id, "")
+  keda_enable_cloudeventsource           = local.env.locals.keda_enable_cloudeventsource
+  keda_enable_cluster_cloudeventsource   = local.env.locals.keda_enable_cluster_cloudeventsource
+  install_metrics_server                 = local.env.locals.install_metrics_server
+  metrics_server_namespace               = local.env.locals.metrics_server_namespace
+  metrics_server_chart_version           = local.env.locals.metrics_server_chart_version
+  metrics_server_args                    = local.env.locals.metrics_server_args
+  metrics_server_node_selector           = local.env.locals.metrics_server_node_selector
+  metrics_server_tolerations             = local.env.locals.metrics_server_tolerations
+  metrics_server_resources               = local.env.locals.metrics_server_resources
+
   # ADO Agent Configuration
   ado_agents_namespace = local.env.locals.ado_agents_namespace
   ado_secret_name      = try(local.env.locals.ado_secret_name, local.env.locals.ado_pat_secret_name)
-  
+
   # External Secrets Operator Configuration
-  install_eso                  = local.env.locals.install_eso
-  eso_namespace                = local.env.locals.eso_namespace
-  eso_version                  = local.env.locals.eso_version
-  eso_webhook_enabled          = local.env.locals.eso_webhook_enabled
-  eso_webhook_failure_policy   = local.env.locals.eso_webhook_failure_policy
-  cluster_secret_store_name    = local.env.locals.cluster_secret_store_name
-  
+  install_eso                = local.env.locals.install_eso
+  eso_namespace              = local.env.locals.eso_namespace
+  eso_version                = local.env.locals.eso_version
+  eso_webhook_enabled        = local.env.locals.eso_webhook_enabled
+  eso_webhook_failure_policy = local.env.locals.eso_webhook_failure_policy
+  cluster_secret_store_name  = local.env.locals.cluster_secret_store_name
+
   # Buildkitd Configuration
-  enable_buildkitd       = local.env.locals.enable_buildkitd
-  buildkitd_namespace    = local.env.locals.buildkitd_namespace
-  buildkitd_image        = local.env.locals.buildkitd_image
-  buildkitd_replicas     = local.env.locals.buildkitd_replicas
-  buildkitd_node_selector = local.env.locals.buildkitd_node_selector
-  buildkitd_tolerations  = local.env.locals.buildkitd_tolerations
-  buildkitd_resources    = local.env.locals.buildkitd_resources
-  buildkitd_storage_size = local.env.locals.buildkitd_storage_size
-  buildkitd_hpa_enabled   = local.env.locals.buildkitd_hpa_enabled
-  buildkitd_hpa_min_replicas = local.env.locals.buildkitd_hpa_min_replicas
-  buildkitd_hpa_max_replicas = local.env.locals.buildkitd_hpa_max_replicas
+  enable_buildkitd                                   = local.env.locals.enable_buildkitd
+  buildkitd_namespace                                = local.env.locals.buildkitd_namespace
+  buildkitd_image                                    = local.env.locals.buildkitd_image
+  buildkitd_replicas                                 = local.env.locals.buildkitd_replicas
+  buildkitd_node_selector                            = local.env.locals.buildkitd_node_selector
+  buildkitd_tolerations                              = local.env.locals.buildkitd_tolerations
+  buildkitd_resources                                = local.env.locals.buildkitd_resources
+  buildkitd_storage_size                             = local.env.locals.buildkitd_storage_size
+  buildkitd_hpa_enabled                              = local.env.locals.buildkitd_hpa_enabled
+  buildkitd_hpa_min_replicas                         = local.env.locals.buildkitd_hpa_min_replicas
+  buildkitd_hpa_max_replicas                         = local.env.locals.buildkitd_hpa_max_replicas
   buildkitd_hpa_target_memory_utilization_percentage = local.env.locals.buildkitd_hpa_target_memory_utilization_percentage
-  buildkitd_ecr_registry_account_ids    = try(local.env.locals.buildkitd_ecr_registry_account_ids, [])
-  buildkitd_ecr_repository_arns         = try(local.env.locals.buildkitd_ecr_repository_arns, [])
-  buildkitd_kms_key_arn_patterns        = try(local.env.locals.buildkitd_kms_key_arn_patterns, [])
+  buildkitd_ecr_registry_account_ids                 = try(local.env.locals.buildkitd_ecr_registry_account_ids, [])
+  buildkitd_ecr_repository_arns                      = try(local.env.locals.buildkitd_ecr_repository_arns, [])
+  buildkitd_kms_key_arn_patterns                     = try(local.env.locals.buildkitd_kms_key_arn_patterns, [])
 
   # Node auto-heal / AWS Node Termination Handler configuration
   node_auto_heal_daemonset_node_selector = local.env.locals.node_auto_heal_daemonset_node_selector
@@ -131,7 +136,7 @@ inputs = {
 generate "k8s_provider" {
   path      = "k8s_provider_generated.tf"
   if_exists = "overwrite_terragrunt"
-  
+
   contents = <<-EOF
     # Kubernetes provider configuration
     # Generated by Terragrunt based on base layer outputs

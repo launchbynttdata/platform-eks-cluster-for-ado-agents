@@ -181,6 +181,8 @@ kubectl describe clustersecretstore aws-secrets-manager
 
 The application layer creates an AWS Secrets Manager secret for storing your Azure DevOps Personal Access Token (PAT), but intentionally leaves it empty. This security-first approach ensures sensitive credentials are never stored in Terraform state or version control.
 
+PAT authentication remains the default and rollback path. Pools can be migrated independently to Microsoft Entra workload identity for KEDA queue monitoring and/or agent registration after Azure Workload Identity federation is configured.
+
 ### PAT Requirements
 
 Your Azure DevOps PAT must have the following permissions:
@@ -259,6 +261,52 @@ aws secretsmanager put-secret-value \
 kubectl delete secret ado-pat -n ado-agents
 # ESO will recreate it immediately
 ```
+
+### Azure Workload Identity Migration
+
+This cluster runs in AWS, so Azure DevOps workload identity auth depends on federation between the EKS OIDC issuer and Microsoft Entra. The repo can install the Azure Workload Identity webhook, but the Entra application or user-assigned managed identity and federated credentials are managed outside this Terraform stack.
+
+1. Enable the webhook and KEDA identity plumbing in environment config:
+
+   ```hcl
+   install_azure_workload_identity       = true
+   azure_workload_identity_namespace     = "azure-workload-identity-system"
+   azure_workload_identity_chart_version = "1.5.1"
+   azure_tenant_id                       = "00000000-0000-0000-0000-000000000000"
+   keda_azure_workload_identity_client_id = "00000000-0000-0000-0000-000000000000"
+   ```
+
+2. Create Entra federated credentials with the EKS issuer from the base layer output, audience `api://AzureADTokenExchange`, and subjects for each service account:
+
+   ```text
+   system:serviceaccount:keda-system:keda-operator
+   system:serviceaccount:ado-agents:<agent-service-account>
+   ```
+
+3. Move one pool at a time. KEDA and agent auth are independent so scaler validation can happen before agent registration changes:
+
+   ```hcl
+   keda_auth = {
+     mode      = "azure_workload"
+     client_id = "00000000-0000-0000-0000-000000000000"
+     tenant_id = "00000000-0000-0000-0000-000000000000"
+   }
+
+   agent_auth = {
+     mode      = "azure_workload"
+     client_id = "00000000-0000-0000-0000-000000000000"
+     tenant_id = "00000000-0000-0000-0000-000000000000"
+   }
+   ```
+
+4. Validate the migration:
+
+   ```bash
+   kubectl describe scaledobject -n ado-agents
+   kubectl logs -n keda-system deploy/keda-operator
+   kubectl logs -n ado-agents deploy/<pool-name>-deployment
+   kubectl get pods -n ado-agents
+   ```
 
 ---
 

@@ -87,6 +87,24 @@ variable "service_account_annotations" {
   default     = {}
 }
 
+variable "azure_workload_identity_enabled" {
+  description = "Whether to configure the KEDA Helm release for Azure Workload Identity."
+  type        = bool
+  default     = false
+}
+
+variable "azure_workload_identity_client_id" {
+  description = "Microsoft Entra application or user-assigned managed identity client ID for KEDA Azure Workload Identity."
+  type        = string
+  default     = ""
+}
+
+variable "azure_workload_identity_tenant_id" {
+  description = "Microsoft Entra tenant ID for KEDA Azure Workload Identity."
+  type        = string
+  default     = ""
+}
+
 variable "resources" {
   description = "Resource limits and requests for KEDA pods"
   type = object({

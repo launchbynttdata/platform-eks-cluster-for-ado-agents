@@ -197,7 +197,12 @@ Set to `{}` to use Fargate only.
 ```hcl
 install_keda                         = true
 keda_namespace                       = "keda-system"
-keda_version                         = "2.17.2"
+keda_version                         = "2.19.0"
+install_azure_workload_identity       = false
+azure_workload_identity_namespace     = "azure-workload-identity-system"
+azure_workload_identity_chart_version = "1.5.1"
+azure_tenant_id                       = ""
+keda_azure_workload_identity_client_id = ""
 keda_enable_cloudeventsource         = false
 keda_enable_cluster_cloudeventsource = false
 ```
@@ -207,6 +212,11 @@ keda_enable_cluster_cloudeventsource = false
 | `install_keda` | bool | No | Install KEDA operator (default: true) |
 | `keda_namespace` | string | No | Namespace for KEDA (default: keda-system) |
 | `keda_version` | string | No | KEDA version to install |
+| `install_azure_workload_identity` | bool | No | Install Azure Workload Identity webhook for EKS-to-Entra federation |
+| `azure_workload_identity_namespace` | string | No | Namespace for Azure Workload Identity webhook |
+| `azure_workload_identity_chart_version` | string | No | Helm chart version for Azure Workload Identity webhook |
+| `azure_tenant_id` | string | No | Microsoft Entra tenant ID used by Azure Workload Identity |
+| `keda_azure_workload_identity_client_id` | string | No | Client ID used by the KEDA operator when Azure Workload Identity is enabled |
 | `keda_enable_cloudeventsource` | bool | No | Enable CloudEventSource controller |
 | `keda_enable_cluster_cloudeventsource` | bool | No | Enable ClusterCloudEventSource controller |
 
@@ -402,6 +412,8 @@ ado_agent_pools = {
 - `max_replicas` - Maximum number of agents
 - `polling_interval` - KEDA polling interval (seconds)
 - `cooldown_period` - Scale-down cooldown (seconds)
+- `keda_auth` - Optional KEDA scaler auth block. Defaults to `{ mode = "pat" }`; use `mode = "azure_workload"` with `client_id` and optional `tenant_id` after Entra federation is configured.
+- `agent_auth` - Optional ADO agent auth block. Defaults to `{ mode = "pat" }`; use `mode = "azure_workload"` with `client_id` and optional `tenant_id` after Entra federation is configured.
 - `resources` - CPU/memory requests and limits
 - `node_selector` - Node selection constraints
 - `tolerations` - Pod tolerations

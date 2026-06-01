@@ -222,7 +222,7 @@ This repository uses [.tool-versions](../.tool-versions). We recommend [mise](ht
 
 3. **Azure DevOps Prerequisites**
    - ADO organization with administrative access
-   - Personal Access Token (PAT) with Agent Pools (Read & Manage) permissions
+   - Personal Access Token (PAT) with Agent Pools (Read & Manage) permissions, or Microsoft Entra workload identity federation for migrated pools
    - Agent pool(s) created in ADO (matching configuration)
 
 ### Required IAM Permissions
@@ -270,7 +270,7 @@ source .env
 
 # Option 2: Set variables manually
 export TF_STATE_BUCKET='my-terraform-state-bucket'
-export TF_VAR_ado_pat_value='your-personal-access-token'  # Optional
+export TF_VAR_ado_pat_value='your-personal-access-token'  # Optional when using workload identity auth
 export AWS_REGION='us-west-2'  # Important: Must match your VPC region
 ```
 
