@@ -39,12 +39,6 @@ if [ "${AZP_AUTH_MODE:-pat}" = "azure_workload" ]; then
   AZP_TOKEN_RESOURCE="${AZP_TOKEN_RESOURCE:-499b84ac-1321-427f-aa17-267ca6975798}"
   AZP_TOKEN=$(az account get-access-token --resource "$AZP_TOKEN_RESOURCE" --query accessToken --output tsv)
   echo "Token retrieved"
-elif [ -n "$AZP_CLIENTID" ]; then
-  echo "Using service principal credentials to get Azure DevOps token"
-  az login --allow-no-subscriptions --service-principal --username "$AZP_CLIENTID" --password "$AZP_CLIENTSECRET" --tenant "$AZP_TENANTID"
-  AZP_TOKEN_RESOURCE="${AZP_TOKEN_RESOURCE:-499b84ac-1321-427f-aa17-267ca6975798}"
-  AZP_TOKEN=$(az account get-access-token --resource "$AZP_TOKEN_RESOURCE" --query accessToken --output tsv)
-  echo "Token retrieved"
 fi
 
 if [ -z "${AZP_TOKEN_FILE}" ]; then

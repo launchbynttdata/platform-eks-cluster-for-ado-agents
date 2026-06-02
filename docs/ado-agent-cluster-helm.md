@@ -87,6 +87,27 @@ Each agent pool supports:
 - **Node Assignment**: Node selectors, tolerations, and affinity rules
 - **Security**: Service account and IAM role configuration
 
+### Dual identity: AWS IRSA and Azure Workload Identity
+
+Agent pools use **two independent identity mechanisms** on the same ServiceAccount and pod:
+
+| Identity | Purpose | Configuration |
+|----------|---------|---------------|
+| **AWS IRSA** | ECR, S3, STS, and other AWS APIs | `serviceAccount.roleArn` from `ado_execution_roles` (always set by Terraform) |
+| **Azure Workload Identity** | ADO API access for agent registration and optional KEDA scaling | `agentAuth.mode = "azure_workload"` plus Entra federated credentials |
+
+Enabling `agentAuth.mode = "azure_workload"` **does not** remove or replace IRSA. The Helm chart keeps `eks.amazonaws.com/role-arn` and adds `azure.workload.identity/client-id` (and optional `tenant-id`) on the same ServiceAccount. Pods get the `azure.workload.identity/use: "true"` label when using workload identity.
+
+**Prerequisites for `azure_workload`:**
+
+1. Middleware: `install_azure_workload_identity = true` in `env.hcl` (Azure Workload Identity webhook).
+2. Entra: Federated credential on the Entra application (or user-assigned managed identity) with subject  
+   `system:serviceaccount:<namespace>:<service_account_name>`  
+   and issuer matching the EKS cluster OIDC issuer URL (from base layer outputs).
+3. Kubernetes secret: `organization` and `adourl` remain required from External Secrets. When `kedaAuth.mode = "pat"`, the PAT must remain in the org secret for KEDA.
+
+**KEDA note:** `kedaAuth.clientId` can be set separately in `TriggerAuthentication`, but the scaler uses the scaled pod's ServiceAccount identity. Prefer one Entra app per pool unless federated credentials are configured for each identity you use.
+
 ### External Secrets Configuration
 
 ```yaml

@@ -56,6 +56,7 @@ YAML
     run helm template ado-agents "${CHART_DIR}" -f "${values_file}"
 
     [ "$status" -eq 0 ]
+    [[ "$output" =~ "eks.amazonaws.com/role-arn: \"arn:aws:iam::123456789012:role/ado-agent\"" ]]
     [[ "$output" =~ "provider: azure-workload" ]]
     [[ "$output" =~ "identityId: \"keda-client-id\"" ]]
     [[ "$output" =~ "identityTenantId: \"tenant-id\"" ]]

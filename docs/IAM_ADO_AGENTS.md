@@ -165,6 +165,17 @@ annotations:
 
 When a pod uses this ServiceAccount, the EKS Pod Identity Webhook injects environment variables and a projected volume with short-lived credentials. The AWS SDK in the container uses these to assume the IAM role.
 
+### Azure Workload Identity (ADO) alongside IRSA (AWS)
+
+Pools migrated to Microsoft Entra for Azure DevOps (`agent_auth.mode = "azure_workload"` in `env.hcl`) still require the same `ado_execution_roles` entry and `roleArn` wiring described above. Azure Workload Identity is **additive**:
+
+- **Unchanged:** `ado_execution_roles`, IAM trust to the EKS OIDC provider, and `eks.amazonaws.com/role-arn` on the agent ServiceAccount.
+- **Added:** `azure.workload.identity/client-id` (and optional `tenant-id`) on that ServiceAccount, plus pod label `azure.workload.identity/use: "true"`, for ADO token acquisition in `start.sh`.
+
+Configure Entra **federated credentials** separately from IAM: subject `system:serviceaccount:<namespace>:<service_account_name>`, issuer = cluster OIDC issuer URL. See [ado-agent-cluster-helm.md](ado-agent-cluster-helm.md#dual-identity-aws-irsa-and-azure-workload-identity) and [OPERATIONS.md](OPERATIONS.md#azure-workload-identity-migration).
+
+After migration, verify in a running agent pod that both work: `aws sts get-caller-identity` shows the expected IAM role, and ADO registration succeeds via workload identity.
+
 ## 4. Base Layer Dependencies
 
 The application layer depends on base layer outputs:

@@ -752,6 +752,8 @@ restricted_container_security = {
 
 ADO agent pods assume IAM roles via **IRSA (IAM Roles for Service Accounts)**. Pods receive short-lived credentials through the `eks.amazonaws.com/role-arn` annotation on their ServiceAccount—no long-lived credentials are stored in containers.
 
+When a pool uses **Azure Workload Identity** for ADO (`agent_auth.mode = "azure_workload"`), IRSA is **not** disabled: the same ServiceAccount keeps `eks.amazonaws.com/role-arn` for AWS APIs and gains `azure.workload.identity/*` annotations for Entra federation. See [IAM_ADO_AGENTS.md](../docs/IAM_ADO_AGENTS.md#azure-workload-identity-ado-alongside-irsa-aws) and [ado-agent-cluster-helm.md](../docs/ado-agent-cluster-helm.md#dual-identity-aws-irsa-and-azure-workload-identity).
+
 For detailed documentation of how IAM roles and policies are defined and managed, see **[IAM_ADO_AGENTS.md](../docs/IAM_ADO_AGENTS.md)**. That document covers:
 
 - Configuration source (`ado_execution_roles` and `agent_pools` in `env.hcl`)
@@ -770,7 +772,7 @@ For detailed documentation of how IAM roles and policies are defined and managed
 | Role definition | `env.hcl` → `ado_execution_roles` | IAM role trust policy and permission statements |
 | Agent pool config | `env.hcl` → `agent_pools` | Links pool to ServiceAccount; keys must match `ado_execution_roles` |
 | Terraform | `application/main.tf` | Creates IAM role, managed policy, and attachment per role |
-| Helm | `serviceaccount.yaml` | Injects `eks.amazonaws.com/role-arn` annotation |
+| Helm | `serviceaccount.yaml` | Injects `eks.amazonaws.com/role-arn`; adds Azure WI annotations when `agent_auth.mode = "azure_workload"` |
 | Base layer | OIDC provider | Required for IRSA; created with EKS cluster |
 
 ### Deployer IAM Permissions
