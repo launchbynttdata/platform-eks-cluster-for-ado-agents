@@ -196,8 +196,8 @@ kubectl get pods -n keda-system
 # Check ADO agents
 kubectl get pods -n ado-agents
 
-# Check scaling objects
-kubectl get scaledobjects -n ado-agents
+# Check scaling jobs
+kubectl get scaledjobs -n ado-agents
 ```
 
 ### Check Agent Status
@@ -207,7 +207,7 @@ kubectl get scaledobjects -n ado-agents
 kubectl get pods -n ado-agents -w
 
 # Check KEDA metrics
-kubectl get scaledobjects -n ado-agents -o yaml
+kubectl get scaledjobs -n ado-agents -o yaml
 
 # View agent logs
 kubectl logs -n ado-agents -l app=ado-agent --tail=50

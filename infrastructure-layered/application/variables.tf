@@ -255,10 +255,27 @@ variable "agent_pools" {
       })
     })
     autoscaling = object({
-      enabled             = bool
-      min_replicas        = number
-      max_replicas        = number
-      target_queue_length = number
+      enabled                                = bool
+      min_replicas                           = number
+      max_replicas                           = number
+      polling_interval                       = optional(number, 30)
+      target_queue_length                    = number
+      activation_target_queue_length         = optional(string, "")
+      jobs_to_fetch                          = optional(string, "")
+      fetch_unfinished_jobs_only             = optional(bool, false)
+      pool_id                                = optional(string, "")
+      template_agent_name                    = optional(string, "")
+      create_template_agent                  = optional(bool, true)
+      placeholder_backoff_limit              = optional(number, 1)
+      placeholder_ttl_seconds_after_finished = optional(number, 300)
+      demands                                = optional(string, "")
+      require_all_demands                    = optional(bool, false)
+      require_all_demands_and_ignore_others  = optional(bool, false)
+      case_insensitive_demands_processing    = optional(bool, false)
+      backoff_limit                          = optional(number, 0)
+      ttl_seconds_after_finished             = optional(number, 300)
+      successful_jobs_history_limit          = optional(number, 5)
+      failed_jobs_history_limit              = optional(number, 5)
     })
     tolerations = list(object({
       key      = string
@@ -266,9 +283,10 @@ variable "agent_pools" {
       value    = string
       effect   = string
     }))
-    node_selector       = map(string)
-    affinity            = any
-    additional_env_vars = map(string)
+    node_selector               = map(string)
+    affinity                    = any
+    topology_spread_constraints = optional(any, [])
+    additional_env_vars         = map(string)
     volume_mounts = list(object({
       name      = string
       mountPath = string
@@ -280,6 +298,38 @@ variable "agent_pools" {
       spec = any
     }))
   }))
+
+  validation {
+    condition = alltrue([
+      for pool in values(var.agent_pools) : !pool.enabled || pool.autoscaling.min_replicas >= 1
+    ])
+    error_message = "Every enabled ADO agent pool must set autoscaling.min_replicas to at least 1. ScaledJob uses offline template agents for schedulability, but this legacy field must remain at least 1 for compatibility."
+  }
+
+  validation {
+    condition = alltrue([
+      for pool in values(var.agent_pools) : pool.autoscaling.max_replicas >= 1
+    ])
+    error_message = "Every ADO agent pool must set autoscaling.max_replicas to at least 1."
+  }
+
+  validation {
+    condition = alltrue([
+      for pool_name, pool in var.agent_pools :
+      !pool.enabled || pool.autoscaling.jobs_to_fetch == "" || (
+        pool.autoscaling.template_agent_name == "" && !pool.autoscaling.create_template_agent
+      )
+    ])
+    error_message = "KEDA Azure Pipelines parent matching is mutually exclusive with jobs_to_fetch. Clear jobs_to_fetch when create_template_agent is true or template_agent_name is set."
+  }
+
+  validation {
+    condition = alltrue([
+      for pool in values(var.agent_pools) : pool.autoscaling.polling_interval >= 1
+    ])
+    error_message = "Every ADO agent pool must set autoscaling.polling_interval to at least 1."
+  }
+
   default = {
     ado-agent = {
       enabled              = true
@@ -301,8 +351,9 @@ variable "agent_pools" {
       }
       autoscaling = {
         enabled             = true
-        min_replicas        = 0
+        min_replicas        = 1
         max_replicas        = 10
+        polling_interval    = 30
         target_queue_length = 1
       }
       tolerations = [
@@ -313,11 +364,12 @@ variable "agent_pools" {
           effect   = "NoSchedule"
         }
       ]
-      node_selector       = {}
-      affinity            = null
-      additional_env_vars = {}
-      volume_mounts       = []
-      volumes             = []
+      node_selector               = {}
+      affinity                    = null
+      topology_spread_constraints = []
+      additional_env_vars         = {}
+      volume_mounts               = []
+      volumes                     = []
     }
     ado-iac-agent = {
       enabled              = true
@@ -339,8 +391,9 @@ variable "agent_pools" {
       }
       autoscaling = {
         enabled             = true
-        min_replicas        = 0
+        min_replicas        = 1
         max_replicas        = 5
+        polling_interval    = 30
         target_queue_length = 1
       }
       tolerations = [
@@ -351,8 +404,9 @@ variable "agent_pools" {
           effect   = "NoSchedule"
         }
       ]
-      node_selector = {}
-      affinity      = null
+      node_selector               = {}
+      affinity                    = null
+      topology_spread_constraints = []
       additional_env_vars = {
         TF_CLI_CONFIG_FILE = "/opt/terraform/.terraformrc"
         # AWS_DEFAULT_REGION is dynamically injected via locals based on data.aws_region.current.name
@@ -361,6 +415,46 @@ variable "agent_pools" {
       volumes       = []
     }
   }
+}
+
+variable "agent_run_once" {
+  description = "Whether ADO agent containers should run exactly one pipeline job before exiting."
+  type        = bool
+  default     = true
+}
+
+variable "agent_recycle_pod_after_run_once" {
+  description = "Whether ADO agent containers should delete their own pod after a runOnce completion so the ReplicaSet creates a fresh pod."
+  type        = bool
+  default     = true
+}
+
+variable "agent_cleanup_timeout_seconds" {
+  description = "Maximum time the agent startup script waits for Azure DevOps unregister cleanup before failing."
+  type        = number
+  default     = 300
+
+  validation {
+    condition     = var.agent_cleanup_timeout_seconds >= 30 && var.agent_cleanup_timeout_seconds <= 1800
+    error_message = "agent_cleanup_timeout_seconds must be between 30 and 1800."
+  }
+}
+
+variable "agent_termination_grace_period_seconds" {
+  description = "Kubernetes termination grace period for ADO agent pods."
+  type        = number
+  default     = 420
+
+  validation {
+    condition     = var.agent_termination_grace_period_seconds >= 60 && var.agent_termination_grace_period_seconds <= 3600
+    error_message = "agent_termination_grace_period_seconds must be between 60 and 3600."
+  }
+}
+
+variable "agent_automount_service_account_token" {
+  description = "Whether ADO agent worker and placeholder pods should automount their Kubernetes service account token. Keep enabled when IRSA or pod identity needs projected service account tokens."
+  type        = bool
+  default     = true
 }
 
 # =============================================================================

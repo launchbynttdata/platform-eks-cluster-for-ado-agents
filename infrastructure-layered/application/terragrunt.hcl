@@ -6,7 +6,7 @@
 # - AWS Secrets Manager secrets for ADO PAT
 # - IAM execution roles for ADO agents
 # - Helm deployment of ADO agents
-# - KEDA ScaledObjects for autoscaling
+# - KEDA ScaledJobs for per-job workers
 #
 # Dependencies: Base Layer (cluster info) + Middleware Layer (KEDA, ESO)
 
@@ -51,7 +51,7 @@ terraform {
   # Show agent status after deployment
   after_hook "show_agent_status" {
     commands     = ["apply"]
-    execute      = ["bash", "-c", "echo '\n📊 To check agent status:\n  kubectl get pods -n ${dependency.middleware.outputs.ado_agents_namespace}\n  kubectl get scaledobjects -n ${dependency.middleware.outputs.ado_agents_namespace}'"]
+    execute      = ["bash", "-c", "echo '\n📊 To check agent status:\n  kubectl get pods -n ${dependency.middleware.outputs.ado_agents_namespace}\n  kubectl get scaledjobs -n ${dependency.middleware.outputs.ado_agents_namespace}\n  kubectl get jobs -n ${dependency.middleware.outputs.ado_agents_namespace}'"]
     run_on_error = false
   }
 }
@@ -131,6 +131,11 @@ inputs = {
   
   # ADO Agent Pools Configuration
   agent_pools = local.env.locals.agent_pools
+  agent_run_once = try(local.env.locals.agent_run_once, true)
+  agent_recycle_pod_after_run_once = try(local.env.locals.agent_recycle_pod_after_run_once, true)
+  agent_cleanup_timeout_seconds = try(local.env.locals.agent_cleanup_timeout_seconds, 300)
+  agent_termination_grace_period_seconds = try(local.env.locals.agent_termination_grace_period_seconds, 420)
+  agent_automount_service_account_token = try(local.env.locals.agent_automount_service_account_token, true)
 }
 
 # =============================================================================

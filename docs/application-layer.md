@@ -65,7 +65,7 @@ The application layer is the third and final layer in the infrastructure stack:
 
 ### Helm Deployment
 - **ado-agents**: Multi-pool ADO agent deployment
-- KEDA ScaledObjects for each pool
+- KEDA ScaledJobs for per-job ADO workers
 - TriggerAuthentication for ADO API integration
 - ExternalSecrets for credential management
 - ServiceAccounts with IRSA annotations
@@ -130,7 +130,7 @@ agent_pools = {
       limits   = { cpu = "2000m", memory = "4Gi" }
     }
     autoscaling = {
-      min_replicas        = 0
+      min_replicas        = 1
       max_replicas        = 10
       target_queue_length = 1
     }
@@ -239,10 +239,10 @@ unset ADO_PAT
 helm status ado-agents -n ado-agents
 
 # Check agent pods
-kubectl get pods -n ado-agents -l app.kubernetes.io/name=ado-agent
+kubectl get pods -n ado-agents -l app.kubernetes.io/name=ado-agent-cluster
 
-# Check KEDA scaling objects
-kubectl get scaledobjects -n ado-agents
+# Check KEDA scaled jobs
+kubectl get scaledjobs -n ado-agents
 
 # Check External Secrets
 kubectl get externalsecrets -n ado-agents
@@ -256,10 +256,10 @@ KEDA automatically scales agents based on Azure DevOps pipeline queue length:
 
 ```yaml
 # Check current scaling status
-kubectl get scaledobjects -n ado-agents -o wide
+kubectl get scaledjobs -n ado-agents -o wide
 
 # View scaling events
-kubectl describe scaledobject ado-agent -n ado-agents
+kubectl describe scaledjob ado-agent-scaledjob -n ado-agents
 ```
 
 ### Secret Management
@@ -317,8 +317,8 @@ kubectl logs -n keda-system deployment/keda-operator
 # Check TriggerAuthentication
 kubectl describe triggerauthentication -n ado-agents
 
-# Verify ADO API connectivity
-kubectl exec -it -n ado-agents deployment/ado-agent -- \
+# Verify ADO API connectivity from an agent pod
+kubectl exec -it -n ado-agents "$(kubectl get pod -n ado-agents -l app.kubernetes.io/name=ado-agent-cluster -o name | head -n 1)" -- \
   curl -u ":$AZP_TOKEN" \
   "https://dev.azure.com/your-org/_apis/distributedtask/pools/YOUR_POOL_ID/jobrequests"
 ```

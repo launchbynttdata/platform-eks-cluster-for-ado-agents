@@ -74,6 +74,15 @@ inputs = {
   remote_state_environment = local.env.locals.environment
   base_state_key      = "base/terraform.tfstate"
 
+  # CloudWatch logging / observability
+  enable_cloudwatch_observability = try(local.env.locals.enable_cloudwatch_observability, true)
+  enable_cloudwatch_observability_addon = try(local.env.locals.enable_cloudwatch_observability_addon, true)
+  cloudwatch_observability_addon_version = try(local.env.locals.cloudwatch_observability_addon_version, null)
+  cloudwatch_log_retention_days = try(local.env.locals.cloudwatch_log_retention_days, 30)
+  enable_fargate_cloudwatch_logging = try(local.env.locals.enable_fargate_cloudwatch_logging, true)
+  fargate_fluentbit_log_level = try(local.env.locals.fargate_fluentbit_log_level, "info")
+  fargate_fluentbit_include_process_logs = try(local.env.locals.fargate_fluentbit_include_process_logs, false)
+  platform_log_groups = try(local.env.locals.platform_log_groups, ["application", "dataplane", "host", "performance", "ado-agents", "buildkit", "keda", "cluster-autoscaler"])
   
   # KEDA Configuration
   install_keda                         = local.env.locals.install_keda
@@ -117,6 +126,25 @@ inputs = {
   buildkitd_ecr_registry_account_ids    = try(local.env.locals.buildkitd_ecr_registry_account_ids, [])
   buildkitd_ecr_repository_arns         = try(local.env.locals.buildkitd_ecr_repository_arns, [])
   buildkitd_kms_key_arn_patterns        = try(local.env.locals.buildkitd_kms_key_arn_patterns, [])
+  buildkitd_registry_mirrors            = try(local.env.locals.buildkitd_registry_mirrors, {})
+  buildkitd_topology_spread_enabled     = try(local.env.locals.buildkitd_topology_spread_enabled, true)
+  buildkitd_pdb_enabled                 = try(local.env.locals.buildkitd_pdb_enabled, true)
+  buildkitd_pdb_min_available           = try(local.env.locals.buildkitd_pdb_min_available, 1)
+  buildkitd_tls_enabled                 = try(local.env.locals.buildkitd_tls_enabled, false)
+  buildkitd_tls_secret_name             = try(local.env.locals.buildkitd_tls_secret_name, "")
+
+  enable_ecr_pull_through_cache = try(local.env.locals.enable_ecr_pull_through_cache, true)
+  ecr_pull_through_cache_rules  = try(local.env.locals.ecr_pull_through_cache_rules, {
+    ecr-public = {
+      upstream_registry_url = "public.ecr.aws"
+    }
+    k8s = {
+      upstream_registry_url = "registry.k8s.io"
+    }
+    quay = {
+      upstream_registry_url = "quay.io"
+    }
+  })
 
   # Node auto-heal / AWS Node Termination Handler configuration
   node_auto_heal_daemonset_node_selector = local.env.locals.node_auto_heal_daemonset_node_selector

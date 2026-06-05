@@ -195,6 +195,25 @@ locals {
   
   # ADO Configuration
   ado_agents_namespace = "ado-agents"
+
+  # CloudWatch Logging / Observability
+  enable_cloudwatch_observability       = true
+  enable_cloudwatch_observability_addon = true
+  cloudwatch_observability_addon_version = null
+  cloudwatch_log_retention_days         = 30
+  enable_fargate_cloudwatch_logging     = true
+  fargate_fluentbit_log_level           = "info"
+  fargate_fluentbit_include_process_logs = false
+  platform_log_groups = [
+    "application",
+    "dataplane",
+    "host",
+    "performance",
+    "ado-agents",
+    "buildkit",
+    "keda",
+    "cluster-autoscaler"
+  ]
   
   # External Secrets Operator Configuration
   install_eso                  = true
@@ -213,6 +232,11 @@ locals {
   buildkitd_hpa_min_replicas = 2
   buildkitd_hpa_max_replicas = 5
   buildkitd_hpa_target_memory_utilization_percentage = 70
+  buildkitd_topology_spread_enabled = true
+  buildkitd_pdb_enabled = true
+  buildkitd_pdb_min_available = 1
+  buildkitd_tls_enabled = false
+  buildkitd_tls_secret_name = ""
   
   buildkitd_node_selector = {
     # Uncomment if using EC2 nodes with this label
@@ -251,6 +275,24 @@ locals {
   # buildkitd_ecr_registry_account_ids = ["111111111111", "222222222222"]
   # buildkitd_ecr_repository_arns      = ["arn:aws:ecr:us-west-2:222222222222:repository/*"]
   # buildkitd_kms_key_arn_patterns     = ["arn:aws:kms:us-west-2:222222222222:key/*"]
+  enable_ecr_pull_through_cache = true
+  ecr_pull_through_cache_rules = {
+    ecr-public = {
+      upstream_registry_url = "public.ecr.aws"
+    }
+    k8s = {
+      upstream_registry_url = "registry.k8s.io"
+    }
+    quay = {
+      upstream_registry_url = "quay.io"
+    }
+  }
+  buildkitd_registry_mirrors = {
+    # Replace 123456789012 with the AWS account running this platform.
+    "public.ecr.aws" = ["123456789012.dkr.ecr.us-west-2.amazonaws.com/ecr-public"]
+    "registry.k8s.io" = ["123456789012.dkr.ecr.us-west-2.amazonaws.com/k8s"]
+    "quay.io" = ["123456789012.dkr.ecr.us-west-2.amazonaws.com/quay"]
+  }
   
   # =============================================================================
   # Application Layer Configuration
@@ -331,13 +373,19 @@ locals {
   }
   
   # ADO Agent Pool Configuration
+  agent_run_once = true
+  agent_recycle_pod_after_run_once = false
+  agent_cleanup_timeout_seconds = 300
+  agent_termination_grace_period_seconds = 420
+  agent_automount_service_account_token = true
+
   ado_agent_pools = {
     default = {
       pool_name           = "EKS-ADO-Agents"
       service_account     = "ado-agent"
       image_repository    = "" # Empty = use public image, otherwise use ECR URL
       image_tag           = "latest"
-      min_replicas        = 0
+      min_replicas        = 1
       max_replicas        = 10
       polling_interval    = 30
       cooldown_period     = 300
@@ -383,7 +431,7 @@ locals {
       service_account     = "ado-iac-agent"
       image_repository    = "" # Empty = use public image, otherwise use ECR URL
       image_tag           = "latest"
-      min_replicas        = 0
+      min_replicas        = 1
       max_replicas        = 5
       polling_interval    = 30
       cooldown_period     = 300

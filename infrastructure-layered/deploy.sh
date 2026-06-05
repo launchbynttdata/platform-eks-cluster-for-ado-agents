@@ -772,7 +772,7 @@ prompt_for_ado_credentials() {
     return 0
 }
 
-# Forces External Secrets Operator to sync and restarts KEDA so ScaledObjects
+# Forces External Secrets Operator to sync and restarts KEDA so ScaledJobs
 # resolve the updated ADO PAT from Kubernetes secrets.
 refresh_ado_secret_in_cluster() {
     local cluster_name="$1"
@@ -816,7 +816,7 @@ refresh_ado_secret_in_cluster() {
         log_warning "ExternalSecret ${external_secret_name} not found in ${ado_namespace}; application layer may not be deployed yet"
     fi
 
-    # Restart KEDA operator so it re-resolves secrets for ScaledObjects
+    # Restart KEDA operator so it re-resolves secrets for ScaledJobs
     if kubectl get deployment keda-operator -n "${keda_namespace}" &>/dev/null; then
         log_info "Restarting KEDA operator to refresh secret resolution..."
         if kubectl rollout restart deployment keda-operator -n "${keda_namespace}"; then
@@ -825,17 +825,12 @@ refresh_ado_secret_in_cluster() {
             log_warning "Failed to restart KEDA operator"
         fi
     else
-        log_warning "KEDA operator not found in ${keda_namespace}; ScaledObjects will reconcile on next sync interval"
+        log_warning "KEDA operator not found in ${keda_namespace}; ScaledJobs will reconcile on next sync interval"
     fi
 
-    # Restart ADO agent deployments so pods pick up the new secret values
-    local ado_deployments
-    ado_deployments=$(kubectl get deployment -n "${ado_namespace}" -l app.kubernetes.io/name=ado-agent-cluster -o name 2>/dev/null || true)
-    if [[ -n "${ado_deployments}" ]]; then
-        log_info "Restarting ADO agent deployments to pick up new secret..."
-        for dep in ${ado_deployments}; do
-            kubectl rollout restart "${dep}" -n "${ado_namespace}" 2>/dev/null && log_debug "Restarted ${dep}" || true
-        done
+    # ScaledJob workers are created per queued job and read the current secret at pod start.
+    if kubectl get scaledjob -n "${ado_namespace}" -l app.kubernetes.io/name=ado-agent-cluster &>/dev/null; then
+        log_info "ADO ScaledJob workers will use the refreshed secret on the next queued job."
     fi
 
     return 0
@@ -893,7 +888,7 @@ inject_ado_secret() {
             --secret-string "${secret_json}" \
             --region "${region}" >/dev/null; then
             log_success "ADO PAT updated in AWS Secrets Manager: ${secret_name}"
-            # Refresh Kubernetes resources so KEDA ScaledObject picks up the new value
+            # Refresh Kubernetes resources so KEDA ScaledJobs pick up the new value
             refresh_ado_secret_in_cluster "${cluster_name}" "${region}" "${secret_name}"
             return 0
         else

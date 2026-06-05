@@ -44,6 +44,20 @@ output "cluster_secret_store_name" {
   value       = var.cluster_secret_store_name
 }
 
+# CloudWatch Logging / Observability
+output "cloudwatch_log_groups" {
+  description = "CloudWatch log groups created for platform observability"
+  value = var.enable_cloudwatch_observability ? concat(
+    [for group in aws_cloudwatch_log_group.platform : group.name],
+    [for group in aws_cloudwatch_log_group.fargate_fluentbit : group.name]
+  ) : []
+}
+
+output "cloudwatch_observability_addon_enabled" {
+  description = "Whether the Amazon CloudWatch Observability EKS add-on is enabled"
+  value       = var.enable_cloudwatch_observability && var.enable_cloudwatch_observability_addon
+}
+
 # ADO Agents Namespace
 output "ado_agents_namespace" {
   description = "Kubernetes namespace for ADO agents"
@@ -89,6 +103,16 @@ output "buildkitd_short_name" {
 output "buildkit_irsa_role_arn" {
   description = "IRSA role for buildkitd pods; add to cross-account ECR repository policies when the daemon pushes to other accounts"
   value       = var.enable_buildkitd ? module.buildkit_irsa_role[0].role_arn : null
+}
+
+output "ecr_pull_through_cache_rules" {
+  description = "ECR pull-through cache rules created by the middleware layer"
+  value = {
+    for prefix, rule in aws_ecr_pull_through_cache_rule.cache : prefix => {
+      upstream_registry_url = rule.upstream_registry_url
+      registry_id           = rule.registry_id
+    }
+  }
 }
 
 # Common Information

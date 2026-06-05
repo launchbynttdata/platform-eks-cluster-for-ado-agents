@@ -1,0 +1,152 @@
+{{- range $poolName, $poolConfig := .Values.agentPools }}
+{{- if and $poolConfig.enabled $poolConfig.autoscaling.enabled }}
+{{- if and $poolConfig.autoscaling.jobsToFetch (or $poolConfig.autoscaling.templateAgentName $poolConfig.autoscaling.createTemplateAgent) }}
+{{- fail (printf "agentPools.%s.autoscaling.templateAgentName and jobsToFetch are mutually exclusive because KEDA parent matching cannot use jobsToFetch" $poolName) }}
+{{- end }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: {{ include "ado-agent-cluster.scaledJobName" $poolConfig }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "ado-agent-cluster.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $poolName }}
+spec:
+  pollingInterval: {{ $poolConfig.autoscaling.pollingInterval }}
+  maxReplicaCount: {{ $poolConfig.autoscaling.maxReplicas }}
+  successfulJobsHistoryLimit: {{ $poolConfig.autoscaling.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ $poolConfig.autoscaling.failedJobsHistoryLimit }}
+  jobTargetRef:
+    backoffLimit: {{ $poolConfig.autoscaling.backoffLimit }}
+    ttlSecondsAfterFinished: {{ $poolConfig.autoscaling.ttlSecondsAfterFinished }}
+    template:
+      metadata:
+        labels:
+          {{- include "ado-agent-cluster.agentPoolSelectorLabels" (dict "root" $ "poolName" $poolName) | nindent 10 }}
+          app.kubernetes.io/role: ado-agent-worker
+          {{- with $poolConfig.podLabels }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+        {{- with $poolConfig.podAnnotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        serviceAccountName: {{ include "ado-agent-cluster.serviceAccountName" (dict "root" $ "serviceAccount" $poolConfig.serviceAccount "poolName" $poolName) }}
+        automountServiceAccountToken: {{ $.Values.agent.automountServiceAccountToken }}
+        terminationGracePeriodSeconds: {{ $.Values.agent.terminationGracePeriodSeconds }}
+        restartPolicy: Never
+        {{- with $poolConfig.tolerations }}
+        tolerations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with $poolConfig.nodeSelector }}
+        nodeSelector:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with $poolConfig.affinity }}
+        affinity:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with $poolConfig.topologySpreadConstraints }}
+        topologySpreadConstraints:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with $.Values.podSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        containers:
+        - name: ado-agent
+          image: "{{ $poolConfig.image.repository }}:{{ $poolConfig.image.tag }}"
+          imagePullPolicy: {{ $poolConfig.image.pullPolicy }}
+          env:
+          - name: AZP_ORG
+            valueFrom:
+              secretKeyRef:
+                name: {{ $poolConfig.ado.secretName }}
+                key: organization
+          - name: AZP_URL
+            valueFrom:
+              secretKeyRef:
+                name: {{ $poolConfig.ado.secretName }}
+                key: adourl
+          - name: AZP_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: {{ $poolConfig.ado.secretName }}
+                key: personalAccessToken
+          - name: AZP_POOL
+            value: {{ $poolConfig.ado.poolName | quote }}
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: AZP_RUN_ONCE
+            value: "true"
+          - name: AZP_RECYCLE_POD_AFTER_RUN_ONCE
+            value: "false"
+          - name: AZP_CLEANUP_TIMEOUT_SECONDS
+            value: {{ $.Values.agent.cleanupTimeoutSeconds | quote }}
+          {{- if $.Values.buildkit.enabled }}
+          - name: BUILDKIT_HOST
+            value: {{ $.Values.buildkit.endpoint | quote }}
+          {{- end }}
+          {{- with $poolConfig.env }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+          {{- with $poolConfig.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $.Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $poolConfig.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- with $poolConfig.volumes }}
+        volumes:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+  triggers:
+  - type: azure-pipelines
+    metadata:
+      organizationURLFromEnv: "AZP_URL"
+      personalAccessTokenFromEnv: "AZP_TOKEN"
+      {{- if $poolConfig.autoscaling.poolID }}
+      poolID: {{ $poolConfig.autoscaling.poolID | quote }}
+      {{- else }}
+      poolName: {{ $poolConfig.ado.poolName | quote }}
+      {{- end }}
+      targetPipelinesQueueLength: {{ $poolConfig.autoscaling.targetPipelinesQueueLength | quote }}
+      {{- if $poolConfig.autoscaling.activationTargetPipelinesQueueLength }}
+      activationTargetPipelinesQueueLength: {{ $poolConfig.autoscaling.activationTargetPipelinesQueueLength | quote }}
+      {{- end }}
+      {{- if or $poolConfig.autoscaling.templateAgentName $poolConfig.autoscaling.createTemplateAgent }}
+      parent: {{ include "ado-agent-cluster.placeholderAgentName" $poolConfig | quote }}
+      {{- else if $poolConfig.autoscaling.jobsToFetch }}
+      jobsToFetch: {{ $poolConfig.autoscaling.jobsToFetch | quote }}
+      {{- end }}
+      {{- if $poolConfig.autoscaling.fetchUnfinishedJobsOnly }}
+      fetchUnfinishedJobsOnly: {{ $poolConfig.autoscaling.fetchUnfinishedJobsOnly | quote }}
+      {{- end }}
+      {{- if $poolConfig.autoscaling.demands }}
+      demands: {{ $poolConfig.autoscaling.demands | quote }}
+      {{- end }}
+      {{- if $poolConfig.autoscaling.requireAllDemands }}
+      requireAllDemands: {{ $poolConfig.autoscaling.requireAllDemands | quote }}
+      {{- end }}
+      {{- if $poolConfig.autoscaling.requireAllDemandsAndIgnoreOthers }}
+      requireAllDemandsAndIgnoreOthers: {{ $poolConfig.autoscaling.requireAllDemandsAndIgnoreOthers | quote }}
+      {{- end }}
+      {{- if $poolConfig.autoscaling.caseInsensitiveDemandsProcessing }}
+      caseInsensitiveDemandsProcessing: {{ $poolConfig.autoscaling.caseInsensitiveDemandsProcessing | quote }}
+      {{- end }}
+    authenticationRef:
+      name: {{ include "ado-agent-cluster.triggerAuthName" $poolConfig }}
+{{- end }}
+{{- end }}

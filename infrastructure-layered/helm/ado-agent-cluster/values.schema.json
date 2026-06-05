@@ -55,14 +55,40 @@
               "type": "object",
               "properties": {
                 "enabled": {"type": "boolean"},
-                "minReplicas": {"type": "integer", "minimum": 0},
                 "maxReplicas": {"type": "integer", "minimum": 1},
-                "targetPipelinesQueueLength": {"type": "integer", "minimum": 1}
+                "pollingInterval": {"type": "integer", "minimum": 1},
+                "targetPipelinesQueueLength": {"type": "integer", "minimum": 1},
+                "activationTargetPipelinesQueueLength": {"type": ["string", "integer"]},
+                "jobsToFetch": {"type": ["string", "integer"]},
+                "fetchUnfinishedJobsOnly": {"type": "boolean"},
+                "poolID": {"type": ["string", "integer"]},
+                "templateAgentName": {"type": "string"},
+                "createTemplateAgent": {"type": "boolean"},
+                "placeholderBackoffLimit": {"type": "integer", "minimum": 0},
+                "placeholderTtlSecondsAfterFinished": {"type": "integer", "minimum": 0},
+                "demands": {"type": "string"},
+                "requireAllDemands": {"type": "boolean"},
+                "requireAllDemandsAndIgnoreOthers": {"type": "boolean"},
+                "caseInsensitiveDemandsProcessing": {"type": "boolean"},
+                "backoffLimit": {"type": "integer", "minimum": 0},
+                "ttlSecondsAfterFinished": {"type": "integer", "minimum": 0},
+                "successfulJobsHistoryLimit": {"type": "integer", "minimum": 0},
+                "failedJobsHistoryLimit": {"type": "integer", "minimum": 0}
               }
             }
           },
           "required": ["enabled", "name", "ado", "image", "serviceAccount"]
         }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "properties": {
+        "runOnce": {"type": "boolean"},
+        "recyclePodAfterRunOnce": {"type": "boolean"},
+        "cleanupTimeoutSeconds": {"type": "integer", "minimum": 30},
+        "terminationGracePeriodSeconds": {"type": "integer", "minimum": 60},
+        "automountServiceAccountToken": {"type": "boolean"}
       }
     },
     "externalSecrets": {

@@ -123,8 +123,9 @@ externalSecrets:
 | agentPools.*.image.repository | string | `""` | Container image repository |
 | agentPools.*.resources.requests.cpu | string | `"500m"` | CPU request |
 | agentPools.*.resources.requests.memory | string | `"1Gi"` | Memory request |
-| agentPools.*.autoscaling.minReplicas | int | `0` | Minimum replicas |
-| agentPools.*.autoscaling.maxReplicas | int | `10` | Maximum replicas |
+| agentPools.*.autoscaling.maxReplicas | int | `10` | Maximum concurrent worker Jobs |
+| agentPools.*.autoscaling.templateAgentName | string | `"<pool>-keda-template"` | Offline ADO template agent used for KEDA parent matching |
+| agentPools.*.autoscaling.createTemplateAgent | bool | `true` | Create a Helm hook Job that registers the offline template agent |
 
 ### Security Settings
 
@@ -152,8 +153,8 @@ agentPools:
       name: "ado-agent-dev"
       roleArn: "arn:aws:iam::123456789:role/ado-dev-role"
     autoscaling:
-      minReplicas: 1
       maxReplicas: 5
+      templateAgentName: "dev-keda-template"
 ```
 
 ### Production IaC Agent Pool
@@ -180,8 +181,8 @@ agentPools:
         cpu: "2"
         memory: "4Gi"
     autoscaling:
-      minReplicas: 0
       maxReplicas: 3
+      templateAgentName: "iac-keda-template"
     nodeSelector:
       workload-type: "infrastructure"
 ```
@@ -205,8 +206,8 @@ kubectl describe pod -n ado-agents -l app.kubernetes.io/name=ado-agent-cluster
 3. **Test ADO Connection**: Verify PAT has correct permissions
 
 ```bash
-kubectl get scaledobjects -n ado-agents
-kubectl describe scaledobject -n ado-agents
+kubectl get scaledjobs -n ado-agents
+kubectl describe scaledjob -n ado-agents
 kubectl logs -n keda-system -l app.kubernetes.io/name=keda-operator
 ```
 

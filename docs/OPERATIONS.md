@@ -395,11 +395,11 @@ aws secretsmanager describe-secret --secret-id ado-agent-pat --region us-west-2
 kubectl get clustersecretstore aws-secrets-manager
 ```
 
-### KEDA ScaledObject Not Scaling
+### KEDA ScaledJob Not Scaling
 
 ```bash
-# Check ScaledObject status
-kubectl describe scaledobject -n ado-agents
+# Check ScaledJob status
+kubectl describe scaledjob -n ado-agents
 
 # Check KEDA operator logs
 kubectl logs -n keda-system -l app.kubernetes.io/name=keda-operator --tail=100

@@ -28,6 +28,55 @@ variable "base_state_key" {
   default     = "base/terraform.tfstate"
 }
 
+# CloudWatch Logging / Observability
+variable "enable_cloudwatch_observability" {
+  description = "Whether to create CloudWatch log resources and EKS logging integrations for platform pod logs."
+  type        = bool
+  default     = true
+}
+
+variable "enable_cloudwatch_observability_addon" {
+  description = "Whether to install the Amazon CloudWatch Observability EKS add-on for EC2 node log collection."
+  type        = bool
+  default     = true
+}
+
+variable "cloudwatch_observability_addon_version" {
+  description = "Version of the Amazon CloudWatch Observability EKS add-on. Null uses the EKS default version."
+  type        = string
+  default     = null
+}
+
+variable "cloudwatch_log_retention_days" {
+  description = "Retention in days for platform CloudWatch log groups."
+  type        = number
+  default     = 30
+}
+
+variable "enable_fargate_cloudwatch_logging" {
+  description = "Whether to create the aws-observability/aws-logging ConfigMap for EKS Fargate pod log shipping."
+  type        = bool
+  default     = true
+}
+
+variable "fargate_fluentbit_log_level" {
+  description = "Log level for the EKS Fargate Fluent Bit log router."
+  type        = string
+  default     = "info"
+}
+
+variable "fargate_fluentbit_include_process_logs" {
+  description = "Whether Fargate Fluent Bit process logs are sent to CloudWatch."
+  type        = bool
+  default     = false
+}
+
+variable "platform_log_groups" {
+  description = "Logical platform log groups to pre-create under /aws/containerinsights/<cluster_name>."
+  type        = list(string)
+  default     = ["application", "dataplane", "host", "performance", "ado-agents", "buildkit", "keda", "cluster-autoscaler"]
+}
+
 # KEDA Configuration
 variable "install_keda" {
   description = "Whether to install KEDA operator"
@@ -303,6 +352,66 @@ variable "buildkitd_kms_key_arn_patterns" {
   description = "KMS key ARN patterns for ECR customer-managed encryption. Empty = arn:aws:kms:<region>:<cluster_account>:key/*"
   type        = list(string)
   default     = []
+}
+
+variable "buildkitd_registry_mirrors" {
+  description = "Registry mirror configuration rendered into buildkitd.toml. Map keys are registry hosts and values are mirror endpoint lists."
+  type        = map(list(string))
+  default     = {}
+}
+
+variable "buildkitd_topology_spread_enabled" {
+  description = "Whether to spread BuildKit pods across zones when possible."
+  type        = bool
+  default     = true
+}
+
+variable "buildkitd_pdb_enabled" {
+  description = "Whether to create a PodDisruptionBudget for BuildKit."
+  type        = bool
+  default     = true
+}
+
+variable "buildkitd_pdb_min_available" {
+  description = "Minimum available BuildKit pods during voluntary disruptions."
+  type        = number
+  default     = 1
+}
+
+variable "buildkitd_tls_enabled" {
+  description = "Whether BuildKit should require TLS on its TCP listener."
+  type        = bool
+  default     = false
+}
+
+variable "buildkitd_tls_secret_name" {
+  description = "Kubernetes secret in the BuildKit namespace containing ca.pem, cert.pem, and key.pem for buildkitd TLS."
+  type        = string
+  default     = ""
+}
+
+variable "enable_ecr_pull_through_cache" {
+  description = "Whether to create anonymous-compatible ECR pull-through cache rules."
+  type        = bool
+  default     = true
+}
+
+variable "ecr_pull_through_cache_rules" {
+  description = "ECR pull-through cache rules keyed by ECR repository prefix."
+  type = map(object({
+    upstream_registry_url = string
+  }))
+  default = {
+    ecr-public = {
+      upstream_registry_url = "public.ecr.aws"
+    }
+    k8s = {
+      upstream_registry_url = "registry.k8s.io"
+    }
+    quay = {
+      upstream_registry_url = "quay.io"
+    }
+  }
 }
 
 # Additional Tags

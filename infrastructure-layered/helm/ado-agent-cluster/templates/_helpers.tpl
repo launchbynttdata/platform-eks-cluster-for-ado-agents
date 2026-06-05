@@ -86,15 +86,26 @@ Generate trigger authentication name for KEDA
 {{- end }}
 
 {{/*
-Generate deployment name for agent pool
+Generate scaled job name for agent pool
 */}}
-{{- define "ado-agent-cluster.deploymentName" -}}
-{{- printf "%s-deployment" .name }}
+{{- define "ado-agent-cluster.scaledJobName" -}}
+{{- printf "%s-scaledjob" .name }}
 {{- end }}
 
 {{/*
-Generate scaled object name for agent pool
+Generate placeholder registration job name for agent pool
 */}}
-{{- define "ado-agent-cluster.scaledObjectName" -}}
-{{- printf "%s-scaledobject" .name }}
+{{- define "ado-agent-cluster.placeholderJobName" -}}
+{{- printf "%s-placeholder" .name }}
+{{- end }}
+
+{{/*
+Generate placeholder ADO agent name for agent pool
+*/}}
+{{- define "ado-agent-cluster.placeholderAgentName" -}}
+{{- if .autoscaling.templateAgentName }}
+{{- .autoscaling.templateAgentName }}
+{{- else }}
+{{- printf "%s-keda-template" .name }}
+{{- end }}
 {{- end }}

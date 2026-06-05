@@ -147,7 +147,7 @@ After deployment, verify components are running:
 # Option 2: Manual verification commands
 # Check KEDA operator
 kubectl get pods -n keda-system
-kubectl get scaledobjects -A  # Should be empty until application layer
+kubectl get scaledjobs -A  # Should be empty until application layer
 
 # Check External Secrets Operator
 kubectl get pods -n external-secrets-system
@@ -195,7 +195,7 @@ namespace = data.terraform_remote_state.middleware.outputs.ado_agents_namespace
 ### KEDA Version Upgrades
 1. Update `keda_version` in terraform.tfvars
 2. Apply changes: `terraform plan && terraform apply`
-3. Verify ScaledObjects continue working after upgrade
+3. Verify ScaledJobs continue working after upgrade
 
 ### ESO Version Upgrades  
 1. Update `eso_version` in terraform.tfvars

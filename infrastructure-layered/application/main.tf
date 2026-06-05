@@ -259,15 +259,32 @@ locals {
           resources = pool_config.resources
 
           autoscaling = {
-            enabled                    = pool_config.autoscaling.enabled
-            minReplicas                = pool_config.autoscaling.min_replicas
-            maxReplicas                = pool_config.autoscaling.max_replicas
-            targetPipelinesQueueLength = pool_config.autoscaling.target_queue_length
+            enabled                              = pool_config.autoscaling.enabled
+            maxReplicas                          = pool_config.autoscaling.max_replicas
+            pollingInterval                      = pool_config.autoscaling.polling_interval
+            targetPipelinesQueueLength           = pool_config.autoscaling.target_queue_length
+            activationTargetPipelinesQueueLength = pool_config.autoscaling.activation_target_queue_length
+            jobsToFetch                          = pool_config.autoscaling.jobs_to_fetch
+            fetchUnfinishedJobsOnly              = pool_config.autoscaling.fetch_unfinished_jobs_only
+            poolID                               = pool_config.autoscaling.pool_id
+            templateAgentName                    = pool_config.autoscaling.template_agent_name != "" ? pool_config.autoscaling.template_agent_name : (pool_config.autoscaling.create_template_agent ? "${pool_name}-keda-template" : "")
+            createTemplateAgent                  = pool_config.autoscaling.create_template_agent
+            placeholderBackoffLimit              = pool_config.autoscaling.placeholder_backoff_limit
+            placeholderTtlSecondsAfterFinished   = pool_config.autoscaling.placeholder_ttl_seconds_after_finished
+            demands                              = pool_config.autoscaling.demands
+            requireAllDemands                    = pool_config.autoscaling.require_all_demands
+            requireAllDemandsAndIgnoreOthers     = pool_config.autoscaling.require_all_demands_and_ignore_others
+            caseInsensitiveDemandsProcessing     = pool_config.autoscaling.case_insensitive_demands_processing
+            backoffLimit                         = pool_config.autoscaling.backoff_limit
+            ttlSecondsAfterFinished              = pool_config.autoscaling.ttl_seconds_after_finished
+            successfulJobsHistoryLimit           = pool_config.autoscaling.successful_jobs_history_limit
+            failedJobsHistoryLimit               = pool_config.autoscaling.failed_jobs_history_limit
           }
 
-          tolerations  = pool_config.tolerations
-          nodeSelector = pool_config.node_selector
-          affinity     = pool_config.affinity
+          tolerations               = pool_config.tolerations
+          nodeSelector              = pool_config.node_selector
+          affinity                  = pool_config.affinity
+          topologySpreadConstraints = pool_config.topology_spread_constraints
 
           # Additional environment variables
           env = pool_config.additional_env_vars
@@ -305,6 +322,14 @@ locals {
     buildkit = {
       enabled  = data.terraform_remote_state.middleware.outputs.buildkitd_enabled
       endpoint = data.terraform_remote_state.middleware.outputs.buildkitd_service_endpoint
+    }
+
+    agent = {
+      runOnce                       = var.agent_run_once
+      recyclePodAfterRunOnce        = var.agent_recycle_pod_after_run_once
+      cleanupTimeoutSeconds         = var.agent_cleanup_timeout_seconds
+      terminationGracePeriodSeconds = var.agent_termination_grace_period_seconds
+      automountServiceAccountToken  = var.agent_automount_service_account_token
     }
 
     # Common labels and annotations
