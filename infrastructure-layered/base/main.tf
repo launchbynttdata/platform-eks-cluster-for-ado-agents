@@ -531,7 +531,7 @@ resource "aws_eks_addon" "vpc_cni" {
 
   cluster_name                = module.eks_cluster.name
   addon_name                  = "vpc-cni"
-  addon_version               = try(var.eks_addons["vpc-cni"].addon_version, null)
+  addon_version               = try(var.eks_addons["vpc-cni"].addon_version, var.eks_addons["vpc-cni"].version, null)
   service_account_role_arn    = var.create_iam_roles ? module.vpc_cni_irsa_role[0].role_arn : null
   resolve_conflicts_on_create = try(var.eks_addons["vpc-cni"].resolve_conflicts_on_create, "OVERWRITE")
   resolve_conflicts_on_update = try(var.eks_addons["vpc-cni"].resolve_conflicts_on_update, "OVERWRITE")

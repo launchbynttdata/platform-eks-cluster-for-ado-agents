@@ -22,19 +22,19 @@ include "common" {
 # Specify the Terraform source
 terraform {
   source = "."
-  
+
   # Ensure base layer is applied before middleware
   before_hook "check_base_dependency" {
     commands = ["apply", "plan"]
     execute  = ["echo", "⏳ Middleware layer depends on base layer outputs..."]
   }
-  
+
   after_hook "middleware_deployed" {
     commands     = ["apply"]
     execute      = ["bash", "-c", "echo '✅ Middleware layer deployed. KEDA and ESO are now available in the cluster.'"]
     run_on_error = false
   }
-  
+
   # Validate kubectl access before applying
   before_hook "validate_kubectl" {
     commands = ["apply"]
@@ -55,11 +55,11 @@ locals {
 
 dependency "base" {
   config_path = "../base"
-  
+
   # Mock outputs allow running plan/validate before base layer exists
   mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
   mock_outputs_merge_strategy_with_state  = "shallow"
-  
+
   mock_outputs = local.common.locals.mock_outputs_base
 }
 
@@ -70,20 +70,20 @@ dependency "base" {
 
 inputs = {
   # Remote state configuration
-  remote_state_bucket = get_env("TF_STATE_BUCKET")
+  remote_state_bucket      = get_env("TF_STATE_BUCKET")
   remote_state_environment = local.env.locals.environment
-  base_state_key      = "base/terraform.tfstate"
+  base_state_key           = "base/terraform.tfstate"
 
   # CloudWatch logging / observability
-  enable_cloudwatch_observability = try(local.env.locals.enable_cloudwatch_observability, true)
-  enable_cloudwatch_observability_addon = try(local.env.locals.enable_cloudwatch_observability_addon, true)
+  enable_cloudwatch_observability        = try(local.env.locals.enable_cloudwatch_observability, true)
+  enable_cloudwatch_observability_addon  = try(local.env.locals.enable_cloudwatch_observability_addon, true)
   cloudwatch_observability_addon_version = try(local.env.locals.cloudwatch_observability_addon_version, null)
-  cloudwatch_log_retention_days = try(local.env.locals.cloudwatch_log_retention_days, 30)
-  enable_fargate_cloudwatch_logging = try(local.env.locals.enable_fargate_cloudwatch_logging, true)
-  fargate_fluentbit_log_level = try(local.env.locals.fargate_fluentbit_log_level, "info")
+  cloudwatch_log_retention_days          = try(local.env.locals.cloudwatch_log_retention_days, 30)
+  enable_fargate_cloudwatch_logging      = try(local.env.locals.enable_fargate_cloudwatch_logging, true)
+  fargate_fluentbit_log_level            = try(local.env.locals.fargate_fluentbit_log_level, "info")
   fargate_fluentbit_include_process_logs = try(local.env.locals.fargate_fluentbit_include_process_logs, false)
-  platform_log_groups = try(local.env.locals.platform_log_groups, ["application", "dataplane", "host", "performance", "ado-agents", "buildkit", "keda", "cluster-autoscaler"])
-  
+  platform_log_groups                    = try(local.env.locals.platform_log_groups, ["application", "dataplane", "host", "performance", "ado-agents", "buildkit", "keda", "cluster-autoscaler"])
+
   # KEDA Configuration
   install_keda                         = local.env.locals.install_keda
   keda_namespace                       = local.env.locals.keda_namespace
@@ -97,44 +97,44 @@ inputs = {
   metrics_server_node_selector         = local.env.locals.metrics_server_node_selector
   metrics_server_tolerations           = local.env.locals.metrics_server_tolerations
   metrics_server_resources             = local.env.locals.metrics_server_resources
-  
+
   # ADO Agent Configuration
   ado_agents_namespace = local.env.locals.ado_agents_namespace
   ado_secret_name      = try(local.env.locals.ado_secret_name, local.env.locals.ado_pat_secret_name)
-  
+
   # External Secrets Operator Configuration
-  install_eso                  = local.env.locals.install_eso
-  eso_namespace                = local.env.locals.eso_namespace
-  eso_version                  = local.env.locals.eso_version
-  eso_webhook_enabled          = local.env.locals.eso_webhook_enabled
-  eso_webhook_failure_policy   = local.env.locals.eso_webhook_failure_policy
-  cluster_secret_store_name    = local.env.locals.cluster_secret_store_name
-  
+  install_eso                = local.env.locals.install_eso
+  eso_namespace              = local.env.locals.eso_namespace
+  eso_version                = local.env.locals.eso_version
+  eso_webhook_enabled        = local.env.locals.eso_webhook_enabled
+  eso_webhook_failure_policy = local.env.locals.eso_webhook_failure_policy
+  cluster_secret_store_name  = local.env.locals.cluster_secret_store_name
+
   # Buildkitd Configuration
-  enable_buildkitd       = local.env.locals.enable_buildkitd
-  buildkitd_namespace    = local.env.locals.buildkitd_namespace
-  buildkitd_image        = local.env.locals.buildkitd_image
-  buildkitd_replicas     = local.env.locals.buildkitd_replicas
-  buildkitd_node_selector = local.env.locals.buildkitd_node_selector
-  buildkitd_tolerations  = local.env.locals.buildkitd_tolerations
-  buildkitd_resources    = local.env.locals.buildkitd_resources
-  buildkitd_storage_size = local.env.locals.buildkitd_storage_size
-  buildkitd_hpa_enabled   = local.env.locals.buildkitd_hpa_enabled
-  buildkitd_hpa_min_replicas = local.env.locals.buildkitd_hpa_min_replicas
-  buildkitd_hpa_max_replicas = local.env.locals.buildkitd_hpa_max_replicas
+  enable_buildkitd                                   = local.env.locals.enable_buildkitd
+  buildkitd_namespace                                = local.env.locals.buildkitd_namespace
+  buildkitd_image                                    = local.env.locals.buildkitd_image
+  buildkitd_replicas                                 = local.env.locals.buildkitd_replicas
+  buildkitd_node_selector                            = local.env.locals.buildkitd_node_selector
+  buildkitd_tolerations                              = local.env.locals.buildkitd_tolerations
+  buildkitd_resources                                = local.env.locals.buildkitd_resources
+  buildkitd_storage_size                             = local.env.locals.buildkitd_storage_size
+  buildkitd_hpa_enabled                              = local.env.locals.buildkitd_hpa_enabled
+  buildkitd_hpa_min_replicas                         = local.env.locals.buildkitd_hpa_min_replicas
+  buildkitd_hpa_max_replicas                         = local.env.locals.buildkitd_hpa_max_replicas
   buildkitd_hpa_target_memory_utilization_percentage = local.env.locals.buildkitd_hpa_target_memory_utilization_percentage
-  buildkitd_ecr_registry_account_ids    = try(local.env.locals.buildkitd_ecr_registry_account_ids, [])
-  buildkitd_ecr_repository_arns         = try(local.env.locals.buildkitd_ecr_repository_arns, [])
-  buildkitd_kms_key_arn_patterns        = try(local.env.locals.buildkitd_kms_key_arn_patterns, [])
-  buildkitd_registry_mirrors            = try(local.env.locals.buildkitd_registry_mirrors, {})
-  buildkitd_topology_spread_enabled     = try(local.env.locals.buildkitd_topology_spread_enabled, true)
-  buildkitd_pdb_enabled                 = try(local.env.locals.buildkitd_pdb_enabled, true)
-  buildkitd_pdb_min_available           = try(local.env.locals.buildkitd_pdb_min_available, 1)
-  buildkitd_tls_enabled                 = try(local.env.locals.buildkitd_tls_enabled, false)
-  buildkitd_tls_secret_name             = try(local.env.locals.buildkitd_tls_secret_name, "")
+  buildkitd_ecr_registry_account_ids                 = try(local.env.locals.buildkitd_ecr_registry_account_ids, [])
+  buildkitd_ecr_repository_arns                      = try(local.env.locals.buildkitd_ecr_repository_arns, [])
+  buildkitd_kms_key_arn_patterns                     = try(local.env.locals.buildkitd_kms_key_arn_patterns, [])
+  buildkitd_registry_mirrors                         = try(local.env.locals.buildkitd_registry_mirrors, {})
+  buildkitd_topology_spread_enabled                  = try(local.env.locals.buildkitd_topology_spread_enabled, true)
+  buildkitd_pdb_enabled                              = try(local.env.locals.buildkitd_pdb_enabled, true)
+  buildkitd_pdb_min_available                        = try(local.env.locals.buildkitd_pdb_min_available, 1)
+  buildkitd_tls_enabled                              = try(local.env.locals.buildkitd_tls_enabled, false)
+  buildkitd_tls_secret_name                          = try(local.env.locals.buildkitd_tls_secret_name, "")
 
   enable_ecr_pull_through_cache = try(local.env.locals.enable_ecr_pull_through_cache, true)
-  ecr_pull_through_cache_rules  = try(local.env.locals.ecr_pull_through_cache_rules, {
+  ecr_pull_through_cache_rules = try(local.env.locals.ecr_pull_through_cache_rules, {
     ecr-public = {
       upstream_registry_url = "public.ecr.aws"
     }
@@ -147,6 +147,7 @@ inputs = {
   })
 
   # Node auto-heal / AWS Node Termination Handler configuration
+  node_auto_heal_chart_version           = try(local.env.locals.node_auto_heal_chart_version, "0.27.6")
   node_auto_heal_daemonset_node_selector = local.env.locals.node_auto_heal_daemonset_node_selector
   node_auto_heal_daemonset_tolerations   = local.env.locals.node_auto_heal_daemonset_tolerations
 }
@@ -159,7 +160,7 @@ inputs = {
 generate "k8s_provider" {
   path      = "k8s_provider_generated.tf"
   if_exists = "overwrite_terragrunt"
-  
+
   contents = <<-EOF
     # Kubernetes provider configuration
     # Generated by Terragrunt based on base layer outputs

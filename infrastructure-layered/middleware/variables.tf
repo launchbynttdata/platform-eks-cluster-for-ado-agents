@@ -93,7 +93,7 @@ variable "keda_namespace" {
 variable "keda_version" {
   description = "Version of KEDA operator to install"
   type        = string
-  default     = "2.17.2"
+  default     = "2.20.0"
 }
 
 variable "keda_enable_cloudeventsource" {
@@ -118,7 +118,7 @@ variable "metrics_server_namespace" {
 variable "metrics_server_chart_version" {
   description = "Helm chart version for metrics-server."
   type        = string
-  default     = "3.12.2"
+  default     = "3.13.0"
 }
 
 variable "metrics_server_args" {
@@ -203,9 +203,9 @@ variable "eso_namespace" {
 }
 
 variable "eso_version" {
-  description = "Version of External Secrets Operator Helm chart to install (1.3.x = ESO app 1.3)"
+  description = "Version of External Secrets Operator Helm chart to install."
   type        = string
-  default     = "1.3.2"
+  default     = "2.5.0"
 }
 
 variable "eso_webhook_enabled" {
@@ -247,7 +247,7 @@ variable "buildkitd_namespace" {
 variable "buildkitd_image" {
   description = "Docker image for buildkitd"
   type        = string
-  default     = "moby/buildkit:v0.26.3-rootless"
+  default     = "moby/buildkit:v0.30.0-rootless"
 }
 
 variable "buildkitd_replicas" {
@@ -555,7 +555,7 @@ variable "node_auto_heal_daemonset_resources" {
 variable "node_auto_heal_chart_version" {
   description = "Version of the aws-node-termination-handler Helm chart."
   type        = string
-  default     = "0.27.3"
+  default     = "0.27.6"
 }
 
 variable "node_auto_heal_log_level" {
