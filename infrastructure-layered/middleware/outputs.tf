@@ -44,6 +44,15 @@ output "cluster_secret_store_name" {
   value       = var.cluster_secret_store_name
 }
 
+output "application_crds_ready" {
+  description = "Whether middleware CRD-owning components have completed the application CRD readiness wait."
+  value       = true
+
+  depends_on = [
+    time_sleep.wait_for_application_crds
+  ]
+}
+
 # CloudWatch Logging / Observability
 output "cloudwatch_log_groups" {
   description = "CloudWatch log groups created for platform observability"

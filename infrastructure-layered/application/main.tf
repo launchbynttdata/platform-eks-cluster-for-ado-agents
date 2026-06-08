@@ -368,12 +368,15 @@ resource "helm_release" "ado_agents" {
   atomic            = true
   cleanup_on_fail   = true
   disable_crd_hooks = false
-  disable_webhooks  = false
-  force_update      = false
-  recreate_pods     = false
-  reset_values      = false
-  reuse_values      = false
-  skip_crds         = false
+  # KEDA and ESO CRDs are installed by the middleware layer. Discovery can lag briefly
+  # after CRD creation, so avoid failing the release on stale local OpenAPI data.
+  disable_openapi_validation = true
+  disable_webhooks           = false
+  force_update               = false
+  recreate_pods              = false
+  reset_values               = false
+  reuse_values               = false
+  skip_crds                  = false
 
   # Set resource limits for Helm operations
   max_history = 10

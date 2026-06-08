@@ -82,6 +82,17 @@ variable "platform_log_groups" {
   default     = ["application", "dataplane", "host", "performance", "ado-agents", "buildkit", "keda", "cluster-autoscaler"]
 }
 
+variable "application_crd_ready_wait_seconds" {
+  description = "Seconds to wait after middleware CRD-owning Helm releases before application-layer custom resources are installed."
+  type        = number
+  default     = 60
+
+  validation {
+    condition     = var.application_crd_ready_wait_seconds >= 0 && var.application_crd_ready_wait_seconds <= 300
+    error_message = "application_crd_ready_wait_seconds must be between 0 and 300."
+  }
+}
+
 # KEDA Configuration
 variable "install_keda" {
   description = "Whether to install KEDA operator"

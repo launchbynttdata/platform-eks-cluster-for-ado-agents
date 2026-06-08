@@ -545,6 +545,17 @@ module "external_secrets_operator" {
   ]
 }
 
+resource "time_sleep" "wait_for_application_crds" {
+  count = (var.install_keda || var.install_eso) && var.application_crd_ready_wait_seconds > 0 ? 1 : 0
+
+  depends_on = [
+    module.keda_operator,
+    module.external_secrets_operator
+  ]
+
+  create_duration = "${var.application_crd_ready_wait_seconds}s"
+}
+
 # Cluster Autoscaler Deployment (Kubernetes resources)
 module "cluster_autoscaler" {
   count  = local.cluster_autoscaler_enabled ? 1 : 0

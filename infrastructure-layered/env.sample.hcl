@@ -204,6 +204,7 @@ locals {
   enable_fargate_cloudwatch_logging      = true
   fargate_fluentbit_log_level            = "info"
   fargate_fluentbit_include_process_logs = false
+  application_crd_ready_wait_seconds     = 60
   platform_log_groups = [
     "application",
     "dataplane",
