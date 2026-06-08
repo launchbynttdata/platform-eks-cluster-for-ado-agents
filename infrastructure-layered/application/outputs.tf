@@ -141,7 +141,11 @@ output "operational_info" {
     monitoring = {
       cloudwatch_log_groups = [
         "/aws/eks/${local.cluster_name}/cluster",
-        "/aws/fargate/${local.cluster_name}"
+        "/aws/containerinsights/${local.cluster_name}/application",
+        "/aws/containerinsights/${local.cluster_name}/ado-agents",
+        "/aws/containerinsights/${local.cluster_name}/buildkit",
+        "/aws/containerinsights/${local.cluster_name}/keda",
+        "/aws/containerinsights/${local.cluster_name}/cluster-autoscaler"
       ]
       keda_metrics_namespace = "keda-operator-metrics"
       prometheus_metrics     = "http://keda-operator-metrics.keda-system.svc.cluster.local:8080/metrics"

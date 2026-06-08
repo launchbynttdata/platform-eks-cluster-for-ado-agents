@@ -358,7 +358,10 @@ kubectl describe serviceaccount -n external-secrets-system external-secrets
 
 ### CloudWatch Integration
 - EKS control plane logs: `/aws/eks/CLUSTER_NAME/cluster`
-- Fargate pod logs: `/aws/fargate/CLUSTER_NAME`
+- Platform pod logs: `/aws/containerinsights/CLUSTER_NAME/application`
+- Agent logs: `/aws/containerinsights/CLUSTER_NAME/ado-agents`
+- BuildKit logs: `/aws/containerinsights/CLUSTER_NAME/buildkit`
+- KEDA logs: `/aws/containerinsights/CLUSTER_NAME/keda`
 
 ### Prometheus Metrics
 - KEDA metrics: `keda-operator-metrics.keda-system:8080/metrics`

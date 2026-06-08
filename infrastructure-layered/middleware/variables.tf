@@ -205,7 +205,7 @@ variable "eso_namespace" {
 variable "eso_version" {
   description = "Version of External Secrets Operator Helm chart to install."
   type        = string
-  default     = "2.5.0"
+  default     = "1.3.2"
 }
 
 variable "eso_webhook_enabled" {

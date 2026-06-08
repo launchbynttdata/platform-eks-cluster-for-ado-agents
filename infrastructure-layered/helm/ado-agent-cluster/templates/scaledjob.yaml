@@ -84,9 +84,9 @@ spec:
               fieldRef:
                 fieldPath: metadata.name
           - name: AZP_RUN_ONCE
-            value: "true"
+            value: {{ $.Values.agent.runOnce | quote }}
           - name: AZP_RECYCLE_POD_AFTER_RUN_ONCE
-            value: "false"
+            value: {{ $.Values.agent.recyclePodAfterRunOnce | quote }}
           - name: AZP_CLEANUP_TIMEOUT_SECONDS
             value: {{ $.Values.agent.cleanupTimeoutSeconds | quote }}
           {{- if $.Values.buildkit.enabled }}

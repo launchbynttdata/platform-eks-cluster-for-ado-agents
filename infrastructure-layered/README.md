@@ -1588,8 +1588,8 @@ kubectl annotate scaledjob ado-agent-scaledjob -n ado-agents autoscaling.keda.sh
 
 **A:** Recovery steps depend on failure scope:
 
-1. **Single pod failure**: Kubernetes automatically restarts
-2. **Agent pool failure**: Delete deployment, Helm will recreate
+1. **Single Job pod failure**: KEDA creates a replacement Job for queued work
+2. **Agent pool failure**: Delete the affected ScaledJob and re-apply the application layer or Helm release
 3. **Namespace corruption**: Redeploy application layer
 4. **Cluster failure**: Redeploy middleware + application layers
 5. **Complete failure**: Redeploy all layers from state backup

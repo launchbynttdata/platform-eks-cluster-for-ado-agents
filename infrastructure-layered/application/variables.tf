@@ -424,9 +424,9 @@ variable "agent_run_once" {
 }
 
 variable "agent_recycle_pod_after_run_once" {
-  description = "Whether ADO agent containers should delete their own pod after a runOnce completion so the ReplicaSet creates a fresh pod."
+  description = "Whether ADO agent containers should delete their own pod after a runOnce completion. Leave false for ScaledJob workers because Job completion owns pod lifecycle."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "agent_cleanup_timeout_seconds" {
