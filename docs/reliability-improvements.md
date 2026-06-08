@@ -42,7 +42,7 @@ For each enabled pull-through cache rule, the middleware layer also creates an E
 
 Docker Hub pull-through cache is intentionally not created in phase 1 because ECR requires Docker Hub credentials in Secrets Manager for that upstream. Docker Hub references remain anonymous fallback unless Dockerfiles or pipeline templates are rewritten to a cached public upstream.
 
-Microsoft Container Registry (`mcr.microsoft.com`) is not currently one of the anonymous public upstreams supported by ECR pull-through cache. ECR supports Microsoft Azure Container Registry as an authenticated upstream for `<registry>.azurecr.io` registries, which requires a Secrets Manager credential. If that is needed later, add a rule with `credential_arn` and the ACR upstream URL; the BuildKit mirror and repository template will be generated from the rule.
+Microsoft Container Registry (`mcr.microsoft.com`) is not currently one of the anonymous public upstreams supported by ECR pull-through cache. ECR supports Microsoft Azure Container Registry as an authenticated upstream for `<registry>.azurecr.io` registries, but authenticated cache rules require Secrets Manager credentials and are intentionally deferred to a later phase.
 
 ## Operational Checks
 

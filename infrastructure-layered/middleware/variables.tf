@@ -400,7 +400,6 @@ variable "ecr_pull_through_cache_rules" {
   description = "ECR pull-through cache rules keyed by ECR repository prefix."
   type = map(object({
     upstream_registry_url = string
-    credential_arn        = optional(string)
   }))
   default = {
     ecr-public = {

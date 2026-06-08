@@ -268,7 +268,6 @@ resource "aws_ecr_pull_through_cache_rule" "cache" {
 
   ecr_repository_prefix = each.key
   upstream_registry_url = each.value.upstream_registry_url
-  credential_arn        = try(each.value.credential_arn, null)
 }
 
 resource "aws_ecr_repository_creation_template" "pull_through_cache" {
