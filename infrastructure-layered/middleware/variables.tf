@@ -16,6 +16,11 @@ variable "remote_state_bucket" {
   type        = string
 }
 
+variable "remote_state_region" {
+  description = "AWS region for the Terraform remote state bucket. This can differ from aws_region when the state bucket is centralized."
+  type        = string
+}
+
 variable "remote_state_environment" {
   description = "Environment prefix for remote state keys (matches env.hcl environment)"
   type        = string

@@ -111,6 +111,8 @@ inputs = {
 
   # Remote state configuration (for compatibility)
   remote_state_environment = local.env.locals.environment
+  remote_state_bucket      = get_env("TF_STATE_BUCKET")
+  remote_state_region      = get_env("TF_STATE_REGION", local.env.locals.aws_region)
 
   # Azure DevOps Configuration
   ado_org                 = local.env.locals.ado_org

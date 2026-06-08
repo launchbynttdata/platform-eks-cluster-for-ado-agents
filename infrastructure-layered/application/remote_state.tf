@@ -9,7 +9,8 @@ locals {
 }
 
 data "terraform_remote_state" "base" {
-  backend = "s3"
+  backend   = "s3"
+  workspace = "default"
   config = {
     bucket = var.remote_state_bucket
     key    = "${local.remote_state_prefix}base/terraform.tfstate"
@@ -19,7 +20,8 @@ data "terraform_remote_state" "base" {
 
 # Middleware layer state (KEDA, ESO, buildkitd, namespaces)
 data "terraform_remote_state" "middleware" {
-  backend = "s3"
+  backend   = "s3"
+  workspace = "default"
   config = {
     bucket = var.remote_state_bucket
     key    = "${local.remote_state_prefix}middleware/terraform.tfstate"

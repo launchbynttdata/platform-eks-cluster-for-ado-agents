@@ -71,6 +71,7 @@ dependency "base" {
 inputs = {
   # Remote state configuration
   remote_state_bucket      = get_env("TF_STATE_BUCKET")
+  remote_state_region      = get_env("TF_STATE_REGION", local.env.locals.aws_region)
   remote_state_environment = local.env.locals.environment
   base_state_key           = "base/terraform.tfstate"
 
