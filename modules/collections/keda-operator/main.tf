@@ -22,6 +22,28 @@ resource "kubernetes_namespace" "ado_agents" {
   }
 }
 
+locals {
+  image_registry = "ghcr.io"
+
+  keda_image_repository           = trimprefix(var.keda_image_repository, "${local.image_registry}/")
+  metrics_server_image_repository = trimprefix(var.metrics_server_image_repository, "${local.image_registry}/")
+  webhooks_image_repository       = trimprefix(var.webhooks_image_repository, "${local.image_registry}/")
+
+  pod_security_context = {
+    runAsNonRoot = true
+    runAsUser    = 1001
+    fsGroup      = 1001
+  }
+
+  security_context = {
+    allowPrivilegeEscalation = false
+    readOnlyRootFilesystem   = true
+    capabilities = {
+      drop = ["ALL"]
+    }
+  }
+}
+
 # Install KEDA using Helm
 resource "helm_release" "keda" {
   name       = var.release_name
@@ -39,15 +61,18 @@ resource "helm_release" "keda" {
     yamlencode({
       image = {
         keda = {
-          repository = var.keda_image_repository
+          registry   = local.image_registry
+          repository = local.keda_image_repository
           tag        = var.keda_image_tag
         }
         metricsApiServer = {
-          repository = var.metrics_server_image_repository
+          registry   = local.image_registry
+          repository = local.metrics_server_image_repository
           tag        = var.metrics_server_image_tag
         }
         webhooks = {
-          repository = var.webhooks_image_repository
+          registry   = local.image_registry
+          repository = local.webhooks_image_repository
           tag        = var.webhooks_image_tag
         }
       }
@@ -63,27 +88,43 @@ resource "helm_release" "keda" {
       }
 
       podSecurityContext = {
-        runAsNonRoot = true
-        runAsUser    = 1001
-        fsGroup      = 1001
+        operator     = local.pod_security_context
+        metricServer = local.pod_security_context
+        webhooks     = local.pod_security_context
       }
 
       securityContext = {
-        allowPrivilegeEscalation = false
-        readOnlyRootFilesystem   = true
-        capabilities = {
-          drop = ["ALL"]
-        }
+        operator     = local.security_context
+        metricServer = local.security_context
+        webhooks     = local.security_context
       }
 
       # Additional environment variables for KEDA operator
       env = var.env
 
-      resources = var.resources
+      resources = {
+        operator     = var.resources
+        metricServer = var.resources
+        webhooks     = var.resources
+      }
 
-      nodeSelector = var.node_selector
-      tolerations  = var.tolerations
-      affinity     = var.affinity
+      operator = {
+        nodeSelector = var.node_selector
+        tolerations  = var.tolerations
+        affinity     = var.affinity
+      }
+
+      metricsServer = {
+        nodeSelector = var.node_selector
+        tolerations  = var.tolerations
+        affinity     = var.affinity
+      }
+
+      webhooks = {
+        nodeSelector = var.node_selector
+        tolerations  = var.tolerations
+        affinity     = var.affinity
+      }
     })
   ]
 

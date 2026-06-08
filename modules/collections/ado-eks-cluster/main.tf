@@ -838,7 +838,7 @@ module "keda_operator" {
   ado_secret_name      = local.ado_secret_name
   create_scaled_object = false # Will be created separately with actual deployment
   tolerations = [{
-    key      = "ks.amazonaws.com/compute-type"
+    key      = "eks.amazonaws.com/compute-type"
     operator = "Equal"
     value    = "fargate"
     effect   = "NoSchedule"

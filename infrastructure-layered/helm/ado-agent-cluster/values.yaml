@@ -69,7 +69,7 @@ agentPools:
       failedJobsHistoryLimit: 5
     # Node assignment
     tolerations:
-      - key: "ks.amazonaws.com/compute-type"
+      - key: "eks.amazonaws.com/compute-type"
         operator: "Equal"
         value: "fargate"
         effect: "NoSchedule"
@@ -126,7 +126,7 @@ agentPools:
       failedJobsHistoryLimit: 5
     # Node assignment
     tolerations:
-      - key: "ks.amazonaws.com/compute-type"
+      - key: "eks.amazonaws.com/compute-type"
         operator: "Equal"
         value: "fargate"
         effect: "NoSchedule"

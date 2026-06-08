@@ -290,7 +290,7 @@ variable "buildkitd_tolerations" {
   }))
   default = [
     {
-      key      = "ks.amazonaws.com/compute-type"
+      key      = "eks.amazonaws.com/compute-type"
       operator = "Equal"
       value    = "fargate"
       effect   = "NoSchedule"
