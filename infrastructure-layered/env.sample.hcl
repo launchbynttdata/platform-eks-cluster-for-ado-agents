@@ -275,7 +275,8 @@ locals {
   # buildkitd_ecr_registry_account_ids = ["111111111111", "222222222222"]
   # buildkitd_ecr_repository_arns      = ["arn:aws:ecr:us-west-2:222222222222:repository/*"]
   # buildkitd_kms_key_arn_patterns     = ["arn:aws:kms:us-west-2:222222222222:key/*"]
-  enable_ecr_pull_through_cache = true
+  enable_ecr_pull_through_cache                      = true
+  create_ecr_pull_through_cache_repository_templates = true
   ecr_pull_through_cache_rules = {
     ecr-public = {
       upstream_registry_url = "public.ecr.aws"
@@ -288,10 +289,8 @@ locals {
     }
   }
   buildkitd_registry_mirrors = {
-    # Replace 123456789012 with the AWS account running this platform.
-    "public.ecr.aws"  = ["123456789012.dkr.ecr.us-west-2.amazonaws.com/ecr-public"]
-    "registry.k8s.io" = ["123456789012.dkr.ecr.us-west-2.amazonaws.com/k8s"]
-    "quay.io"         = ["123456789012.dkr.ecr.us-west-2.amazonaws.com/quay"]
+    # Optional overrides only. ECR pull-through cache mirrors are derived automatically
+    # from ecr_pull_through_cache_rules as <account>.dkr.ecr.<region>.amazonaws.com/<prefix>.
   }
 
   # =============================================================================

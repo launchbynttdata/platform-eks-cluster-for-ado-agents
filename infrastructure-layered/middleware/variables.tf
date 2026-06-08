@@ -355,7 +355,7 @@ variable "buildkitd_kms_key_arn_patterns" {
 }
 
 variable "buildkitd_registry_mirrors" {
-  description = "Registry mirror configuration rendered into buildkitd.toml. Map keys are registry hosts and values are mirror endpoint lists."
+  description = "Additional or override registry mirror configuration rendered into buildkitd.toml. ECR pull-through cache mirrors are derived automatically from ecr_pull_through_cache_rules."
   type        = map(list(string))
   default     = {}
 }
@@ -400,6 +400,7 @@ variable "ecr_pull_through_cache_rules" {
   description = "ECR pull-through cache rules keyed by ECR repository prefix."
   type = map(object({
     upstream_registry_url = string
+    credential_arn        = optional(string)
   }))
   default = {
     ecr-public = {
@@ -412,6 +413,12 @@ variable "ecr_pull_through_cache_rules" {
       upstream_registry_url = "quay.io"
     }
   }
+}
+
+variable "create_ecr_pull_through_cache_repository_templates" {
+  description = "Whether to create ECR repository creation templates so pull-through cache repositories are auto-created with a lifecycle policy and repository policy."
+  type        = bool
+  default     = true
 }
 
 # Additional Tags

@@ -71,6 +71,19 @@ locals {
   buildkitd_kms_patterns = length(var.buildkitd_kms_key_arn_patterns) > 0 ? var.buildkitd_kms_key_arn_patterns : [
     "arn:aws:kms:${local.bk_region}:${local.bk_account}:key/*"
   ]
+  ecr_pull_through_cache_rules = var.enable_ecr_pull_through_cache ? var.ecr_pull_through_cache_rules : {}
+  ecr_pull_through_cache_registry_mirrors = {
+    for prefix, rule in local.ecr_pull_through_cache_rules :
+    rule.upstream_registry_url => ["${local.bk_account}.dkr.ecr.${local.bk_region}.amazonaws.com/${prefix}"]
+  }
+  ecr_pull_through_cache_repository_arns = [
+    for prefix in keys(local.ecr_pull_through_cache_rules) :
+    "arn:aws:ecr:${local.bk_region}:${local.bk_account}:repository/${prefix}/*"
+  ]
+  buildkitd_effective_registry_mirrors = merge(
+    local.ecr_pull_through_cache_registry_mirrors,
+    var.buildkitd_registry_mirrors
+  )
   buildkitd_docker_config_json = jsonencode({
     credHelpers = {
       for acc in local.buildkitd_registry_ids :
@@ -78,12 +91,50 @@ locals {
     }
   })
   buildkitd_registry_mirror_config = join("\n", [
-    for registry, mirrors in var.buildkitd_registry_mirrors : <<-EOT
+    for registry, mirrors in local.buildkitd_effective_registry_mirrors : <<-EOT
 
       [registry.${jsonencode(registry)}]
         mirrors = ${jsonencode(mirrors)}
     EOT
   ])
+  ecr_pull_through_cache_repository_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowAccountPullFromPullThroughCache"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${local.bk_account}:root"
+        }
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:BatchGetImage",
+          "ecr:DescribeImages",
+          "ecr:DescribeRepositories",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:GetRepositoryPolicy",
+          "ecr:ListImages"
+        ]
+      }
+    ]
+  })
+  ecr_pull_through_cache_lifecycle_policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Expire untagged cache images after 14 days"
+        selection = {
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 14
+        }
+        action = {
+          type = "expire"
+        }
+      }
+    ]
+  })
   buildkitd_base_args = [
     "--debug",
     "--addr", "tcp://0.0.0.0:1234",
@@ -213,10 +264,26 @@ resource "aws_eks_addon" "cloudwatch_observability" {
 }
 
 resource "aws_ecr_pull_through_cache_rule" "cache" {
-  for_each = var.enable_ecr_pull_through_cache ? var.ecr_pull_through_cache_rules : {}
+  for_each = local.ecr_pull_through_cache_rules
 
   ecr_repository_prefix = each.key
   upstream_registry_url = each.value.upstream_registry_url
+  credential_arn        = try(each.value.credential_arn, null)
+}
+
+resource "aws_ecr_repository_creation_template" "pull_through_cache" {
+  for_each = var.create_ecr_pull_through_cache_repository_templates ? local.ecr_pull_through_cache_rules : {}
+
+  prefix               = each.key
+  description          = "Managed pull-through cache repositories for ${each.value.upstream_registry_url}"
+  applied_for          = ["PULL_THROUGH_CACHE"]
+  image_tag_mutability = "MUTABLE"
+  repository_policy    = local.ecr_pull_through_cache_repository_policy
+  lifecycle_policy     = local.ecr_pull_through_cache_lifecycle_policy
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
 }
 
 # KEDA Operator IAM Role
@@ -551,35 +618,52 @@ module "buildkit_irsa_policy" {
 
   policy_name = "${local.cluster_name}-buildkitd-ecr-policy"
 
-  policy_statement = {
-    ecr_get_auth = {
-      sid       = "ECRGetAuth"
-      actions   = ["ecr:GetAuthorizationToken"]
-      resources = ["*"]
-    }
-    ecr_push_pull = {
-      sid = "ECRPushPull"
-      actions = [
-        "ecr:BatchCheckLayerAvailability",
-        "ecr:GetDownloadUrlForLayer",
-        "ecr:BatchGetImage",
-        "ecr:InitiateLayerUpload",
-        "ecr:UploadLayerPart",
-        "ecr:CompleteLayerUpload",
-        "ecr:PutImage"
-      ]
-      resources = local.buildkitd_ecr_repo_arns
-    }
-    kms_for_ecr = {
-      sid = "KMSForECR"
-      actions = [
-        "kms:Decrypt",
-        "kms:DescribeKey",
-        "kms:GenerateDataKey"
-      ]
-      resources = local.buildkitd_kms_patterns
-    }
-  }
+  policy_statement = merge(
+    {
+      ecr_get_auth = {
+        sid       = "ECRGetAuth"
+        actions   = ["ecr:GetAuthorizationToken"]
+        resources = ["*"]
+      }
+      ecr_push_pull = {
+        sid = "ECRPushPull"
+        actions = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage"
+        ]
+        resources = local.buildkitd_ecr_repo_arns
+      }
+      kms_for_ecr = {
+        sid = "KMSForECR"
+        actions = [
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:GenerateDataKey"
+        ]
+        resources = local.buildkitd_kms_patterns
+      }
+    },
+    length(local.ecr_pull_through_cache_repository_arns) > 0 ? {
+      ecr_pull_through_cache = {
+        sid = "ECRPullThroughCache"
+        actions = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:BatchGetImage",
+          "ecr:BatchImportUpstreamImage",
+          "ecr:CreateRepository",
+          "ecr:DescribeImages",
+          "ecr:DescribeRepositories",
+          "ecr:GetDownloadUrlForLayer"
+        ]
+        resources = local.ecr_pull_through_cache_repository_arns
+      }
+    } : {}
+  )
 
   tags = merge(local.common_tags, {
     Role      = "buildkitd"

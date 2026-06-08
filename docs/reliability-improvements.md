@@ -38,7 +38,11 @@ The middleware layer creates anonymous-compatible ECR pull-through cache rules f
 - `registry.k8s.io`
 - `quay.io`
 
+For each enabled pull-through cache rule, the middleware layer also creates an ECR repository creation template. Repositories that ECR creates on first pull receive a pull policy for the cluster account and a lifecycle policy for untagged cache images. The BuildKit role receives first-pull cache population permissions for the managed prefixes. BuildKit registry mirrors are derived automatically from the cache rules as `<account>.dkr.ecr.<region>.amazonaws.com/<prefix>`, so build users can keep normal `FROM public.ecr.aws/...`, `FROM registry.k8s.io/...`, and `FROM quay.io/...` references.
+
 Docker Hub pull-through cache is intentionally not created in phase 1 because ECR requires Docker Hub credentials in Secrets Manager for that upstream. Docker Hub references remain anonymous fallback unless Dockerfiles or pipeline templates are rewritten to a cached public upstream.
+
+Microsoft Container Registry (`mcr.microsoft.com`) is not currently one of the anonymous public upstreams supported by ECR pull-through cache. ECR supports Microsoft Azure Container Registry as an authenticated upstream for `<registry>.azurecr.io` registries, which requires a Secrets Manager credential. If that is needed later, add a rule with `credential_arn` and the ACR upstream URL; the BuildKit mirror and repository template will be generated from the rule.
 
 ## Operational Checks
 

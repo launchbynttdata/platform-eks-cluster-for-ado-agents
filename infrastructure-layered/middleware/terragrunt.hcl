@@ -145,6 +145,7 @@ inputs = {
       upstream_registry_url = "quay.io"
     }
   })
+  create_ecr_pull_through_cache_repository_templates = try(local.env.locals.create_ecr_pull_through_cache_repository_templates, true)
 
   # Node auto-heal / AWS Node Termination Handler configuration
   node_auto_heal_chart_version           = try(local.env.locals.node_auto_heal_chart_version, "0.27.6")

@@ -115,6 +115,21 @@ output "ecr_pull_through_cache_rules" {
   }
 }
 
+output "ecr_pull_through_cache_repository_templates" {
+  description = "ECR repository creation templates applied to pull-through cache-created repositories"
+  value = {
+    for prefix, template in aws_ecr_repository_creation_template.pull_through_cache : prefix => {
+      registry_id = template.registry_id
+      prefix      = template.prefix
+    }
+  }
+}
+
+output "buildkitd_effective_registry_mirrors" {
+  description = "Registry mirror configuration rendered into buildkitd.toml, including mirrors derived from ECR pull-through cache rules"
+  value       = local.buildkitd_effective_registry_mirrors
+}
+
 # Common Information
 output "aws_region" {
   description = "AWS region"
