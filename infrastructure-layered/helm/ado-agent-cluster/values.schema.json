@@ -115,7 +115,8 @@
                   "properties": {
                     "secretName": {"type": "string"},
                     "type": {"type": "string"},
-                    "refreshInterval": {"type": "string"}
+                    "refreshInterval": {"type": "string"},
+                    "creationPolicy": {"type": "string", "enum": ["Owner", "Merge", "Orphan", "None"]}
                   },
                   "required": ["secretName"]
                 },

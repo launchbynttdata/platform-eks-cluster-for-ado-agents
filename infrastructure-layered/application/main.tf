@@ -26,8 +26,13 @@ locals {
     },
     var.additional_tags
   )
-  cluster_oidc_host = replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")
-  eso_role_name     = split("/", data.terraform_remote_state.middleware.outputs.eso_role_arn)[1]
+  cluster_oidc_host        = replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")
+  eso_role_name            = split("/", data.terraform_remote_state.middleware.outputs.eso_role_arn)[1]
+  ado_secret_name          = data.terraform_remote_state.middleware.outputs.ado_secret_name
+  ado_external_secret_name = "${local.ado_secret_name}-secret"
+  requires_ado_pat_secret = anytrue([
+    for pool in values(var.agent_pools) : pool.enabled
+  ])
 
   ado_execution_policy_statements = {
     for role_key, role_cfg in var.ado_execution_roles :
@@ -110,6 +115,42 @@ resource "aws_secretsmanager_secret_version" "ado_pat" {
 
   lifecycle {
     ignore_changes = [secret_string]
+  }
+}
+
+# Bootstrap the Kubernetes PAT secret before Helm creates placeholder/jobs that mount it.
+# ESO refreshes the same secret from AWS Secrets Manager after the ExternalSecret reconciles.
+resource "kubernetes_secret" "ado_pat_bootstrap" {
+  count = local.requires_ado_pat_secret ? 1 : 0
+
+  metadata {
+    name      = local.ado_secret_name
+    namespace = data.terraform_remote_state.middleware.outputs.ado_agents_namespace
+    labels = {
+      "app.kubernetes.io/name"       = "ado-agent-cluster"
+      "app.kubernetes.io/component"  = "ado-agent-pat"
+      "app.kubernetes.io/managed-by" = "terraform"
+    }
+  }
+
+  type = "Opaque"
+
+  data = {
+    personalAccessToken = var.ado_pat_value
+    organization        = var.ado_org
+    adourl              = var.ado_url
+  }
+
+  depends_on = [
+    aws_secretsmanager_secret_version.ado_pat
+  ]
+
+  lifecycle {
+    ignore_changes = [
+      data,
+      metadata[0].annotations,
+      metadata[0].labels
+    ]
   }
 }
 
@@ -213,9 +254,6 @@ module "eso_ado_secret_access_policy_attachment" {
 
 # Prepare Helm values for ADO agent deployment
 locals {
-  ado_secret_name          = data.terraform_remote_state.middleware.outputs.ado_secret_name
-  ado_external_secret_name = "${local.ado_secret_name}-secret"
-
   helm_values = {
     global = {
       namespace   = data.terraform_remote_state.middleware.outputs.ado_agents_namespace
@@ -309,6 +347,7 @@ locals {
             secretName      = local.ado_secret_name
             type            = "Opaque"
             refreshInterval = var.secret_refresh_interval
+            creationPolicy  = "Merge"
           }
           data = {
             personalAccessToken = "personalAccessToken"
@@ -355,6 +394,7 @@ resource "helm_release" "ado_agents" {
   # Ensure dependencies are ready
   depends_on = [
     aws_secretsmanager_secret_version.ado_pat,
+    kubernetes_secret.ado_pat_bootstrap,
     module.ado_agent_execution_policy_attachment,
     module.eso_ado_secret_access_policy_attachment
   ]

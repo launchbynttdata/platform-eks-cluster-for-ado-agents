@@ -569,7 +569,8 @@ deploy_all_layers() {
             log_info "Using existing ADO_PAT from environment"
         fi
         
-        log_success "ADO credentials collected and will be injected after application layer deploys"
+        prepare_ado_pat_for_terraform
+        log_success "ADO credentials collected and will be available during application layer deploy"
     fi
     
     local layers=("base" "middleware" "application")
@@ -768,8 +769,15 @@ prompt_for_ado_credentials() {
     
     export ADO_ORG_URL
     export ADO_PAT
+    export TF_VAR_ado_pat_value="${ADO_PAT}"
     log_success "Credentials received"
     return 0
+}
+
+prepare_ado_pat_for_terraform() {
+    if [[ -n "${ADO_PAT:-}" ]]; then
+        export TF_VAR_ado_pat_value="${ADO_PAT}"
+    fi
 }
 
 # Forces External Secrets Operator to sync and restarts KEDA so ScaledJobs
@@ -1216,7 +1224,8 @@ main() {
                             log_info "Using existing ADO_PAT from environment"
                         fi
                         
-                        log_success "ADO credentials collected and will be injected after deployment"
+                        prepare_ado_pat_for_terraform
+                        log_success "ADO credentials collected and will be available during application layer deploy"
                     fi
                     
                     local layer_dir
