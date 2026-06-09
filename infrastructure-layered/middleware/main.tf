@@ -461,14 +461,15 @@ module "keda_operator" {
   count  = var.install_keda ? 1 : 0
   source = "./modules/collections/keda-operator"
 
-  cluster_name         = local.cluster_name
-  namespace            = var.keda_namespace
-  ado_namespace        = var.ado_agents_namespace
-  create_namespace     = true
-  create_ado_namespace = true
-  keda_version         = var.keda_version
-  keda_image_tag       = var.keda_version
-  webhooks_image_tag   = var.keda_version
+  cluster_name             = local.cluster_name
+  namespace                = var.keda_namespace
+  ado_namespace            = var.ado_agents_namespace
+  create_namespace         = true
+  create_ado_namespace     = true
+  keda_version             = var.keda_version
+  keda_image_tag           = var.keda_version
+  metrics_server_image_tag = var.keda_version
+  webhooks_image_tag       = var.keda_version
 
   service_account_annotations = {
     "eks.amazonaws.com/role-arn" = module.keda_operator_role.role_arn
