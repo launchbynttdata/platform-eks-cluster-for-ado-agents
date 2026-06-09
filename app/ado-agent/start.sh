@@ -53,6 +53,23 @@ print_header() {
   echo -e "\n${lightcyan}$1${nocolor}\n"
 }
 
+run_azure_agent_command() {
+  set +u
+  "$@"
+  local status=$?
+  set -u
+  return "${status}"
+}
+
+source_azure_agent_env() {
+  set +u
+  # shellcheck source=/dev/null
+  source ./env.sh
+  local status=$?
+  set -u
+  return "${status}"
+}
+
 cleanup() {
   local timeout_seconds="${AZP_CLEANUP_TIMEOUT_SECONDS:-300}"
   local deadline=$((SECONDS + timeout_seconds))
@@ -63,7 +80,7 @@ cleanup() {
     # If the agent has some running jobs, the configuration removal process will fail.
     # So, give it some time to finish the job.
     while [ "${SECONDS}" -lt "${deadline}" ]; do
-      if ./config.sh remove --unattended --auth "PAT" --token "$(cat "${AZP_TOKEN_FILE}")"; then
+      if run_azure_agent_command ./config.sh remove --unattended --auth "PAT" --token "$(cat "${AZP_TOKEN_FILE}")"; then
         echo "Azure Pipelines agent removed."
         return 0
       fi
@@ -139,8 +156,7 @@ print_header "2. Downloading and extracting Azure Pipelines agent..."
 
 curl -LsS "${AZP_AGENT_PACKAGE_LATEST_URL}" | tar -xz & wait $!
 
-# shellcheck source=/dev/null
-source ./env.sh
+source_azure_agent_env
 
 # shellcheck disable=SC2329
 cleanup_and_exit() {
@@ -157,7 +173,7 @@ trap "cleanup_and_exit 143" TERM
 print_header "3. Configuring Azure Pipelines agent..."
 
 # Despite it saying "PAT", it can be the token through the service principal
-./config.sh --unattended \
+run_azure_agent_command ./config.sh --unattended \
   --agent "${AZP_AGENT_NAME:-$(hostname)}" \
   --url "${AZP_URL}" \
   --auth "PAT" \
@@ -165,7 +181,7 @@ print_header "3. Configuring Azure Pipelines agent..."
   --pool "${AZP_POOL:-Default}" \
   --work "${AZP_WORK:-_work}" \
   --replace \
-  --acceptTeeEula & wait $!
+  --acceptTeeEula
 
 if [ "${AZP_PLACEHOLDER_AGENT:-false}" = "true" ]; then
   print_header "Azure Pipelines placeholder agent ${AZP_AGENT_NAME:-$(hostname)} registered. Exiting without unregistering so the offline template remains in the pool."
@@ -184,8 +200,10 @@ if [ "${AZP_RUN_ONCE:-false}" = "true" ]; then
   run_args+=("--once")
 fi
 
+set +u
 ./run.sh "${run_args[@]}" &
 agent_pid=$!
+set -u
 if wait "${agent_pid}"; then
   agent_exit=0
 else
