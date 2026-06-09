@@ -53,9 +53,15 @@ variable "cloudwatch_observability_addon_version" {
 }
 
 variable "enable_cloudwatch_application_signals_auto_monitor" {
-  description = "Whether the CloudWatch Observability add-on should auto-instrument all service workloads with Application Signals. Disabled by default to avoid mutating platform/operator pods."
+  description = "Whether the CloudWatch Observability add-on should auto-instrument service workloads with Application Signals."
   type        = bool
-  default     = false
+  default     = true
+}
+
+variable "cloudwatch_application_signals_auto_monitor_excluded_namespaces" {
+  description = "Additional namespaces to exclude from CloudWatch Application Signals auto-instrumentation. The ESO namespace is always excluded because injected ADOT init containers do not satisfy restricted Pod Security."
+  type        = list(string)
+  default     = []
 }
 
 variable "cloudwatch_log_retention_days" {

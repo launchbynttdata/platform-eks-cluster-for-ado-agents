@@ -146,6 +146,10 @@ locals {
     "--tlscert", "/etc/buildkit/certs/cert.pem",
     "--tlskey", "/etc/buildkit/certs/key.pem"
   ] : []
+  cloudwatch_application_signals_excluded_namespaces = distinct(concat(
+    [var.eso_namespace],
+    var.cloudwatch_application_signals_auto_monitor_excluded_namespaces
+  ))
 
   # kubernetes_manifest uses Kubernetes API field names (camelCase).
   buildkitd_tolerations_for_manifest = [
@@ -258,6 +262,20 @@ resource "aws_eks_addon" "cloudwatch_observability" {
       applicationSignals = {
         autoMonitor = {
           monitorAllServices = var.enable_cloudwatch_application_signals_auto_monitor
+          exclude = {
+            java = {
+              namespaces = local.cloudwatch_application_signals_excluded_namespaces
+            }
+            python = {
+              namespaces = local.cloudwatch_application_signals_excluded_namespaces
+            }
+            nodejs = {
+              namespaces = local.cloudwatch_application_signals_excluded_namespaces
+            }
+            dotnet = {
+              namespaces = local.cloudwatch_application_signals_excluded_namespaces
+            }
+          }
         }
       }
     }
