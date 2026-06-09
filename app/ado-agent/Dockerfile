@@ -4,18 +4,15 @@ ARG TARGETPLATFORM TARGETOS TARGETARCH TARGETVARIANT BUILDPLATFORM
 ENV DEBIAN_FRONTEND=noninteractive
 
 ARG BUILDCTL_VERSION=0.24.0
+ARG DOTNET_CHANNEL=9.0
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      software-properties-common && \
-    add-apt-repository ppa:dotnet/backports && \
-    apt-get update && apt-get upgrade -y && \ 
+RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
       amazon-ecr-credential-helper \
       build-essential \
       ca-certificates \
       curl \
       dirmngr \
-      dotnet-sdk-9.0 \
       gawk \
       git \
       gnupg \
@@ -42,6 +39,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       xz-utils \
       zlib1g-dev && \
     rm -rf /var/lib/apt/lists/*
+
+# Install .NET SDK without add-apt-repository/PPA. The PPA path pulls in
+# Python package post-install scripts, which are flaky under amd64 emulation on Apple Silicon.
+RUN set -eux; \
+  case "$TARGETARCH" in \
+    arm64) DOTNET_ARCH=arm64 ;; \
+    amd64) DOTNET_ARCH=x64 ;; \
+    *) echo "unsupported TARGETARCH=$TARGETARCH" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh; \
+  chmod +x dotnet-install.sh; \
+  ./dotnet-install.sh --channel "$DOTNET_CHANNEL" --architecture "$DOTNET_ARCH" --install-dir /usr/share/dotnet; \
+  ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; \
+  rm dotnet-install.sh; \
+  dotnet --version
 
 # Install AWS CLI (map Docker arch -> AWS package arch)
 RUN set -eux; \
