@@ -52,6 +52,12 @@ variable "cloudwatch_observability_addon_version" {
   default     = null
 }
 
+variable "enable_cloudwatch_application_signals_auto_monitor" {
+  description = "Whether the CloudWatch Observability add-on should auto-instrument all service workloads with Application Signals. Disabled by default to avoid mutating platform/operator pods."
+  type        = bool
+  default     = false
+}
+
 variable "cloudwatch_log_retention_days" {
   description = "Retention in days for platform CloudWatch log groups."
   type        = number

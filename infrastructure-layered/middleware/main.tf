@@ -250,9 +250,18 @@ resource "aws_iam_role_policy_attachment" "cloudwatch_agent_node_role" {
 resource "aws_eks_addon" "cloudwatch_observability" {
   count = var.enable_cloudwatch_observability && var.enable_cloudwatch_observability_addon ? 1 : 0
 
-  cluster_name                = local.cluster_name
-  addon_name                  = "amazon-cloudwatch-observability"
-  addon_version               = var.cloudwatch_observability_addon_version
+  cluster_name  = local.cluster_name
+  addon_name    = "amazon-cloudwatch-observability"
+  addon_version = var.cloudwatch_observability_addon_version
+  configuration_values = jsonencode({
+    manager = {
+      applicationSignals = {
+        autoMonitor = {
+          monitorAllServices = var.enable_cloudwatch_application_signals_auto_monitor
+        }
+      }
+    }
+  })
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
   tags                        = local.common_tags

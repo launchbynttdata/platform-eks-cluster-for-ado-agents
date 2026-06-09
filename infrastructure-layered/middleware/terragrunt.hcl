@@ -79,6 +79,7 @@ inputs = {
   enable_cloudwatch_observability        = try(local.env.locals.enable_cloudwatch_observability, true)
   enable_cloudwatch_observability_addon  = try(local.env.locals.enable_cloudwatch_observability_addon, true)
   cloudwatch_observability_addon_version = try(local.env.locals.cloudwatch_observability_addon_version, null)
+  enable_cloudwatch_application_signals_auto_monitor = try(local.env.locals.enable_cloudwatch_application_signals_auto_monitor, false)
   cloudwatch_log_retention_days          = try(local.env.locals.cloudwatch_log_retention_days, 30)
   enable_fargate_cloudwatch_logging      = try(local.env.locals.enable_fargate_cloudwatch_logging, true)
   fargate_fluentbit_log_level            = try(local.env.locals.fargate_fluentbit_log_level, "info")
