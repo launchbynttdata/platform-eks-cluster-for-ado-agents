@@ -290,7 +290,7 @@ The wildcard `*` in the account ID allows assuming roles in any account; tighten
 ### Verify Role Assumption from a Pod
 
 ```bash
-kubectl exec -it -n ado-agents deployment/ado-agent -- aws sts get-caller-identity
+kubectl exec -it -n ado-agents "$(kubectl get pod -n ado-agents -l app.kubernetes.io/name=ado-agent-cluster -o name | head -n 1)" -- aws sts get-caller-identity
 ```
 
 Expected output shows the assumed role ARN.

@@ -8,10 +8,11 @@ locals {
 }
 
 data "terraform_remote_state" "base" {
-  backend = "s3"
+  backend   = "s3"
+  workspace = "default"
   config = {
     bucket = var.remote_state_bucket
     key    = "${local.base_state_prefix}${var.base_state_key}"
-    region = var.aws_region
+    region = var.remote_state_region
   }
 }

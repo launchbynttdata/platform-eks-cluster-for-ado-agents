@@ -164,6 +164,26 @@ module "cluster_encryption_key" {
         }
       }
     }
+    allow_cloudwatch_logs = {
+      sid    = "Allow use by CloudWatch Logs"
+      effect = "Allow"
+      principals = {
+        Service = ["logs.${data.aws_region.current.name}.amazonaws.com"]
+      }
+      actions = [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncrypt*",
+        "kms:GenerateDataKey*",
+        "kms:DescribeKey"
+      ]
+      resources = ["*"]
+      conditions = {
+        ArnLike = {
+          "kms:EncryptionContext:aws:logs:arn" = ["arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:*"]
+        }
+      }
+    }
   }
 
   tags = merge(local.common_tags, {
@@ -511,7 +531,7 @@ resource "aws_eks_addon" "vpc_cni" {
 
   cluster_name                = module.eks_cluster.name
   addon_name                  = "vpc-cni"
-  addon_version               = try(var.eks_addons["vpc-cni"].addon_version, null)
+  addon_version               = try(var.eks_addons["vpc-cni"].addon_version, var.eks_addons["vpc-cni"].version, null)
   service_account_role_arn    = var.create_iam_roles ? module.vpc_cni_irsa_role[0].role_arn : null
   resolve_conflicts_on_create = try(var.eks_addons["vpc-cni"].resolve_conflicts_on_create, "OVERWRITE")
   resolve_conflicts_on_update = try(var.eks_addons["vpc-cni"].resolve_conflicts_on_update, "OVERWRITE")

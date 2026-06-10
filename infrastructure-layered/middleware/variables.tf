@@ -16,6 +16,11 @@ variable "remote_state_bucket" {
   type        = string
 }
 
+variable "remote_state_region" {
+  description = "AWS region for the Terraform remote state bucket. This can differ from aws_region when the state bucket is centralized."
+  type        = string
+}
+
 variable "remote_state_environment" {
   description = "Environment prefix for remote state keys (matches env.hcl environment)"
   type        = string
@@ -26,6 +31,78 @@ variable "base_state_key" {
   description = "S3 key for base layer Terraform state"
   type        = string
   default     = "base/terraform.tfstate"
+}
+
+# CloudWatch Logging / Observability
+variable "enable_cloudwatch_observability" {
+  description = "Whether to create CloudWatch log resources and EKS logging integrations for platform pod logs."
+  type        = bool
+  default     = true
+}
+
+variable "enable_cloudwatch_observability_addon" {
+  description = "Whether to install the Amazon CloudWatch Observability EKS add-on for EC2 node log collection."
+  type        = bool
+  default     = true
+}
+
+variable "cloudwatch_observability_addon_version" {
+  description = "Version of the Amazon CloudWatch Observability EKS add-on. Null uses the EKS default version."
+  type        = string
+  default     = null
+}
+
+variable "enable_cloudwatch_application_signals_auto_monitor" {
+  description = "Whether the CloudWatch Observability add-on should auto-instrument service workloads with Application Signals."
+  type        = bool
+  default     = true
+}
+
+variable "cloudwatch_application_signals_auto_monitor_excluded_namespaces" {
+  description = "Additional namespaces to exclude from CloudWatch Application Signals auto-instrumentation. The ESO namespace is always excluded because injected ADOT init containers do not satisfy restricted Pod Security."
+  type        = list(string)
+  default     = []
+}
+
+variable "cloudwatch_log_retention_days" {
+  description = "Retention in days for platform CloudWatch log groups."
+  type        = number
+  default     = 30
+}
+
+variable "enable_fargate_cloudwatch_logging" {
+  description = "Whether to create the aws-observability/aws-logging ConfigMap for EKS Fargate pod log shipping."
+  type        = bool
+  default     = true
+}
+
+variable "fargate_fluentbit_log_level" {
+  description = "Log level for the EKS Fargate Fluent Bit log router."
+  type        = string
+  default     = "info"
+}
+
+variable "fargate_fluentbit_include_process_logs" {
+  description = "Whether Fargate Fluent Bit process logs are sent to CloudWatch."
+  type        = bool
+  default     = false
+}
+
+variable "platform_log_groups" {
+  description = "Logical platform log groups to pre-create under /aws/containerinsights/<cluster_name>."
+  type        = list(string)
+  default     = ["application", "dataplane", "host", "performance", "ado-agents", "buildkit", "keda", "cluster-autoscaler"]
+}
+
+variable "application_crd_ready_wait_seconds" {
+  description = "Seconds to wait after middleware CRD-owning Helm releases before application-layer custom resources are installed."
+  type        = number
+  default     = 60
+
+  validation {
+    condition     = var.application_crd_ready_wait_seconds >= 0 && var.application_crd_ready_wait_seconds <= 300
+    error_message = "application_crd_ready_wait_seconds must be between 0 and 300."
+  }
 }
 
 # KEDA Configuration
@@ -44,7 +121,7 @@ variable "keda_namespace" {
 variable "keda_version" {
   description = "Version of KEDA operator to install"
   type        = string
-  default     = "2.17.2"
+  default     = "2.20.0"
 }
 
 variable "keda_enable_cloudeventsource" {
@@ -69,7 +146,7 @@ variable "metrics_server_namespace" {
 variable "metrics_server_chart_version" {
   description = "Helm chart version for metrics-server."
   type        = string
-  default     = "3.12.2"
+  default     = "3.13.0"
 }
 
 variable "metrics_server_args" {
@@ -154,7 +231,7 @@ variable "eso_namespace" {
 }
 
 variable "eso_version" {
-  description = "Version of External Secrets Operator Helm chart to install (1.3.x = ESO app 1.3)"
+  description = "Version of External Secrets Operator Helm chart to install."
   type        = string
   default     = "1.3.2"
 }
@@ -198,7 +275,7 @@ variable "buildkitd_namespace" {
 variable "buildkitd_image" {
   description = "Docker image for buildkitd"
   type        = string
-  default     = "moby/buildkit:v0.26.3-rootless"
+  default     = "moby/buildkit:v0.30.0-rootless"
 }
 
 variable "buildkitd_replicas" {
@@ -225,7 +302,7 @@ variable "buildkitd_tolerations" {
   }))
   default = [
     {
-      key      = "ks.amazonaws.com/compute-type"
+      key      = "eks.amazonaws.com/compute-type"
       operator = "Equal"
       value    = "fargate"
       effect   = "NoSchedule"
@@ -303,6 +380,72 @@ variable "buildkitd_kms_key_arn_patterns" {
   description = "KMS key ARN patterns for ECR customer-managed encryption. Empty = arn:aws:kms:<region>:<cluster_account>:key/*"
   type        = list(string)
   default     = []
+}
+
+variable "buildkitd_registry_mirrors" {
+  description = "Additional or override registry mirror configuration rendered into buildkitd.toml. ECR pull-through cache mirrors are derived automatically from ecr_pull_through_cache_rules."
+  type        = map(list(string))
+  default     = {}
+}
+
+variable "buildkitd_topology_spread_enabled" {
+  description = "Whether to spread BuildKit pods across zones when possible."
+  type        = bool
+  default     = true
+}
+
+variable "buildkitd_pdb_enabled" {
+  description = "Whether to create a PodDisruptionBudget for BuildKit."
+  type        = bool
+  default     = true
+}
+
+variable "buildkitd_pdb_min_available" {
+  description = "Minimum available BuildKit pods during voluntary disruptions."
+  type        = number
+  default     = 1
+}
+
+variable "buildkitd_tls_enabled" {
+  description = "Whether BuildKit should require TLS on its TCP listener."
+  type        = bool
+  default     = false
+}
+
+variable "buildkitd_tls_secret_name" {
+  description = "Kubernetes secret in the BuildKit namespace containing ca.pem, cert.pem, and key.pem for buildkitd TLS."
+  type        = string
+  default     = ""
+}
+
+variable "enable_ecr_pull_through_cache" {
+  description = "Whether to create anonymous-compatible ECR pull-through cache rules."
+  type        = bool
+  default     = true
+}
+
+variable "ecr_pull_through_cache_rules" {
+  description = "ECR pull-through cache rules keyed by ECR repository prefix."
+  type = map(object({
+    upstream_registry_url = string
+  }))
+  default = {
+    ecr-public = {
+      upstream_registry_url = "public.ecr.aws"
+    }
+    k8s = {
+      upstream_registry_url = "registry.k8s.io"
+    }
+    quay = {
+      upstream_registry_url = "quay.io"
+    }
+  }
+}
+
+variable "create_ecr_pull_through_cache_repository_templates" {
+  description = "Whether to create ECR repository creation templates so pull-through cache repositories are auto-created with a lifecycle policy and repository policy."
+  type        = bool
+  default     = true
 }
 
 # Additional Tags
@@ -446,7 +589,7 @@ variable "node_auto_heal_daemonset_resources" {
 variable "node_auto_heal_chart_version" {
   description = "Version of the aws-node-termination-handler Helm chart."
   type        = string
-  default     = "0.27.3"
+  default     = "0.27.6"
 }
 
 variable "node_auto_heal_log_level" {

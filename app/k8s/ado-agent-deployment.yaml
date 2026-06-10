@@ -16,7 +16,7 @@ spec:
       serviceAccountName: ado-agent-dev-build
       automountServiceAccountToken: false
       tolerations:
-        - key: "ks.amazonaws.com/compute-type"
+        - key: "eks.amazonaws.com/compute-type"
           operator: "Equal"
           value: "fargate"
           effect: "NoSchedule"
@@ -53,4 +53,3 @@ spec:
             memory: "2Gi"
             cpu: "1000m"
       restartPolicy: Always
-      

@@ -9,6 +9,14 @@ global:
   clusterName: ""
   region: us-west-2
 
+# Agent lifecycle controls.
+agent:
+  runOnce: true
+  recyclePodAfterRunOnce: false
+  cleanupTimeoutSeconds: 300
+  terminationGracePeriodSeconds: 420
+  automountServiceAccountToken: true
+
 # Agent pool configurations
 # Multiple agent pools can be defined, each with their own configuration
 agentPools:
@@ -39,18 +47,35 @@ agentPools:
     # KEDA autoscaling configuration
     autoscaling:
       enabled: true
-      minReplicas: 1
       maxReplicas: 10
+      pollingInterval: 30
       targetPipelinesQueueLength: 1
+      activationTargetPipelinesQueueLength: ""
+      jobsToFetch: ""
+      fetchUnfinishedJobsOnly: false
+      poolID: ""
+      templateAgentName: "dev-build-keda-template"
+      createTemplateAgent: true
+      placeholderBackoffLimit: 1
+      placeholderTtlSecondsAfterFinished: 300
+      demands: ""
+      requireAllDemands: false
+      requireAllDemandsAndIgnoreOthers: false
+      caseInsensitiveDemandsProcessing: false
       triggerAuthenticationName: ""  # Will be generated from pool name
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 300
+      successfulJobsHistoryLimit: 5
+      failedJobsHistoryLimit: 5
     # Node assignment
     tolerations:
-      - key: "ks.amazonaws.com/compute-type"
+      - key: "eks.amazonaws.com/compute-type"
         operator: "Equal"
         value: "fargate"
         effect: "NoSchedule"
     nodeSelector: {}
     affinity: {}
+    topologySpreadConstraints: []
     
   iac:
     enabled: true
@@ -79,18 +104,35 @@ agentPools:
     # KEDA autoscaling configuration
     autoscaling:
       enabled: true
-      minReplicas: 0
       maxReplicas: 5
+      pollingInterval: 30
       targetPipelinesQueueLength: 1
+      activationTargetPipelinesQueueLength: ""
+      jobsToFetch: ""
+      fetchUnfinishedJobsOnly: false
+      poolID: ""
+      templateAgentName: "iac-keda-template"
+      createTemplateAgent: true
+      placeholderBackoffLimit: 1
+      placeholderTtlSecondsAfterFinished: 300
+      demands: ""
+      requireAllDemands: false
+      requireAllDemandsAndIgnoreOthers: false
+      caseInsensitiveDemandsProcessing: false
       triggerAuthenticationName: ""  # Will be generated from pool name
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 300
+      successfulJobsHistoryLimit: 5
+      failedJobsHistoryLimit: 5
     # Node assignment
     tolerations:
-      - key: "ks.amazonaws.com/compute-type"
+      - key: "eks.amazonaws.com/compute-type"
         operator: "Equal"
         value: "fargate"
         effect: "NoSchedule"
     nodeSelector: {}
     affinity: {}
+    topologySpreadConstraints: []
 
 # External Secrets configuration (for secret synchronization)
 externalSecrets:

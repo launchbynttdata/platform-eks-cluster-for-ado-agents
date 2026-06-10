@@ -117,6 +117,11 @@ output "ec2_node_group_role_arn" {
   value       = length(var.ec2_node_group) > 0 ? module.ec2_node_group_role[0].role_arn : null
 }
 
+output "ec2_node_group_role_name" {
+  description = "Name of the EC2 node group IAM role"
+  value       = length(var.ec2_node_group) > 0 ? module.ec2_node_group_role[0].role_name : null
+}
+
 # Cluster Autoscaler
 output "cluster_autoscaler_role_arn" {
   description = "ARN of the cluster autoscaler IAM role"

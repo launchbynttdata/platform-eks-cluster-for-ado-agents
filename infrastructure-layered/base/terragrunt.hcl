@@ -23,13 +23,13 @@ include "common" {
 # Specify the Terraform source
 terraform {
   source = "."
-  
+
   # Before destroy, warn about dependencies
   before_hook "warn_before_destroy" {
     commands = ["destroy"]
     execute  = ["echo", "⚠️  WARNING: Destroying base layer will make middleware and application layers unusable!"]
   }
-  
+
   after_hook "kubeconfig_after_apply" {
     commands     = ["apply"]
     execute      = ["bash", "-c", "echo '✅ Base layer deployed. Configure kubectl: aws eks update-kubeconfig --region ${local.env.locals.aws_region} --name ${local.env.locals.cluster_name}'"]
@@ -52,37 +52,37 @@ inputs = {
   environment = local.env.locals.environment
   project     = local.env.locals.project_name
   tags        = local.env.locals.common_tags
-  
+
   # Cluster Configuration
   cluster_name    = local.env.locals.cluster_name
   cluster_version = local.env.locals.cluster_version
-  
+
   # Networking Configuration
   vpc_id     = local.env.locals.vpc_id
   subnet_ids = local.env.locals.subnet_ids
-  
+
   # Security Configuration
   endpoint_public_access = local.env.locals.endpoint_public_access
   public_access_cidrs    = local.env.locals.public_access_cidrs
-  
+
   # IAM Configuration
   create_iam_roles = local.env.locals.create_iam_roles
-  
+
   # KMS Configuration
   kms_key_description             = local.env.locals.kms_key_description
   kms_key_deletion_window_in_days = local.env.locals.kms_key_deletion_window_in_days
-  
+
   # Fargate Configuration
   fargate_profiles = local.env.locals.fargate_profiles
-  
+
   # EKS Add-ons Configuration
   eks_addons = local.env.locals.eks_addons
-  
+
   # VPC Endpoints Configuration
   create_vpc_endpoints          = local.env.locals.create_vpc_endpoints
   vpc_endpoint_services         = local.env.locals.vpc_endpoint_services
   exclude_vpc_endpoint_services = local.env.locals.exclude_vpc_endpoint_services
-  
+
   # EC2 Node Groups (optional)
   ec2_node_group = local.env.locals.ec2_node_groups
 
@@ -93,11 +93,11 @@ inputs = {
   cluster_autoscaler_extra_args = local.env.locals.cluster_autoscaler_extra_args
 
   # Node Auto-Heal (AWS Node Termination Handler)
-  enable_node_auto_heal                   = local.env.locals.enable_node_auto_heal
-  node_auto_heal_namespace                = local.env.locals.node_auto_heal_namespace
-  node_auto_heal_queue_retention_seconds  = local.env.locals.node_auto_heal_queue_retention_seconds
-  node_auto_heal_enable_dlq               = local.env.locals.node_auto_heal_enable_dlq
-  node_auto_heal_dlq_max_receive_count    = local.env.locals.node_auto_heal_dlq_max_receive_count
+  enable_node_auto_heal                  = local.env.locals.enable_node_auto_heal
+  node_auto_heal_namespace               = local.env.locals.node_auto_heal_namespace
+  node_auto_heal_queue_retention_seconds = local.env.locals.node_auto_heal_queue_retention_seconds
+  node_auto_heal_enable_dlq              = local.env.locals.node_auto_heal_enable_dlq
+  node_auto_heal_dlq_max_receive_count   = local.env.locals.node_auto_heal_dlq_max_receive_count
 }
 
 # =============================================================================

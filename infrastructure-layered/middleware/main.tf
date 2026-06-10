@@ -71,12 +71,85 @@ locals {
   buildkitd_kms_patterns = length(var.buildkitd_kms_key_arn_patterns) > 0 ? var.buildkitd_kms_key_arn_patterns : [
     "arn:aws:kms:${local.bk_region}:${local.bk_account}:key/*"
   ]
+  ecr_pull_through_cache_rules = var.enable_ecr_pull_through_cache ? var.ecr_pull_through_cache_rules : {}
+  ecr_pull_through_cache_registry_mirrors = {
+    for prefix, rule in local.ecr_pull_through_cache_rules :
+    rule.upstream_registry_url => ["${local.bk_account}.dkr.ecr.${local.bk_region}.amazonaws.com/${prefix}"]
+  }
+  ecr_pull_through_cache_repository_arns = [
+    for prefix in keys(local.ecr_pull_through_cache_rules) :
+    "arn:aws:ecr:${local.bk_region}:${local.bk_account}:repository/${prefix}/*"
+  ]
+  buildkitd_effective_registry_mirrors = merge(
+    local.ecr_pull_through_cache_registry_mirrors,
+    var.buildkitd_registry_mirrors
+  )
   buildkitd_docker_config_json = jsonencode({
     credHelpers = {
       for acc in local.buildkitd_registry_ids :
       "${acc}.dkr.ecr.${local.bk_region}.amazonaws.com" => "ecr-login"
     }
   })
+  buildkitd_registry_mirror_config = join("\n", [
+    for registry, mirrors in local.buildkitd_effective_registry_mirrors : <<-EOT
+
+      [registry.${jsonencode(registry)}]
+        mirrors = ${jsonencode(mirrors)}
+    EOT
+  ])
+  ecr_pull_through_cache_repository_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowAccountPullFromPullThroughCache"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${local.bk_account}:root"
+        }
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:BatchGetImage",
+          "ecr:DescribeImages",
+          "ecr:DescribeRepositories",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:GetRepositoryPolicy",
+          "ecr:ListImages"
+        ]
+      }
+    ]
+  })
+  ecr_pull_through_cache_lifecycle_policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Expire untagged cache images after 14 days"
+        selection = {
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 14
+        }
+        action = {
+          type = "expire"
+        }
+      }
+    ]
+  })
+  buildkitd_base_args = [
+    "--debug",
+    "--addr", "tcp://0.0.0.0:1234",
+    "--oci-worker-no-process-sandbox",
+    "--config", "/etc/buildkit/buildkitd.toml"
+  ]
+  buildkitd_tls_args = var.buildkitd_tls_enabled ? [
+    "--tlscacert", "/etc/buildkit/certs/ca.pem",
+    "--tlscert", "/etc/buildkit/certs/cert.pem",
+    "--tlskey", "/etc/buildkit/certs/key.pem"
+  ] : []
+  cloudwatch_application_signals_excluded_namespaces = distinct(concat(
+    [var.eso_namespace],
+    var.cloudwatch_application_signals_auto_monitor_excluded_namespaces
+  ))
 
   # kubernetes_manifest uses Kubernetes API field names (camelCase).
   buildkitd_tolerations_for_manifest = [
@@ -89,6 +162,154 @@ locals {
       try(t.value, null) == null || try(t.value, "") == "" ? {} : { value = t.value }
     )
   ]
+}
+
+resource "aws_cloudwatch_log_group" "platform" {
+  for_each = var.enable_cloudwatch_observability ? toset(var.platform_log_groups) : []
+
+  name              = "/aws/containerinsights/${local.cluster_name}/${each.value}"
+  retention_in_days = var.cloudwatch_log_retention_days
+  kms_key_id        = data.terraform_remote_state.base.outputs.kms_key_arn
+  tags              = local.common_tags
+}
+
+resource "aws_cloudwatch_log_group" "fargate_fluentbit" {
+  count = var.enable_cloudwatch_observability && var.enable_fargate_cloudwatch_logging ? 1 : 0
+
+  name              = "/aws/eks/${local.cluster_name}/fargate-fluent-bit"
+  retention_in_days = var.cloudwatch_log_retention_days
+  kms_key_id        = data.terraform_remote_state.base.outputs.kms_key_arn
+  tags              = local.common_tags
+}
+
+resource "kubernetes_namespace" "aws_observability" {
+  count = var.enable_cloudwatch_observability && var.enable_fargate_cloudwatch_logging ? 1 : 0
+
+  metadata {
+    name = "aws-observability"
+
+    labels = {
+      "aws-observability" = "enabled"
+    }
+  }
+}
+
+resource "kubernetes_config_map" "fargate_aws_logging" {
+  count = var.enable_cloudwatch_observability && var.enable_fargate_cloudwatch_logging ? 1 : 0
+
+  metadata {
+    name      = "aws-logging"
+    namespace = kubernetes_namespace.aws_observability[0].metadata[0].name
+  }
+
+  data = {
+    "filters.conf"  = <<-EOT
+      [FILTER]
+          Name parser
+          Match *
+          Key_name log
+          Parser crio
+    EOT
+    "output.conf"   = <<-EOT
+      [OUTPUT]
+          Name cloudwatch
+          Match *
+          region ${data.aws_region.current.name}
+          log_group_name /aws/containerinsights/${local.cluster_name}/application
+          log_stream_prefix fargate-
+          auto_create_group false
+    EOT
+    "parsers.conf"  = <<-EOT
+      [PARSER]
+          Name crio
+          Format Regex
+          Regex ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<log>.*)$
+          Time_Key time
+          Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+    EOT
+    "flb_log_cw"    = tostring(var.fargate_fluentbit_include_process_logs)
+    "flb_log_level" = var.fargate_fluentbit_log_level
+  }
+
+  depends_on = [aws_cloudwatch_log_group.platform]
+}
+
+data "aws_iam_policy" "cloudwatch_agent_server" {
+  count = var.enable_cloudwatch_observability && var.enable_cloudwatch_observability_addon ? 1 : 0
+
+  arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
+resource "aws_iam_role_policy_attachment" "cloudwatch_agent_node_role" {
+  count = (
+    var.enable_cloudwatch_observability &&
+    var.enable_cloudwatch_observability_addon &&
+    try(data.terraform_remote_state.base.outputs.ec2_node_group_role_name, null) != null
+  ) ? 1 : 0
+
+  role       = data.terraform_remote_state.base.outputs.ec2_node_group_role_name
+  policy_arn = data.aws_iam_policy.cloudwatch_agent_server[0].arn
+}
+
+resource "aws_eks_addon" "cloudwatch_observability" {
+  count = var.enable_cloudwatch_observability && var.enable_cloudwatch_observability_addon ? 1 : 0
+
+  cluster_name  = local.cluster_name
+  addon_name    = "amazon-cloudwatch-observability"
+  addon_version = var.cloudwatch_observability_addon_version
+  configuration_values = jsonencode({
+    manager = {
+      applicationSignals = {
+        autoMonitor = {
+          monitorAllServices = var.enable_cloudwatch_application_signals_auto_monitor
+          exclude = {
+            java = {
+              namespaces = local.cloudwatch_application_signals_excluded_namespaces
+            }
+            python = {
+              namespaces = local.cloudwatch_application_signals_excluded_namespaces
+            }
+            nodejs = {
+              namespaces = local.cloudwatch_application_signals_excluded_namespaces
+            }
+            dotnet = {
+              namespaces = local.cloudwatch_application_signals_excluded_namespaces
+            }
+          }
+        }
+      }
+    }
+  })
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+  tags                        = local.common_tags
+
+  depends_on = [
+    aws_cloudwatch_log_group.platform,
+    aws_iam_role_policy_attachment.cloudwatch_agent_node_role
+  ]
+}
+
+resource "aws_ecr_pull_through_cache_rule" "cache" {
+  for_each = local.ecr_pull_through_cache_rules
+
+  ecr_repository_prefix = each.key
+  upstream_registry_url = each.value.upstream_registry_url
+}
+
+resource "aws_ecr_repository_creation_template" "pull_through_cache" {
+  for_each = var.create_ecr_pull_through_cache_repository_templates ? local.ecr_pull_through_cache_rules : {}
+
+  prefix               = each.key
+  description          = "Managed pull-through cache repositories for ${each.value.upstream_registry_url}"
+  applied_for          = ["PULL_THROUGH_CACHE"]
+  image_tag_mutability = "MUTABLE"
+  repository_policy    = local.ecr_pull_through_cache_repository_policy
+  lifecycle_policy     = local.ecr_pull_through_cache_lifecycle_policy
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
 }
 
 # KEDA Operator IAM Role
@@ -267,14 +488,15 @@ module "keda_operator" {
   count  = var.install_keda ? 1 : 0
   source = "./modules/collections/keda-operator"
 
-  cluster_name         = local.cluster_name
-  namespace            = var.keda_namespace
-  ado_namespace        = var.ado_agents_namespace
-  create_namespace     = true
-  create_ado_namespace = true
-  keda_version         = var.keda_version
-  keda_image_tag       = var.keda_version
-  webhooks_image_tag   = var.keda_version
+  cluster_name             = local.cluster_name
+  namespace                = var.keda_namespace
+  ado_namespace            = var.ado_agents_namespace
+  create_namespace         = true
+  create_ado_namespace     = true
+  keda_version             = var.keda_version
+  keda_image_tag           = var.keda_version
+  metrics_server_image_tag = var.keda_version
+  webhooks_image_tag       = var.keda_version
 
   service_account_annotations = {
     "eks.amazonaws.com/role-arn" = module.keda_operator_role.role_arn
@@ -300,7 +522,7 @@ module "keda_operator" {
   ]
 
   tolerations = [{
-    key      = "ks.amazonaws.com/compute-type"
+    key      = "eks.amazonaws.com/compute-type"
     operator = "Equal"
     value    = "fargate"
     effect   = "NoSchedule"
@@ -349,6 +571,17 @@ module "external_secrets_operator" {
   depends_on = [
     module.keda_operator # Ensure KEDA creates the ADO namespace first
   ]
+}
+
+resource "time_sleep" "wait_for_application_crds" {
+  count = (var.install_keda || var.install_eso) && var.application_crd_ready_wait_seconds > 0 ? 1 : 0
+
+  depends_on = [
+    module.keda_operator,
+    module.external_secrets_operator
+  ]
+
+  create_duration = "${var.application_crd_ready_wait_seconds}s"
 }
 
 # Cluster Autoscaler Deployment (Kubernetes resources)
@@ -423,35 +656,52 @@ module "buildkit_irsa_policy" {
 
   policy_name = "${local.cluster_name}-buildkitd-ecr-policy"
 
-  policy_statement = {
-    ecr_get_auth = {
-      sid       = "ECRGetAuth"
-      actions   = ["ecr:GetAuthorizationToken"]
-      resources = ["*"]
-    }
-    ecr_push_pull = {
-      sid = "ECRPushPull"
-      actions = [
-        "ecr:BatchCheckLayerAvailability",
-        "ecr:GetDownloadUrlForLayer",
-        "ecr:BatchGetImage",
-        "ecr:InitiateLayerUpload",
-        "ecr:UploadLayerPart",
-        "ecr:CompleteLayerUpload",
-        "ecr:PutImage"
-      ]
-      resources = local.buildkitd_ecr_repo_arns
-    }
-    kms_for_ecr = {
-      sid = "KMSForECR"
-      actions = [
-        "kms:Decrypt",
-        "kms:DescribeKey",
-        "kms:GenerateDataKey"
-      ]
-      resources = local.buildkitd_kms_patterns
-    }
-  }
+  policy_statement = merge(
+    {
+      ecr_get_auth = {
+        sid       = "ECRGetAuth"
+        actions   = ["ecr:GetAuthorizationToken"]
+        resources = ["*"]
+      }
+      ecr_push_pull = {
+        sid = "ECRPushPull"
+        actions = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage"
+        ]
+        resources = local.buildkitd_ecr_repo_arns
+      }
+      kms_for_ecr = {
+        sid = "KMSForECR"
+        actions = [
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:GenerateDataKey"
+        ]
+        resources = local.buildkitd_kms_patterns
+      }
+    },
+    length(local.ecr_pull_through_cache_repository_arns) > 0 ? {
+      ecr_pull_through_cache = {
+        sid = "ECRPullThroughCache"
+        actions = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:BatchGetImage",
+          "ecr:BatchImportUpstreamImage",
+          "ecr:CreateRepository",
+          "ecr:DescribeImages",
+          "ecr:DescribeRepositories",
+          "ecr:GetDownloadUrlForLayer"
+        ]
+        resources = local.ecr_pull_through_cache_repository_arns
+      }
+    } : {}
+  )
 
   tags = merge(local.common_tags, {
     Role      = "buildkitd"
@@ -521,6 +771,7 @@ resource "kubernetes_config_map" "buildkitd_config" {
     "buildkitd.toml" = <<-EOT
       [worker.oci]
         max-parallelism = 1
+      ${local.buildkitd_registry_mirror_config}
     EOT
   }
 }
@@ -557,12 +808,24 @@ resource "kubernetes_manifest" "buildkitd" {
         }
         spec = {
           serviceAccountName = kubernetes_service_account.buildkitd[0].metadata[0].name
-          nodeSelector         = var.buildkitd_node_selector
-          tolerations          = local.buildkitd_tolerations_for_manifest
+          nodeSelector       = var.buildkitd_node_selector
+          tolerations        = local.buildkitd_tolerations_for_manifest
+          topologySpreadConstraints = var.buildkitd_topology_spread_enabled ? [
+            {
+              maxSkew           = 1
+              topologyKey       = "topology.kubernetes.io/zone"
+              whenUnsatisfiable = "ScheduleAnyway"
+              labelSelector = {
+                matchLabels = {
+                  app = "buildkitd"
+                }
+              }
+            }
+          ] : []
           initContainers = [
             {
-              name  = "install-ecr-credential-helper"
-              image = "public.ecr.aws/docker/library/alpine:3.20"
+              name    = "install-ecr-credential-helper"
+              image   = "public.ecr.aws/docker/library/alpine:3.20"
               command = ["/bin/sh", "-c"]
               args = [
                 "set -eu; apk add --no-cache curl ca-certificates; curl -sSL -o /helper/docker-credential-ecr-login \"https://github.com/awslabs/amazon-ecr-credential-helper/releases/download/v0.12.0/docker-credential-ecr-login-linux-amd64\"; chmod +x /helper/docker-credential-ecr-login"
@@ -603,12 +866,7 @@ resource "kubernetes_manifest" "buildkitd" {
                 { name = "DOCKER_CONFIG", value = "/home/user/.docker" },
                 { name = "PATH", value = "/ecr:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }
               ]
-              args = [
-                "--debug",
-                "--addr", "tcp://0.0.0.0:1234",
-                "--oci-worker-no-process-sandbox",
-                "--config", "/etc/buildkit/buildkitd.toml"
-              ]
+              args = concat(local.buildkitd_base_args, local.buildkitd_tls_args)
               securityContext = {
                 runAsUser                = 1000
                 runAsGroup               = 1000
@@ -646,17 +904,19 @@ resource "kubernetes_manifest" "buildkitd" {
                   memory = var.buildkitd_resources.limits.memory
                 }
               }
-              volumeMounts = [
+              volumeMounts = concat([
                 { name = "tmp", mountPath = "/tmp" },
                 { name = "buildkit-rootless", mountPath = "/home/user/.local/share/buildkit" },
                 { name = "run", mountPath = "/run" },
                 { name = "buildkitd-config", mountPath = "/etc/buildkit" },
                 { name = "ecr-helper-bin", mountPath = "/ecr", readOnly = true },
                 { name = "buildkit-docker-config", mountPath = "/home/user/.docker", readOnly = true }
-              ]
+                ], var.buildkitd_tls_enabled ? [
+                { name = "buildkit-tls", mountPath = "/etc/buildkit/certs", readOnly = true }
+              ] : [])
             }
           ]
-          volumes = [
+          volumes = concat([
             { name = "ecr-helper-bin", emptyDir = {} },
             {
               name = "buildkit-docker-config"
@@ -684,7 +944,14 @@ resource "kubernetes_manifest" "buildkitd" {
                 sizeLimit = var.buildkitd_storage_size
               }
             }
-          ]
+            ], var.buildkitd_tls_enabled ? [
+            {
+              name = "buildkit-tls"
+              secret = {
+                secretName = var.buildkitd_tls_secret_name
+              }
+            }
+          ] : [])
         }
       }
     }
@@ -696,6 +963,28 @@ resource "kubernetes_manifest" "buildkitd" {
     "metadata.uid",
     "status",
   ]
+}
+
+resource "kubernetes_pod_disruption_budget_v1" "buildkitd" {
+  count = var.enable_buildkitd && var.buildkitd_pdb_enabled ? 1 : 0
+
+  metadata {
+    name      = "buildkitd"
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+    labels = {
+      app = "buildkitd"
+    }
+  }
+
+  spec {
+    min_available = var.buildkitd_pdb_min_available
+
+    selector {
+      match_labels = {
+        app = "buildkitd"
+      }
+    }
+  }
 }
 
 resource "kubernetes_service" "buildkitd" {

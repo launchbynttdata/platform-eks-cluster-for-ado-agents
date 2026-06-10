@@ -75,14 +75,15 @@ output "application_summary" {
     # Agent pool configuration
     agent_pools = {
       for pool_name, pool_config in var.agent_pools : pool_name => {
-        enabled          = pool_config.enabled
-        ado_pool_name    = pool_config.ado_pool_name
-        min_replicas     = pool_config.autoscaling.min_replicas
-        max_replicas     = pool_config.autoscaling.max_replicas
-        service_account  = pool_config.service_account_name
-        iam_role_arn     = module.ado_agent_execution_role[pool_name].role_arn
-        image_repository = pool_config.image_repository
-        image_tag        = pool_config.image_tag
+        enabled             = pool_config.enabled
+        ado_pool_name       = pool_config.ado_pool_name
+        scaling_model       = "scaledjob"
+        template_agent_name = pool_config.autoscaling.template_agent_name != "" ? pool_config.autoscaling.template_agent_name : (pool_config.autoscaling.create_template_agent ? "${pool_name}-keda-template" : "")
+        max_replicas        = pool_config.autoscaling.max_replicas
+        service_account     = pool_config.service_account_name
+        iam_role_arn        = module.ado_agent_execution_role[pool_name].role_arn
+        image_repository    = pool_config.image_repository
+        image_tag           = pool_config.image_tag
       }
     }
 
@@ -116,9 +117,10 @@ output "operational_info" {
   value = {
     # Kubectl commands for troubleshooting
     kubectl_commands = {
-      view_pods = "kubectl get pods -n ${helm_release.ado_agents.namespace} -l app.kubernetes.io/name=ado-agent"
-      view_hpa  = "kubectl get hpa -n ${helm_release.ado_agents.namespace}"
-      view_logs = "kubectl logs -n ${helm_release.ado_agents.namespace} -l app.kubernetes.io/name=ado-agent --tail=100"
+      view_pods       = "kubectl get pods -n ${helm_release.ado_agents.namespace} -l app.kubernetes.io/name=ado-agent-cluster"
+      view_scaledjobs = "kubectl get scaledjobs -n ${helm_release.ado_agents.namespace}"
+      view_jobs       = "kubectl get jobs -n ${helm_release.ado_agents.namespace}"
+      view_logs       = "kubectl logs -n ${helm_release.ado_agents.namespace} -l app.kubernetes.io/name=ado-agent-cluster --tail=100"
     }
 
     # Helm commands for management
@@ -139,7 +141,11 @@ output "operational_info" {
     monitoring = {
       cloudwatch_log_groups = [
         "/aws/eks/${local.cluster_name}/cluster",
-        "/aws/fargate/${local.cluster_name}"
+        "/aws/containerinsights/${local.cluster_name}/application",
+        "/aws/containerinsights/${local.cluster_name}/ado-agents",
+        "/aws/containerinsights/${local.cluster_name}/buildkit",
+        "/aws/containerinsights/${local.cluster_name}/keda",
+        "/aws/containerinsights/${local.cluster_name}/cluster-autoscaler"
       ]
       keda_metrics_namespace = "keda-operator-metrics"
       prometheus_metrics     = "http://keda-operator-metrics.keda-system.svc.cluster.local:8080/metrics"

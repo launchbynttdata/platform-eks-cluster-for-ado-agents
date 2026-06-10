@@ -25,17 +25,14 @@ variable "cluster_version" {
   description = <<-EOT
     Kubernetes version for the EKS cluster.
     
-    AWS EKS supports the 4 most recent minor versions. As of late 2024/early 2025:
-    - 1.31 (supported until ~Nov 2025)
-    - 1.32 (supported until ~Jan 2026) 
-    - 1.33 (supported until ~Mar 2026)
-    - 1.34 (supported until ~May 2026)
+    AWS EKS supports multiple recent minor versions. As of June 2026, 1.35 is
+    the latest generally available EKS Kubernetes minor version.
     
     Versions older than 1.30 should be avoided as they're near or past EOL.
     For latest support info: https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
   EOT
   type        = string
-  default     = "1.33"
+  default     = "1.35"
 
   validation {
     condition     = can(regex("^1\\.(3[1-9]|[4-9][0-9])$", var.cluster_version))
@@ -43,7 +40,7 @@ variable "cluster_version" {
       EKS cluster version must be 1.31 or higher.
       Older versions are either unsupported or approaching end-of-life.
       
-      Current AWS-supported versions (as of Oct 2024): 1.31, 1.32, 1.33, 1.34+
+      Check the current AWS-supported versions before changing this value.
       Check current support: https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
     EOT
   }
@@ -185,13 +182,13 @@ variable "eks_addons" {
   }))
   default = {
     "coredns" = {
-      version = "v1.11.1-eksbuild.9"
+      version = "v1.14.2-eksbuild.4"
     }
     "kube-proxy" = {
-      version = "v1.33.0-eksbuild.1"
+      version = "v1.35.3-eksbuild.2"
     }
     "vpc-cni" = {
-      version = "v1.18.3-eksbuild.1"
+      version = "v1.21.1-eksbuild.8"
     }
   }
 }
@@ -273,7 +270,7 @@ variable "cluster_autoscaler_namespace" {
 variable "cluster_autoscaler_version" {
   description = "Container image tag for the Kubernetes Cluster Autoscaler (must match the EKS control plane minor version)."
   type        = string
-  default     = "v1.33.0"
+  default     = "v1.35.0"
 }
 
 variable "cluster_autoscaler_extra_args" {

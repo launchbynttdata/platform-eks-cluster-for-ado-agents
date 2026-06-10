@@ -26,8 +26,13 @@ locals {
     },
     var.additional_tags
   )
-  cluster_oidc_host = replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")
-  eso_role_name     = split("/", data.terraform_remote_state.middleware.outputs.eso_role_arn)[1]
+  cluster_oidc_host        = replace(data.terraform_remote_state.base.outputs.cluster_oidc_issuer_url, "https://", "")
+  eso_role_name            = split("/", data.terraform_remote_state.middleware.outputs.eso_role_arn)[1]
+  ado_secret_name          = data.terraform_remote_state.middleware.outputs.ado_secret_name
+  ado_external_secret_name = "${local.ado_secret_name}-secret"
+  requires_ado_pat_secret = anytrue([
+    for pool in values(var.agent_pools) : pool.enabled
+  ])
 
   ado_execution_policy_statements = {
     for role_key, role_cfg in var.ado_execution_roles :
@@ -110,6 +115,42 @@ resource "aws_secretsmanager_secret_version" "ado_pat" {
 
   lifecycle {
     ignore_changes = [secret_string]
+  }
+}
+
+# Bootstrap the Kubernetes PAT secret before Helm creates placeholder/jobs that mount it.
+# ESO refreshes the same secret from AWS Secrets Manager after the ExternalSecret reconciles.
+resource "kubernetes_secret" "ado_pat_bootstrap" {
+  count = local.requires_ado_pat_secret ? 1 : 0
+
+  metadata {
+    name      = local.ado_secret_name
+    namespace = data.terraform_remote_state.middleware.outputs.ado_agents_namespace
+    labels = {
+      "app.kubernetes.io/name"       = "ado-agent-cluster"
+      "app.kubernetes.io/component"  = "ado-agent-pat"
+      "app.kubernetes.io/managed-by" = "terraform"
+    }
+  }
+
+  type = "Opaque"
+
+  data = {
+    personalAccessToken = var.ado_pat_value
+    organization        = var.ado_org
+    adourl              = var.ado_url
+  }
+
+  depends_on = [
+    aws_secretsmanager_secret_version.ado_pat
+  ]
+
+  lifecycle {
+    ignore_changes = [
+      data,
+      metadata[0].annotations,
+      metadata[0].labels
+    ]
   }
 }
 
@@ -213,9 +254,6 @@ module "eso_ado_secret_access_policy_attachment" {
 
 # Prepare Helm values for ADO agent deployment
 locals {
-  ado_secret_name          = data.terraform_remote_state.middleware.outputs.ado_secret_name
-  ado_external_secret_name = "${local.ado_secret_name}-secret"
-
   helm_values = {
     global = {
       namespace   = data.terraform_remote_state.middleware.outputs.ado_agents_namespace
@@ -259,15 +297,32 @@ locals {
           resources = pool_config.resources
 
           autoscaling = {
-            enabled                    = pool_config.autoscaling.enabled
-            minReplicas                = pool_config.autoscaling.min_replicas
-            maxReplicas                = pool_config.autoscaling.max_replicas
-            targetPipelinesQueueLength = pool_config.autoscaling.target_queue_length
+            enabled                              = pool_config.autoscaling.enabled
+            maxReplicas                          = pool_config.autoscaling.max_replicas
+            pollingInterval                      = pool_config.autoscaling.polling_interval
+            targetPipelinesQueueLength           = pool_config.autoscaling.target_queue_length
+            activationTargetPipelinesQueueLength = pool_config.autoscaling.activation_target_queue_length
+            jobsToFetch                          = pool_config.autoscaling.jobs_to_fetch
+            fetchUnfinishedJobsOnly              = pool_config.autoscaling.fetch_unfinished_jobs_only
+            poolID                               = pool_config.autoscaling.pool_id
+            templateAgentName                    = pool_config.autoscaling.template_agent_name != "" ? pool_config.autoscaling.template_agent_name : (pool_config.autoscaling.create_template_agent ? "${pool_name}-keda-template" : "")
+            createTemplateAgent                  = pool_config.autoscaling.create_template_agent
+            placeholderBackoffLimit              = pool_config.autoscaling.placeholder_backoff_limit
+            placeholderTtlSecondsAfterFinished   = pool_config.autoscaling.placeholder_ttl_seconds_after_finished
+            demands                              = pool_config.autoscaling.demands
+            requireAllDemands                    = pool_config.autoscaling.require_all_demands
+            requireAllDemandsAndIgnoreOthers     = pool_config.autoscaling.require_all_demands_and_ignore_others
+            caseInsensitiveDemandsProcessing     = pool_config.autoscaling.case_insensitive_demands_processing
+            backoffLimit                         = pool_config.autoscaling.backoff_limit
+            ttlSecondsAfterFinished              = pool_config.autoscaling.ttl_seconds_after_finished
+            successfulJobsHistoryLimit           = pool_config.autoscaling.successful_jobs_history_limit
+            failedJobsHistoryLimit               = pool_config.autoscaling.failed_jobs_history_limit
           }
 
-          tolerations  = pool_config.tolerations
-          nodeSelector = pool_config.node_selector
-          affinity     = pool_config.affinity
+          tolerations               = pool_config.tolerations
+          nodeSelector              = pool_config.node_selector
+          affinity                  = pool_config.affinity
+          topologySpreadConstraints = pool_config.topology_spread_constraints
 
           # Additional environment variables
           env = pool_config.additional_env_vars
@@ -292,6 +347,7 @@ locals {
             secretName      = local.ado_secret_name
             type            = "Opaque"
             refreshInterval = var.secret_refresh_interval
+            creationPolicy  = "Merge"
           }
           data = {
             personalAccessToken = "personalAccessToken"
@@ -305,6 +361,14 @@ locals {
     buildkit = {
       enabled  = data.terraform_remote_state.middleware.outputs.buildkitd_enabled
       endpoint = data.terraform_remote_state.middleware.outputs.buildkitd_service_endpoint
+    }
+
+    agent = {
+      runOnce                       = var.agent_run_once
+      recyclePodAfterRunOnce        = var.agent_recycle_pod_after_run_once
+      cleanupTimeoutSeconds         = var.agent_cleanup_timeout_seconds
+      terminationGracePeriodSeconds = var.agent_termination_grace_period_seconds
+      automountServiceAccountToken  = var.agent_automount_service_account_token
     }
 
     # Common labels and annotations
@@ -330,6 +394,7 @@ resource "helm_release" "ado_agents" {
   # Ensure dependencies are ready
   depends_on = [
     aws_secretsmanager_secret_version.ado_pat,
+    kubernetes_secret.ado_pat_bootstrap,
     module.ado_agent_execution_policy_attachment,
     module.eso_ado_secret_access_policy_attachment
   ]
@@ -343,12 +408,15 @@ resource "helm_release" "ado_agents" {
   atomic            = true
   cleanup_on_fail   = true
   disable_crd_hooks = false
-  disable_webhooks  = false
-  force_update      = false
-  recreate_pods     = false
-  reset_values      = false
-  reuse_values      = false
-  skip_crds         = false
+  # KEDA and ESO CRDs are installed by the middleware layer. Discovery can lag briefly
+  # after CRD creation, so avoid failing the release on stale local OpenAPI data.
+  disable_openapi_validation = true
+  disable_webhooks           = false
+  force_update               = false
+  recreate_pods              = false
+  reset_values               = false
+  reuse_values               = false
+  skip_crds                  = false
 
   # Set resource limits for Helm operations
   max_history = 10

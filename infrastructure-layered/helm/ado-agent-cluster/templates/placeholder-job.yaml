@@ -1,27 +1,32 @@
 {{- range $poolName, $poolConfig := .Values.agentPools }}
-{{- if $poolConfig.enabled }}
+{{- if and $poolConfig.enabled $poolConfig.autoscaling.enabled $poolConfig.autoscaling.createTemplateAgent }}
+{{- if and $poolConfig.autoscaling.jobsToFetch (or $poolConfig.autoscaling.templateAgentName $poolConfig.autoscaling.createTemplateAgent) }}
+{{- fail (printf "agentPools.%s.autoscaling.templateAgentName and jobsToFetch are mutually exclusive because KEDA parent matching cannot use jobsToFetch" $poolName) }}
+{{- end }}
 ---
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: batch/v1
+kind: Job
 metadata:
-  name: {{ include "ado-agent-cluster.deploymentName" $poolConfig }}
+  name: {{ include "ado-agent-cluster.placeholderJobName" $poolConfig }}
   namespace: {{ $.Values.global.namespace }}
   labels:
     {{- include "ado-agent-cluster.labels" $ | nindent 4 }}
     app.kubernetes.io/component: {{ $poolName }}
-  {{- with $.Values.annotations }}
+    app.kubernetes.io/role: ado-agent-placeholder
   annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    {{- with $.Values.annotations }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
 spec:
-  replicas: 0  # KEDA will manage replicas
-  selector:
-    matchLabels:
-      {{- include "ado-agent-cluster.agentPoolSelectorLabels" (dict "root" $ "poolName" $poolName) | nindent 6 }}
+  backoffLimit: {{ $poolConfig.autoscaling.placeholderBackoffLimit }}
+  ttlSecondsAfterFinished: {{ $poolConfig.autoscaling.placeholderTtlSecondsAfterFinished }}
   template:
     metadata:
       labels:
         {{- include "ado-agent-cluster.agentPoolSelectorLabels" (dict "root" $ "poolName" $poolName) | nindent 8 }}
+        app.kubernetes.io/role: ado-agent-placeholder
         {{- with $poolConfig.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -31,7 +36,9 @@ spec:
       {{- end }}
     spec:
       serviceAccountName: {{ include "ado-agent-cluster.serviceAccountName" (dict "root" $ "serviceAccount" $poolConfig.serviceAccount "poolName" $poolName) }}
-      automountServiceAccountToken: false
+      automountServiceAccountToken: {{ $.Values.agent.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ $.Values.agent.terminationGracePeriodSeconds }}
+      restartPolicy: Never
       {{- with $poolConfig.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
@@ -44,12 +51,16 @@ spec:
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with $poolConfig.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with $.Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-      - name: ado-agent
+      - name: ado-agent-placeholder
         image: "{{ $poolConfig.image.repository }}:{{ $poolConfig.image.tag }}"
         imagePullPolicy: {{ $poolConfig.image.pullPolicy }}
         env:
@@ -70,10 +81,12 @@ spec:
               key: personalAccessToken
         - name: AZP_POOL
           value: {{ $poolConfig.ado.poolName | quote }}
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
+        - name: AZP_AGENT_NAME
+          value: {{ include "ado-agent-cluster.placeholderAgentName" $poolConfig | quote }}
+        - name: AZP_PLACEHOLDER_AGENT
+          value: "true"
+        - name: AZP_CLEANUP_TIMEOUT_SECONDS
+          value: {{ $.Values.agent.cleanupTimeoutSeconds | quote }}
         {{- if $.Values.buildkit.enabled }}
         - name: BUILDKIT_HOST
           value: {{ $.Values.buildkit.endpoint | quote }}
@@ -97,6 +110,5 @@ spec:
       volumes:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      restartPolicy: Always
 {{- end }}
 {{- end }}

@@ -152,8 +152,8 @@ infrastructure-layered/
         └── templates/                # Kubernetes manifests
             ├── _helpers.tpl          # Template helpers
             ├── serviceaccount.yaml   # IRSA service accounts
-            ├── deployment.yaml       # Agent deployments
-            ├── scaledobject.yaml     # KEDA scaling config
+            ├── placeholder-job.yaml  # Offline ADO template agent registration
+            ├── scaledjob.yaml        # KEDA per-job worker scaling config
             ├── trigger-authentication.yaml  # ADO API auth
             └── external-secret.yaml  # Secret management
 ```
@@ -345,10 +345,10 @@ kubectl get nodes
 
 # Check ADO agents
 kubectl get pods -n ado-agents
-kubectl get scaledobjects -n ado-agents
+kubectl get scaledjobs -n ado-agents
 
-# Check agent scaling (should show 0 replicas when no work queued)
-kubectl describe scaledobject ado-agent -n ado-agents
+# Check agent scaling and offline template-agent parent matching
+kubectl describe scaledjob -n ado-agents
 ```
 
 ## Detailed Deployment
@@ -469,7 +469,7 @@ agent_pools = {
       limits   = { cpu = "1000m", memory = "2Gi" }
     }
     autoscaling = {
-      min_replicas        = 0
+      min_replicas        = 1
       max_replicas        = 3  # Lower max for dev
       target_queue_length = 1
     }
@@ -517,7 +517,7 @@ agent_pools = {
       limits   = { cpu = "2000m", memory = "4Gi" }
     }
     autoscaling = {
-      min_replicas        = 0
+      min_replicas        = 1
       max_replicas        = 20  # Higher scale for production
       target_queue_length = 1
     }
@@ -539,7 +539,7 @@ agent_pools = {
       limits   = { cpu = "4000m", memory = "8Gi" }
     }
     autoscaling = {
-      min_replicas        = 0
+      min_replicas        = 1
       max_replicas        = 10
       target_queue_length = 1
     }
@@ -564,7 +564,7 @@ light_agent = {
     limits   = { cpu = "500m", memory = "1Gi" }
   }
   autoscaling = {
-    min_replicas = 0
+    min_replicas = 1
     max_replicas = 10
     target_queue_length = 2  # Allow queue buildup for light workloads
   }
@@ -577,7 +577,7 @@ standard_agent = {
     limits   = { cpu = "2000m", memory = "4Gi" }
   }
   autoscaling = {
-    min_replicas = 0
+    min_replicas = 1
     max_replicas = 15
     target_queue_length = 1
   }
@@ -590,7 +590,7 @@ heavy_agent = {
     limits   = { cpu = "4000m", memory = "8Gi" }
   }
   autoscaling = {
-    min_replicas = 0
+    min_replicas = 1
     max_replicas = 5
     target_queue_length = 1
   }
@@ -788,10 +788,10 @@ The user or role running `deploy.sh` needs permissions for EKS, EC2, IAM, KMS, S
 kubectl get pods -n ado-agents -o wide
 
 # Check scaling status
-kubectl get scaledobjects -n ado-agents -o yaml
+kubectl get scaledjobs -n ado-agents -o yaml
 
 # View agent logs
-kubectl logs -n ado-agents -l app.kubernetes.io/name=ado-agent --tail=100
+kubectl logs -n ado-agents -l app.kubernetes.io/name=ado-agent-cluster --tail=100
 
 # Check resource utilization
 kubectl top pods -n ado-agents
@@ -826,19 +826,15 @@ kubectl get secret -n ado-agents ado-secret -o yaml
 #### Scaling Operations
 
 ```bash
-# Manually scale agent pool (temporary)
-kubectl scale deployment ado-agent -n ado-agents --replicas=5
-
 # Update KEDA scaling parameters
-kubectl patch scaledobject ado-agent -n ado-agents --type='merge' -p='{
+kubectl patch scaledjob ado-agent-scaledjob -n ado-agents --type='merge' -p='{
   "spec": {
-    "minReplicaCount": 1,
     "maxReplicaCount": 20
   }
 }'
 
 # Pause autoscaling (for maintenance)
-kubectl patch scaledobject ado-agent -n ado-agents --type='merge' -p='{
+kubectl patch scaledjob ado-agent-scaledjob -n ado-agents --type='merge' -p='{
   "metadata": {
     "annotations": {
       "autoscaling.keda.sh/paused": "true"
@@ -847,7 +843,7 @@ kubectl patch scaledobject ado-agent -n ado-agents --type='merge' -p='{
 }'
 
 # Resume autoscaling
-kubectl patch scaledobject ado-agent -n ado-agents --type='merge' -p='{
+kubectl patch scaledjob ado-agent-scaledjob -n ado-agents --type='merge' -p='{
   "metadata": {
     "annotations": {
       "autoscaling.keda.sh/paused": "false"  
@@ -932,16 +928,13 @@ kubectl apply -f ado-agents-backup.yaml
 # Check KEDA operator logs
 kubectl logs -n keda-system deployment/keda-operator
 
-# Check ScaledObject status
-kubectl describe scaledobject ado-agent -n ado-agents
+# Check ScaledJob status
+kubectl describe scaledjob ado-agent-scaledjob -n ado-agents
 
 # Check TriggerAuthentication
 kubectl describe triggerauthentication ado-trigger-auth -n ado-agents
 
-# Verify ADO API connectivity
-kubectl exec -it -n ado-agents deployment/ado-agent -- \
-  curl -u ":$AZP_TOKEN" \
-  "https://dev.azure.com/YOUR_ORG/_apis/distributedtask/pools/YOUR_POOL_ID/jobrequests"
+# Verify ADO template agents exist in the Azure DevOps pool and are offline.
 ```
 
 #### Pods Stuck in Pending
@@ -1135,7 +1128,7 @@ aws cloudwatch put-metric-alarm \
   --alarm-name "ADO-Agent-Queue-High" \
   --alarm-description "ADO agent queue length is high" \
   --metric-name "QueueLength" \
-  --namespace "KEDA/ScaledObject" \
+  --namespace "KEDA/ScaledJob" \
   --statistic Average \
   --period 300 \
   --threshold 5 \
@@ -1414,7 +1407,7 @@ esac
 kubectl run test-job --image=busybox --rm -it -- /bin/sh -c "echo 'Test completed'"
 
 # Verify autoscaling
-kubectl describe scaledobject -n ado-agents
+kubectl describe scaledjob -n ado-agents
 
 # Check cost impact
 aws ce get-cost-and-usage \
@@ -1476,7 +1469,7 @@ agent_pools = {
       limits   = { cpu = "4000m", memory = "8Gi" }
     }
     autoscaling = {
-      min_replicas        = 0
+      min_replicas        = 1
       max_replicas        = 10
       target_queue_length = 1
     }
@@ -1584,22 +1577,19 @@ helm upgrade ado-agents helm/ado-agent-cluster -n ado-agents \
 
 **A:** Temporarily override KEDA:
 ```bash
-# Scale to specific replica count
-kubectl scale deployment ado-agent -n ado-agents --replicas=5
-
 # Disable autoscaling (maintenance mode)
-kubectl annotate scaledobject ado-agent -n ado-agents autoscaling.keda.sh/paused=true
+kubectl annotate scaledjob ado-agent-scaledjob -n ado-agents autoscaling.keda.sh/paused=true
 
 # Re-enable autoscaling
-kubectl annotate scaledobject ado-agent -n ado-agents autoscaling.keda.sh/paused-
+kubectl annotate scaledjob ado-agent-scaledjob -n ado-agents autoscaling.keda.sh/paused-
 ```
 
 #### Q: What's the disaster recovery procedure?
 
 **A:** Recovery steps depend on failure scope:
 
-1. **Single pod failure**: Kubernetes automatically restarts
-2. **Agent pool failure**: Delete deployment, Helm will recreate
+1. **Single Job pod failure**: KEDA creates a replacement Job for queued work
+2. **Agent pool failure**: Delete the affected ScaledJob and re-apply the application layer or Helm release
 3. **Namespace corruption**: Redeploy application layer
 4. **Cluster failure**: Redeploy middleware + application layers
 5. **Complete failure**: Redeploy all layers from state backup

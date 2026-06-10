@@ -366,7 +366,7 @@ ado_agent_pools = {
     service_account     = "ado-agent"
     image_repository    = ""  # Empty = public image
     image_tag           = "latest"
-    min_replicas        = 0
+    min_replicas        = 1
     max_replicas        = 10
     polling_interval    = 30
     cooldown_period     = 300
