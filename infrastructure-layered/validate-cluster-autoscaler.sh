@@ -167,7 +167,7 @@ else
     echo -e "    ${YELLOW}To deploy cluster autoscaler, you need to:${NC}"
     echo -e "    1. Ensure base layer has enable_cluster_autoscaler = true"
     echo -e "    2. Create a Kubernetes deployment for cluster-autoscaler"
-    echo -e "    3. Reference documentation: docs/CLUSTER_AUTOSCALER_README.md"
+    echo -e "    3. Reference documentation: docs/reference/cluster-autoscaler-middleware.md"
 fi
 
 # 7. Test Auto Scaling Capability
@@ -207,7 +207,7 @@ if $VALIDATION_PASSED; then
     if ! kubectl get deployment cluster-autoscaler -n kube-system &>/dev/null; then
         echo -e "\n${YELLOW}Next Steps:${NC}"
         echo -e "  1. Deploy cluster autoscaler using kubectl or Helm"
-        echo -e "  2. See docs/CLUSTER_AUTOSCALER_README.md for deployment instructions"
+        echo -e "  2. See docs/reference/cluster-autoscaler-middleware.md for deployment instructions"
     fi
 else
     echo -e "${RED}✗ Validation found issues that need attention${NC}"

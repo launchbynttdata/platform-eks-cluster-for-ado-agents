@@ -11,7 +11,7 @@ The base infrastructure layer supports flexible Fargate profile configuration us
 
 ## Configuration Structure
 
-Fargate profiles are configured using the `fargate_profiles` variable in `terraform.tfvars`:
+Fargate profiles are configured using the `fargate_profiles` variable in `env.hcl`:
 
 ```hcl
 fargate_profiles = {
@@ -67,7 +67,7 @@ fargate_profiles = {
         labels    = {}
       },
       {
-        namespace = "external-secrets"
+        namespace = "external-secrets-system"
         labels    = {}
       },
       {
@@ -102,7 +102,7 @@ fargate_profiles = {
         labels    = {}
       },
       {
-        namespace = "external-secrets"
+        namespace = "external-secrets-system"
         labels    = {}
       },
       {
@@ -133,7 +133,7 @@ fargate_profiles = {
   eso = {
     selectors = [
       {
-        namespace = "external-secrets"
+        namespace = "external-secrets-system"
         labels    = {}
       }
     ]
@@ -199,7 +199,7 @@ fargate_profiles = {
         labels    = {}
       },
       {
-        namespace = "external-secrets"
+        namespace = "external-secrets-system"
         labels    = {}
       }
     ]
@@ -410,7 +410,7 @@ The old structure used two separate list variables:
 # OLD (deprecated)
 fargate_profile_selectors = [
   { namespace = "keda-system" },
-  { namespace = "external-secrets" }
+  { namespace = "external-secrets-system" }
 ]
 
 fargate_system_profile_selectors = [
@@ -429,7 +429,7 @@ fargate_profiles = {
   apps = {
     selectors = [
       { namespace = "keda-system", labels = {} },
-      { namespace = "external-secrets", labels = {} }
+      { namespace = "external-secrets-system", labels = {} }
     ]
   }
   system = {
@@ -447,4 +447,4 @@ fargate_profiles = {
 
 - [EKS Fargate Documentation](https://docs.aws.amazon.com/eks/latest/userguide/fargate.html)
 - [Fargate Pod Configuration](https://docs.aws.amazon.com/eks/latest/userguide/fargate-pod-configuration.html)
-- [EC2 Node Groups Configuration](./EC2_NODE_GROUPS.md)
+- [Base layer deployment](../deployment/base-layer.md) (EC2 node groups)

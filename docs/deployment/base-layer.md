@@ -45,14 +45,15 @@ The deploying user/role needs the following AWS permissions:
 
 1. **Copy configuration file:**
    ```bash
-   cp terraform.tfvars.sample terraform.tfvars
+   cd infrastructure-layered
+   cp env.sample.hcl env.hcl
    ```
 
-2. **Edit terraform.tfvars with your values:**
+2. **Edit `env.hcl` with your values:**
    ```hcl
    cluster_name = "your-cluster-name"
-   vpc_id       = "vpc-xxxxxxxxx"
-   subnet_ids   = ["subnet-xxxxxxxxx", "subnet-yyyyyyyyy"]
+   vpc_id       = "vpc-xxxxxxxx"
+   subnet_ids   = ["subnet-xxxxxxxx", "subnet-yyyyyyyy"]
    ```
 
 3. **Set environment variable for remote state:**
@@ -62,20 +63,17 @@ The deploying user/role needs the following AWS permissions:
 
 4. **Deploy using orchestration script (recommended):**
    ```bash
-   # From repository root
    ./deploy.sh --layer base deploy
    ```
 
-   Or deploy manually with Terraform:
+   Or deploy manually with Terragrunt:
    ```bash
-   # The orchestration script handles bucket substitution automatically
-   # Manual deployment requires sed substitution first
-   terraform init
-   terraform plan
-   terraform apply
+   cd base
+   terragrunt plan
+   terragrunt apply
    ```
 
-> **Note**: The orchestration script (`deploy.sh` in infrastructure-layered) handles S3 bucket name substitution automatically. If deploying manually, ensure the backend configuration in `main.tf` has the correct bucket name.
+> **Note**: The orchestration script (`deploy.sh`) passes the state bucket via `-backend-config`. See [TERRAGRUNT_QUICKSTART.md](../terragrunt/TERRAGRUNT_QUICKSTART.md) for details.
 
 ## Important Configuration Notes
 
@@ -144,7 +142,7 @@ aws eks describe-fargate-profile --cluster-name your-cluster-name --fargate-prof
 ## Upgrading
 
 ### Kubernetes Version Upgrades
-1. Update `cluster_version` in terraform.tfvars
+1. Update `cluster_version` in `env.hcl`
 2. Update `eks_addons` versions to match
 3. Apply changes: `terraform plan && terraform apply`
 4. Update worker node groups separately if using EC2 nodes

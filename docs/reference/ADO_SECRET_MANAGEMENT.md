@@ -167,7 +167,7 @@ spec:
 
 The secret name is configurable via Terraform variable:
 
-**File**: `infrastructure-layered/application/terraform.tfvars`
+**File**: `infrastructure-layered/env.hcl`
 
 ```hcl
 # Customize the secret name (optional)
@@ -215,7 +215,7 @@ aws secretsmanager put-secret-value \
 # Will prompt for new credentials
 
 # Option 3: Use Terraform variable (discouraged for secrets)
-# Edit application/terraform.tfvars:
+# Edit env.hcl:
 ado_pat_value = "new-token"
 # Then:
 ./deploy.sh --layer application deploy
@@ -256,7 +256,7 @@ ado_pat_value = "new-token"
 - Monitor secret access via CloudTrail
 
 ❌ **DON'T**:
-- Store PAT tokens in `terraform.tfvars`
+- Store PAT tokens in `env.hcl` or committed files
 - Commit secrets to version control
 - Use long-lived PAT tokens
 - Share PAT tokens between teams

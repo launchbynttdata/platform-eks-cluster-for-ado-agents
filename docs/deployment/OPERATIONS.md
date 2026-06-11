@@ -17,7 +17,7 @@ This guide provides operational procedures for deploying, configuring, and maint
 ### Prerequisites
 
 - AWS CLI configured with appropriate credentials
-- Terraform 1.5+ installed
+- Terraform 1.12+ installed (see `.tool-versions`)
 - kubectl installed
 - Appropriate IAM permissions for EKS, S3, Secrets Manager, and related services
 
@@ -63,7 +63,7 @@ cd infrastructure-layered
 
 ### Region Configuration
 
-The AWS region is configured once in each layer's `terraform.tfvars`:
+The AWS region is configured once in `env.hcl`:
 
 ```hcl
 aws_region = "us-west-2"
@@ -270,16 +270,18 @@ The infrastructure includes AWS Cluster Autoscaler for EC2 node groups (Buildkit
 
 ### Deployment
 
-Cluster Autoscaler is deployed via a separate script after the base layer:
+Cluster Autoscaler is deployed by the **middleware layer** Terraform module when enabled in `env.hcl`. Deploy with:
 
 ```bash
 cd infrastructure-layered
-./deploy-cluster-autoscaler.sh
+./deploy.sh --layer middleware deploy
 ```
+
+See [cluster-autoscaler-middleware.md](../reference/cluster-autoscaler-middleware.md) for full details.
 
 ### Configuration
 
-Autoscaler settings are configured in `infrastructure/terraform.tfvars`:
+Autoscaler settings are configured in `env.hcl`:
 
 ```hcl
 enable_cluster_autoscaler = true
@@ -344,7 +346,7 @@ kubectl describe sa keda-operator -n keda-system
 **External Secrets Operator Pods Not Starting**
 ```bash
 # Verify webhook is disabled for Fargate
-# In middleware/terraform.tfvars:
+# In env.hcl:
 eso_webhook_enabled = false
 
 # Check pod status

@@ -15,8 +15,6 @@ This layer deploys cluster operators and middleware services on the EKS cluster.
 - **Version**: Configurable (default: 1.3.2, ESO app 1.3)  
 - **Namespace**: `external-secrets-system` (configurable)
 - **IAM Role**: Created with basic Secrets Manager permissions
-- **ClusterSecretStore**: Creates AWS Secrets Manager integration
-
 ### Buildkitd Service
 - **Purpose**: Provides cluster-wide container build capabilities
 - **Image**: `moby/buildkit:v0.12.5` (configurable)
@@ -61,23 +59,19 @@ The deploying user/role needs permissions for:
    terraform output
    ```
 
-2. **Copy configuration file:**
+2. **Configure environment** (if not already done for base layer):
    ```bash
-   cp terraform.tfvars.sample terraform.tfvars
+   cd infrastructure-layered
+   cp env.sample.hcl env.hcl   # skip if env.hcl exists
+   # Edit env.hcl with middleware settings (KEDA, ESO, buildkitd)
    ```
 
-3. **Edit terraform.tfvars:**
-   ```hcl
-   remote_state_bucket = "your-terraform-state-bucket"
-   # Other configuration...
-   ```
-
-4. **Set environment variable for remote state:**
+3. **Set environment variable for remote state:**
    ```bash
    export TF_STATE_BUCKET='your-terraform-state-bucket'
    ```
 
-5. **Deploy using orchestration script (recommended):**
+4. **Deploy using orchestration script (recommended):**
    ```bash
    # From infrastructure-layered/ directory
    cd infrastructure-layered
@@ -193,17 +187,17 @@ namespace = data.terraform_remote_state.middleware.outputs.ado_agents_namespace
 ## Upgrading
 
 ### KEDA Version Upgrades
-1. Update `keda_version` in terraform.tfvars
+1. Update `keda_version` in `env.hcl`
 2. Apply changes: `terraform plan && terraform apply`
 3. Verify ScaledJobs continue working after upgrade
 
 ### ESO Version Upgrades  
-1. Update `eso_version` in terraform.tfvars
+1. Update `eso_version` in `env.hcl`
 2. Apply changes: `terraform plan && terraform apply`
 3. Verify ExternalSecrets continue synchronizing
 
 ### Buildkitd Image Updates
-1. Update `buildkitd_image` in terraform.tfvars
+1. Update `buildkitd_image` in `env.hcl`
 2. Apply changes (will restart buildkitd pods)
 3. Test builds work with new version
 

@@ -8,7 +8,7 @@
 # ⚠️  This script has been replaced by the Terragrunt-based deploy.sh
 # ⚠️  
 # ⚠️  Use the new script at: ../deploy.sh
-# ⚠️  Documentation: ../docs/TERRAGRUNT_QUICKSTART.md
+# ⚠️  Documentation: ../../docs/terragrunt/TERRAGRUNT_QUICKSTART.md
 #
 # This file is kept for reference purposes only and should not be used
 # for new deployments.

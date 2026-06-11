@@ -1,6 +1,6 @@
-# Legacy Infrastructure Path Deprecated
+# Legacy Infrastructure Path Removed
 
-The `/infrastructure` stack is deprecated and is no longer supported for active deployments.
+The monolithic `/infrastructure` stack has been **removed** from this repository. It was superseded by the layered Terragrunt architecture.
 
 ## Canonical deployment path
 
@@ -9,10 +9,10 @@ Use:
 
 ## Canonical module path
 
-Local Terraform modules are now sourced from:
+Local Terraform modules are sourced from:
 `${REPO_ROOT}/modules`
 
 ## Notes
 
-- `/infrastructure/modules` has been removed.
-- Any existing automation that invoked `/infrastructure/deploy.sh` must be updated to use the layered deploy script.
+- The monolithic `ado-eks-cluster` collection module and `app/k8s/` manifests were removed with the legacy stack.
+- Any automation that invoked `/infrastructure/deploy.sh` must use the layered deploy script.

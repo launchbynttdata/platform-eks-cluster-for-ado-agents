@@ -54,7 +54,7 @@ vpc_id = "vpc-xxxxx"
 subnet_ids = ["subnet-xxxxx", "subnet-yyyyy"]
 
 endpoint_public_access = true
-public_access_cidrs    = ["136.226.0.0/16"]
+public_access_cidrs    = ["203.0.113.0/24"]
 ```
 
 | Variable | Type | Required | Description |
@@ -470,7 +470,7 @@ locals {
     apps = {
       selectors = [
         { namespace = "keda-system" },
-        { namespace = "external-secrets" },
+        { namespace = "external-secrets-system" },
         { namespace = "ado-agents" }
       ]
     }

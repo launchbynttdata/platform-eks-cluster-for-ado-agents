@@ -25,7 +25,7 @@ agentPools:
     name: "dev-build"
     # ADO Pool configuration
     ado:
-      poolName: "batch-poc-eks-agent-pool"
+      poolName: "example-ado-agent-pool"
       secretName: "ado-pat"
     # Container configuration
     image:
@@ -82,7 +82,7 @@ agentPools:
     name: "iac"
     # ADO Pool configuration  
     ado:
-      poolName: "batch-poc-eks-iac-pool"
+      poolName: "example-ado-iac-pool"
       secretName: "ado-pat"
     # Container configuration
     image:

@@ -39,15 +39,15 @@ locals {
   cluster_version = "1.35"
 
   # Networking Configuration
-  vpc_id = "vpc-0555ff8949bb6bb4e"
+  vpc_id = "vpc-xxxxxxxx"
   subnet_ids = [
-    "subnet-08767b1e9b7e08959",
-    "subnet-0eaf172a0157206f6"
+    "subnet-xxxxxxxx",
+    "subnet-yyyyyyyy"
   ]
 
   # Cluster Access Configuration
   endpoint_public_access = true
-  public_access_cidrs    = ["136.226.0.0/16"]
+  public_access_cidrs    = ["203.0.113.0/24"]
 
   # IAM Configuration
   create_iam_roles = true

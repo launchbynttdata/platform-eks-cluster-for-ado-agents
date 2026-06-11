@@ -36,7 +36,7 @@ spec:
         jwt:
           serviceAccountRef:
             name: external-secrets-sa
-            namespace: external-secrets
+            namespace: external-secrets-system
 ```
 
 **Why this matters**: Without the ClusterSecretStore, External Secrets Operator cannot sync secrets from AWS Secrets Manager to Kubernetes, and ADO agents won't be able to authenticate.
@@ -157,20 +157,8 @@ Should show secrets synced from AWS Secrets Manager.
 
 ### 4. Check ESO Logs (if issues)
 ```bash
-kubectl logs -n external-secrets -l app.kubernetes.io/name=external-secrets
+kubectl logs -n external-secrets-system -l app.kubernetes.io/name=external-secrets
 ```
-
-## Differences from Old deploy.sh
-
-| Feature | Old deploy.sh | New deploy-tg.sh |
-|---------|--------------|------------------|
-| Config layer type | Special "layer" in deploy.sh | Explicitly handled post-deployment |
-| Invocation | `deploy_layer "config"` | `deploy_config_layer()` function |
-| kubectl setup | ✅ `configure_kubectl_for_cluster()` | ✅ `configure_kubectl()` |
-| ClusterSecretStore | ✅ `create_cluster_secret_store()` | ✅ `create_cluster_secret_store()` |
-| ADO PAT update | ✅ `inject_ado_secret()` | ✅ `inject_ado_secret()` |
-| Wait for ready | ✅ 30 attempts × 2s | ✅ 30 attempts × 2s (same) |
-| Flag for PAT update | `--update-ado-secret` | `--update-ado-secret` (same) |
 
 ## Troubleshooting
 
@@ -180,11 +168,11 @@ kubectl logs -n external-secrets -l app.kubernetes.io/name=external-secrets
 kubectl describe clustersecretstore aws-secrets-manager
 
 # Check External Secrets Operator logs
-kubectl logs -n external-secrets -l app.kubernetes.io/name=external-secrets --tail=50
+kubectl logs -n external-secrets-system -l app.kubernetes.io/name=external-secrets --tail=50
 
 # Verify ESO ServiceAccount and IAM role
-kubectl get sa -n external-secrets external-secrets-sa
-kubectl describe sa -n external-secrets external-secrets-sa
+kubectl get sa -n external-secrets-system external-secrets
+kubectl describe sa -n external-secrets-system external-secrets
 ```
 
 ### kubectl Access Issues
