@@ -375,8 +375,8 @@ aws s3 ls "s3://${TF_STATE_BUCKET}/"
 
 ## Getting Help
 
-- **Documentation**: See [TERRAGRUNT_MIGRATION.md](./docs/TERRAGRUNT_MIGRATION.md)
-- **Main README**: [README.md](./README.md)
+- **Documentation hub**: [docs/README.md](../README.md)
+- **Configuration reference**: [TERRAGRUNT_CONFIGURATION_REFERENCE.md](./TERRAGRUNT_CONFIGURATION_REFERENCE.md)
 - **Terragrunt Docs**: <https://terragrunt.gruntwork.io/docs/>
 
 ## Comparison: Old vs New

@@ -9,7 +9,7 @@ The `deploy.sh` script (Terragrunt-based) is supported by two types of automated
 1. **Static Analysis** - ShellCheck catches common shell scripting bugs
 2. **Unit Testing** - BATS provides automated test coverage for functions
 
-> **Note**: The legacy Terraform-based script has been moved to `docs/deploy-legacy.sh` for reference.
+> **Note**: The legacy Terraform-based script is archived at `infrastructure-layered/docs/deploy-legacy.sh` for reference.
 
 ## Quick Start
 
@@ -58,7 +58,6 @@ Common patterns used:
 - Using `[[` for conditionals
 - Setting `set -euo pipefail` for strict error handling
 - Using `local` for function-scoped variables
-```
 
 **Status**: Team preference. Explicit `$?` checks are acceptable for readability.
 

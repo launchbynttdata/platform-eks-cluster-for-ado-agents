@@ -19,7 +19,7 @@ This repository provides a comprehensive solution for deploying Azure DevOps bui
 The canonical deployment uses the **infrastructure-layered** directory with a three-layer Terragrunt-based architecture:
 
 - **Base Layer**: EKS cluster, VPC, IAM, KMS
-- **Middleware Layer**: KEDA, External Secrets Operator, buildkitd
+- **Middleware Layer**: KEDA, External Secrets Operator, buildkitd, cluster autoscaler
 - **Application Layer**: ECR repositories, secrets, ADO agent deployments via Helm
 
 All deployment is orchestrated by [infrastructure-layered/deploy.sh](infrastructure-layered/deploy.sh).
@@ -68,7 +68,14 @@ This repository uses [.tool-versions](.tool-versions) for version pinning. We re
    ./deploy.sh deploy --update-ado-secret
    ```
 
-For detailed configuration, IAM setup, troubleshooting, and operations, see the [infrastructure-layered README](infrastructure-layered/README.md).
+## Documentation
+
+Full documentation is in the [documentation hub](docs/README.md):
+
+- [Operations guide](docs/deployment/OPERATIONS.md) - deploy, configure, troubleshoot
+- [Terragrunt quickstart](docs/terragrunt/TERRAGRUNT_QUICKSTART.md) - first-time setup
+- [Configuration reference](docs/terragrunt/TERRAGRUNT_CONFIGURATION_REFERENCE.md) - `env.hcl` variables
+- [CHANGELOG](CHANGELOG.md) - release history
 
 ## Known Issues
 

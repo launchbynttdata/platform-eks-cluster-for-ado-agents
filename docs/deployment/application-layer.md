@@ -162,19 +162,20 @@ ado_execution_roles = {
 
 Copy the sample configuration:
 ```bash
-cp terraform.tfvars.sample terraform.tfvars
+cd infrastructure-layered
+cp env.sample.hcl env.hcl
 ```
 
-Edit `terraform.tfvars` with your configuration:
-```bash
-# Required configuration
-remote_state_bucket = "your-terraform-state-bucket"
-remote_state_region = "us-east-1"
-ado_org            = "your-ado-org"
-ado_url            = "https://dev.azure.com/your-ado-org"
+Edit `env.hcl` with your configuration:
+```hcl
+# Required configuration (in env.hcl locals block)
+ado_org = "your-ado-org"
+ado_url = "https://dev.azure.com/your-ado-org"
+```
 
-# Set PAT via environment variable (recommended)
-export TF_VAR_ado_pat_value="your-personal-access-token"
+Set the PAT via environment variable when running deploy (recommended):
+```bash
+export ADO_PAT="your-personal-access-token"
 ```
 
 ### Step 2: Set Environment Variable
