@@ -60,35 +60,41 @@ aws secretsmanager put-secret-value \
 
 ### Deploy All Layers Including Config
 ```bash
-# Deploys base → middleware → application → config (with prompt)
+# Interactive: prompts for config layer after Terraform layers
 ./deploy.sh deploy
+
+# Non-interactive: explicit config layer and ADO credentials
+export ADO_PAT='...'
+export ADO_ORG_URL='https://dev.azure.com/yourorg'
+./deploy.sh deploy --auto-approve --with-config-layer --update-ado-secret
 ```
 
-You'll be prompted after Terraform layers complete:
+In interactive mode you are prompted after Terraform layers complete:
 ```
 Deploy config layer (ClusterSecretStore + kubectl setup)? [y/N]
 ```
 
+With `--auto-approve`, use `--with-config-layer` or `--skip-config-layer` explicitly (no prompt).
+
 ### Deploy Config Layer Only
 ```bash
-# Deploys only the config layer (requires all Terraform layers already deployed)
 ./deploy.sh deploy --layer config
 ```
 
 ### Update ADO PAT
 ```bash
-# Update ADO PAT in AWS Secrets Manager
+# Interactive
 ./deploy.sh deploy --layer config --update-ado-secret
-```
 
-You'll be prompted for:
-- ADO Organization URL (e.g., `https://dev.azure.com/yourorg`)
-- ADO Personal Access Token (masked input)
+# Non-interactive
+export ADO_PAT='...'
+export ADO_ORG_URL='https://dev.azure.com/yourorg'
+./deploy.sh deploy --layer config --auto-approve --update-ado-secret
+```
 
 ### Skip Config Layer
 ```bash
-# Deploy only Terraform layers, skip config layer
-./deploy.sh deploy --auto-approve
+./deploy.sh deploy --auto-approve --skip-config-layer
 ```
 
 ## Architecture
@@ -199,27 +205,20 @@ aws secretsmanager put-secret-value \
 
 ## CI/CD Integration
 
-In CI/CD pipelines, you may want to:
-
-### Skip Interactive Prompt
+### Non-interactive deploy
 ```bash
-# Deploy all Terraform layers without config layer
-./deploy.sh deploy --auto-approve
-```
-
-Then run config layer separately:
-```bash
-# Deploy config layer non-interactively
-./deploy.sh deploy --layer config --auto-approve
-```
-
-### Environment Variables
-Set ADO PAT via environment variable to avoid prompts:
-```bash
-export ADO_ORG_URL="https://dev.azure.com/yourorg"
 export ADO_PAT="your-pat-here"
-./deploy.sh deploy --layer config --update-ado-secret
+export ADO_ORG_URL="https://dev.azure.com/yourorg"
+
+# Full deploy: Terraform layers + config + ADO secret
+./deploy.sh deploy --auto-approve --with-config-layer --update-ado-secret
+
+# Or staged:
+./deploy.sh deploy --auto-approve --skip-config-layer
+./deploy.sh deploy --layer config --auto-approve --update-ado-secret
 ```
+
+With `--auto-approve`, the script never reads from stdin. Missing `ADO_PAT` or `ADO_ORG_URL` when using `--update-ado-secret` exits immediately with an error.
 
 ## Summary
 

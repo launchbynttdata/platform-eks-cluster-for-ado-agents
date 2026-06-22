@@ -23,8 +23,9 @@ setup() {
     
     # Source the functions
     source "${TEST_DEPLOY_SH}"
-    
-    # Create temporary test layer directory
+    export AUTO_APPROVE="true"
+    export DRY_RUN="false"
+    export VERBOSE="false"
     export TEST_LAYER_DIR="${BATS_TMPDIR}/test-layer"
     mkdir -p "${TEST_LAYER_DIR}"
 }
@@ -292,7 +293,7 @@ teardown() {
 
     run bash -c "cd ${SCRIPT_DIR_LOCAL} && AWS_PROFILE=__nonexistent_profile__ ./deploy.sh init --dry-run 2>&1"
     [ "$status" -eq 0 ]
-    [[ "$output" =~ "Dry-run mode detected: skipping AWS credentials validation" ]]
+    [[ "$output" =~ "Dry-run mode detected: skipping tool and AWS credential checks" ]]
 }
 
 # =============================================================================

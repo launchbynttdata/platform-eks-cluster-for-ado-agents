@@ -34,24 +34,40 @@ cp env.sample.hcl env.hcl
 # 2. Set state bucket
 export TF_STATE_BUCKET='your-terraform-state-bucket'
 
-# 3. Deploy all layers + config
+# 3. Deploy all layers + config (interactive)
 ./deploy.sh deploy --update-ado-secret
+
+# CI/CD: non-interactive deploy with explicit config layer and ADO secrets
+export ADO_PAT='...'
+export ADO_ORG_URL='https://dev.azure.com/your-org'
+./deploy.sh deploy --auto-approve --with-config-layer --update-ado-secret
 ```
 
 ### Deploy individual layers
 
 ```bash
-./deploy.sh --layer base deploy
-./deploy.sh --layer middleware deploy
-./deploy.sh --layer application deploy
-./deploy.sh --layer config deploy
+./deploy.sh deploy --layer base
+./deploy.sh deploy --layer middleware
+./deploy.sh deploy --layer application
+./deploy.sh deploy --layer config
+./deploy.sh deploy --layer all --auto-approve --dry-run
 ```
 
 ### Plan before apply
 
 ```bash
-./deploy.sh --layer all plan
+./deploy.sh plan --layer all
 ```
+
+### Non-interactive flags
+
+| Flag | Purpose |
+|------|---------|
+| `--auto-approve` | No prompts; fail fast on missing input |
+| `--with-config-layer` | Run config layer after Terraform layers |
+| `--skip-config-layer` | Skip config layer |
+| `--skip-ado-secret` | Config layer without ADO secret injection |
+| `--update-ado-secret` | Requires `ADO_PAT` and `ADO_ORG_URL` when combined with `--auto-approve` |
 
 ## Configuration
 

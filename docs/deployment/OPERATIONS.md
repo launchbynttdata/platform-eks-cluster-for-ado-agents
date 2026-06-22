@@ -94,19 +94,21 @@ The config layer creates the ClusterSecretStore **after** all layers are deploye
 
 #### Run Config Layer
 
-**Important**: Run this AFTER deploying all Terraform layers with `./deploy.sh deploy` or `./deploy.sh --layer all deploy`
+**Important**: Run this AFTER deploying all Terraform layers with `./deploy.sh deploy` or `./deploy.sh deploy --layer all`
 
 ```bash
 cd infrastructure-layered
 
-# Deploy config layer (interactive mode - prompts for PAT)
-./deploy.sh --layer config deploy
+# Deploy config layer (interactive - prompts for PAT if --update-ado-secret)
+./deploy.sh deploy --layer config --update-ado-secret
 
-# With explicit credentials
-./deploy.sh --layer config --pat "your-ado-pat-token" --org-url "https://dev.azure.com/your-org" deploy
+# Non-interactive (requires ADO_PAT and ADO_ORG_URL)
+export ADO_PAT='your-ado-pat-token'
+export ADO_ORG_URL='https://dev.azure.com/your-org'
+./deploy.sh deploy --layer config --auto-approve --update-ado-secret
 
-# Skip ADO secret injection
-./deploy.sh --layer config --skip-ado-secret deploy
+# ClusterSecretStore only (skip ADO secret injection)
+./deploy.sh deploy --layer config --skip-ado-secret
 ```
 
 #### What the Config Layer Does
@@ -115,7 +117,7 @@ cd infrastructure-layered
 2. **Auto-detects** cluster name and AWS region from Terraform state
 3. **Configures** kubectl access to your EKS cluster
 4. **Creates** ClusterSecretStore for AWS Secrets Manager integration
-5. **Prompts** for Azure DevOps PAT token (interactive mode, unless --skip-ado-secret)
+5. **Prompts** for Azure DevOps PAT token in interactive mode, or requires `ADO_PAT`/`ADO_ORG_URL` with `--auto-approve`
 6. **Injects** ADO PAT secret into AWS Secrets Manager
 7. **Verifies** all components are working (ESO, KEDA, agents)
 

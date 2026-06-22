@@ -104,16 +104,16 @@ resource "aws_secretsmanager_secret_version" "ado_pat" {
 
 **Usage**:
 ```bash
-# Deploy config layer (includes secret injection)
-./deploy.sh --layer config deploy
+# Deploy config layer with secret injection (interactive)
+./deploy.sh deploy --layer config --update-ado-secret
 
 # Skip secret injection if already configured
-./deploy.sh --layer config --skip-ado-secret deploy
+./deploy.sh deploy --layer config --skip-ado-secret
 
-# Provide credentials via environment variables
-export ADO_PAT_TOKEN="your-pat-token"
+# Non-interactive (requires ADO_PAT and ADO_ORG_URL)
+export ADO_PAT="your-pat-token"
 export ADO_ORG_URL="https://dev.azure.com/your-org"
-./deploy.sh --layer config deploy
+./deploy.sh deploy --layer config --auto-approve --update-ado-secret
 ```
 
 **Secret Structure**:
@@ -191,13 +191,10 @@ The config layer automatically reads this value from tfvars, or falls back to th
 ./deploy.sh --layer application deploy
 
 # 4. Deploy config layer (populates secret + configures ESO)
-./deploy.sh --layer config deploy
-# Prompts for:
-#  - Azure DevOps Organization URL
-#  - Personal Access Token
+./deploy.sh deploy --layer config --update-ado-secret
 
 # OR skip secret injection if done separately
-./deploy.sh --layer config --skip-ado-secret deploy
+./deploy.sh deploy --layer config --skip-ado-secret
 ```
 
 ### Update Secret Credentials
