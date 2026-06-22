@@ -16,13 +16,13 @@ setup() {
     
     # Source the deploy.sh script to get function definitions
     SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
-    
-    # Create a temporary version that doesn't call main
-    TEST_DEPLOY_SH="${BATS_TMPDIR}/deploy.sh"
-    sed '/^main /,$d' "${SCRIPT_DIR}/deploy.sh" > "${TEST_DEPLOY_SH}"
-    
-    # Source the functions
-    source "${TEST_DEPLOY_SH}"
+    export DEPLOY_LAYERS_DIR="${SCRIPT_DIR}"
+    export AUTO_APPROVE="true"
+    export DRY_RUN="false"
+    export VERBOSE="false"
+
+    # shellcheck source=/dev/null
+    source <(sed '/^if \[\[ "\${BASH_SOURCE\[0\]}" == "\${0}" \]\]; then/,$d' "${SCRIPT_DIR}/deploy.sh")
     export AUTO_APPROVE="true"
     export DRY_RUN="false"
     export VERBOSE="false"
@@ -31,9 +31,8 @@ setup() {
 }
 
 teardown() {
-    # Clean up
-    rm -f "${BATS_TMPDIR}/deploy.sh"
     rm -rf "${TEST_LAYER_DIR}"
+    unset DEPLOY_LAYERS_DIR
 }
 
 # =============================================================================
@@ -170,10 +169,10 @@ teardown() {
 
 @test "plan_layer: fails if init_layer fails" {
     export DRY_RUN="false"
-    # Use non-existent directory to force init failure
-    NON_EXISTENT_DIR="/tmp/non-existent-layer-$$"
+    local NON_EXISTENT_DIR="/tmp/non-existent-layer-$$"
     run plan_layer "test" "${NON_EXISTENT_DIR}"
     [ "$status" -ne 0 ]
+    [[ "$output" =~ "Layer directory not found" ]]
 }
 
 @test "plan_layer: continues to plan after successful init" {
@@ -197,10 +196,10 @@ teardown() {
 
 @test "apply_layer: fails if init_layer fails" {
     export DRY_RUN="false"
-    # Use non-existent directory to force init failure
-    NON_EXISTENT_DIR="/tmp/non-existent-layer-$$"
+    local NON_EXISTENT_DIR="/tmp/non-existent-layer-$$"
     run apply_layer "test" "${NON_EXISTENT_DIR}"
     [ "$status" -ne 0 ]
+    [[ "$output" =~ "Layer directory not found" ]]
 }
 
 @test "apply_layer: continues to apply after successful init" {

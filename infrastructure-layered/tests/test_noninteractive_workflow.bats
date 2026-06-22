@@ -19,7 +19,15 @@ teardown_file() {
 run_deploy_timeout() {
     local timeout_seconds="${1}"
     shift
-    run timeout "${timeout_seconds}" bash -c "$*" </dev/null
+    local cmd="cd '${SCRIPT_DIR}' && $*"
+
+    if command -v timeout >/dev/null 2>&1; then
+        run timeout "${timeout_seconds}" bash -c "${cmd}" </dev/null
+    elif command -v gtimeout >/dev/null 2>&1; then
+        run gtimeout "${timeout_seconds}" bash -c "${cmd}" </dev/null
+    else
+        run bash -c "${cmd}" </dev/null
+    fi
 }
 
 @test "auto-approve update-ado-secret: fails fast when ADO credentials missing" {

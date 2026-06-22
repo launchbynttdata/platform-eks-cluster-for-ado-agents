@@ -16,18 +16,17 @@ setup() {
     
     # Source the deploy.sh script to get function definitions
     SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
-    
-    # Create a temporary version that doesn't call main
-    TEST_DEPLOY_SH="${BATS_TMPDIR}/deploy.sh"
-    sed '/^main /,$d' "${SCRIPT_DIR}/deploy.sh" > "${TEST_DEPLOY_SH}"
-    
-    # Source the functions (this sets readonly variables BASE_LAYER_DIR, etc.)
-    source "${TEST_DEPLOY_SH}"
+    export DEPLOY_LAYERS_DIR="${SCRIPT_DIR}"
+
+    # shellcheck source=/dev/null
+    source <(sed '/^if \[\[ "\${BASH_SOURCE\[0\]}" == "\${0}" \]\]; then/,$d' "${SCRIPT_DIR}/deploy.sh")
+    export AUTO_APPROVE="false"
+    export DRY_RUN="false"
+    export VERBOSE="false"
 }
 
 teardown() {
-    # Clean up
-    rm -f "${BATS_TMPDIR}/deploy.sh"
+    unset DEPLOY_LAYERS_DIR
 }
 
 # Test: get_layer_dir function

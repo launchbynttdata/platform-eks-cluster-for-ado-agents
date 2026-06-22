@@ -20,13 +20,26 @@ shellcheck:
 	@echo "✅ ShellCheck passed!"
 
 # Run BATS unit tests
+BATS_TIMEOUT_SECONDS ?= 120
 bats-test:
-	@echo "Running BATS unit tests..."
+	@echo "Running BATS unit tests (timeout: $(BATS_TIMEOUT_SECONDS)s)..."
 	@if command -v bats >/dev/null 2>&1; then \
-		bats tests/ || (echo "❌ BATS tests failed. See output above." && exit 1); \
-		echo "✅ BATS tests passed!"; \
+		if command -v timeout >/dev/null 2>&1; then \
+			timeout $(BATS_TIMEOUT_SECONDS) bats tests/; \
+		elif command -v gtimeout >/dev/null 2>&1; then \
+			gtimeout $(BATS_TIMEOUT_SECONDS) bats tests/; \
+		else \
+			bats tests/; \
+		fi; \
+		test_exit=$$?; \
+		if [ $$test_exit -eq 0 ]; then \
+			echo "BATS tests passed!"; \
+		else \
+			echo "BATS failed (exit $$test_exit)"; \
+			exit $$test_exit; \
+		fi; \
 	else \
-		echo "⚠️  BATS not installed. Install with: brew install bats-core"; \
+		echo "BATS not installed. Install with: brew install bats-core"; \
 		exit 1; \
 	fi
 

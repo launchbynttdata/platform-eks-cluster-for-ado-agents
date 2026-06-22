@@ -51,7 +51,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
-readonly LAYERS_DIR="${SCRIPT_DIR}"
+LAYERS_DIR="${DEPLOY_LAYERS_DIR:-${SCRIPT_DIR}}"
+readonly LAYERS_DIR
 readonly SCRIPT_NAME="${0##*/}"
 
 readonly BASE_LAYER_DIR="${LAYERS_DIR}/base"
@@ -212,10 +213,16 @@ is_strict_mode() {
 confirm_action() {
     local message="$1"
     local default="${2:-n}"
-    
+
     if [[ "${AUTO_APPROVE}" == "true" ]]; then
         log_info "Auto-approved: ${message}"
         return 0
+    fi
+
+    if ! is_stdin_interactive; then
+        log_error "Confirmation required but stdin is not interactive: ${message}"
+        log_error "Re-run with --auto-approve for non-interactive use"
+        return 1
     fi
     
     local prompt="${message} (y/N): "
@@ -533,14 +540,27 @@ get_terragrunt_output_json() {
     (cd "${layer_dir}" && terragrunt output -json "${output_name}" 2>/dev/null)
 }
 
+cd_layer_dir() {
+    local layer_dir="$1"
+
+    if ! cd "${layer_dir}"; then
+        log_error "Layer directory not found: ${layer_dir}"
+        return 1
+    fi
+
+    return 0
+}
+
 init_layer() {
     local layer="$1"
     local layer_dir="$2"
     local force="${3:-false}"
     
     log_info "Initializing ${layer} layer..."
-    
-    cd "${layer_dir}"
+
+    if ! cd_layer_dir "${layer_dir}"; then
+        return 1
+    fi
     
     if [[ "${DRY_RUN}" == "true" ]]; then
         log_info "[DRY-RUN] Would initialize ${layer} layer"
@@ -620,8 +640,10 @@ validate_layer() {
         return 1
     fi
     
-    cd "${layer_dir}"
-    
+    if ! cd_layer_dir "${layer_dir}"; then
+        return 1
+    fi
+
     if [[ "${DRY_RUN}" == "true" ]]; then
         log_info "[DRY-RUN] Would validate ${layer} layer"
         return 0
@@ -641,8 +663,10 @@ plan_layer() {
     local layer_dir="$2"
     
     log_info "Planning ${layer} layer..."
-    
-    cd "${layer_dir}"
+
+    if ! cd_layer_dir "${layer_dir}"; then
+        return 1
+    fi
     
     if [[ "${DRY_RUN}" == "true" ]]; then
         log_info "[DRY-RUN] Would plan ${layer} layer"
@@ -674,8 +698,10 @@ apply_layer() {
     local layer_dir="$2"
     
     log "Applying ${layer} layer..."
-    
-    cd "${layer_dir}"
+
+    if ! cd_layer_dir "${layer_dir}"; then
+        return 1
+    fi
     
     if [[ "${DRY_RUN}" == "true" ]]; then
         log_info "[DRY-RUN] Would apply ${layer} layer"
@@ -710,8 +736,10 @@ destroy_layer() {
     local layer_dir="$2"
     
     log "Destroying ${layer} layer..."
-    
-    cd "${layer_dir}"
+
+    if ! cd_layer_dir "${layer_dir}"; then
+        return 1
+    fi
     
     if [[ "${DRY_RUN}" == "true" ]]; then
         log_info "[DRY-RUN] Would destroy ${layer} layer"
@@ -738,8 +766,10 @@ destroy_layer() {
 show_layer_status() {
     local layer="$1"
     local layer_dir="$2"
-    
-    cd "${layer_dir}"
+
+    if ! cd_layer_dir "${layer_dir}"; then
+        return 1
+    fi
     
     log_info "Status for ${layer} layer:"
     
@@ -923,7 +953,12 @@ configure_kubectl() {
 
     log_info "Configuring kubectl access..."
 
-    cd "${base_dir}"
+    if ! cd_layer_dir "${base_dir}"; then
+        if [[ "${strict}" == "true" ]]; then
+            return 1
+        fi
+        return 0
+    fi
 
     local cluster_name
     cluster_name=$(terragrunt output -raw cluster_name 2>/dev/null || echo "")
@@ -962,6 +997,12 @@ configure_kubectl() {
 # =============================================================================
 
 prompt_for_ado_credentials() {
+    if ! is_stdin_interactive; then
+        log_error "ADO credentials required but stdin is not interactive"
+        log_error "Set ADO_PAT and ADO_ORG_URL or use --auto-approve only after exporting them"
+        return 1
+    fi
+
     log ""
     log "Azure DevOps Credentials Required"
     log "=================================="
@@ -1225,7 +1266,7 @@ EOF
     
     while [[ ${attempt} -lt ${max_attempts} ]]; do
         local status
-        status=$(kubectl get clustersecretstore "${secret_store_name}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
+        status=$(kubectl --request-timeout=10s get clustersecretstore "${secret_store_name}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
         
         if [[ "${status}" == "True" ]]; then
             log_success "ClusterSecretStore is ready"
@@ -1386,8 +1427,6 @@ deploy_config_layer() {
 # =============================================================================
 # Main Execution
 # =============================================================================
-
-trap 'log_error "Command failed at line ${LINENO}: ${BASH_COMMAND}"; exit 1' ERR
 
 main() {
     local command="${DEFAULT_COMMAND}"
@@ -1611,5 +1650,8 @@ main() {
     esac
 }
 
-# Run main function
-main "$@"
+# Only run main when executed directly (not when sourced by BATS tests)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    trap 'log_error "Command failed at line ${LINENO}: ${BASH_COMMAND}"; exit 1' ERR
+    main "$@"
+fi

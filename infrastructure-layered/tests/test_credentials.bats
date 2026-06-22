@@ -2,25 +2,21 @@
 # Unit tests for ADO credential validation and helper functions.
 
 setup() {
+    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+    export DEPLOY_LAYERS_DIR="${SCRIPT_DIR}"
     export TF_STATE_BUCKET="test-bucket"
     export AUTO_APPROVE="true"
     export DRY_RUN="false"
     export VERBOSE="false"
     export UPDATE_ADO_SECRET="true"
 
-    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
-    TEST_DEPLOY_SH="${BATS_TMPDIR}/deploy.sh"
-    sed '/^main /,$d' "${SCRIPT_DIR}/deploy.sh" > "${TEST_DEPLOY_SH}"
     # shellcheck source=/dev/null
-    source "${TEST_DEPLOY_SH}"
-    export AUTO_APPROVE="true"
-    export UPDATE_ADO_SECRET="true"
+    source <(sed '/^if \[\[ "\${BASH_SOURCE\[0\]}" == "\${0}" \]\]; then/,$d' "${SCRIPT_DIR}/deploy.sh")
     init_log_colors
 }
 
 teardown() {
-    rm -f "${BATS_TMPDIR}/deploy.sh"
-    unset ADO_PAT ADO_ORG_URL TF_VAR_ado_pat_value
+    unset ADO_PAT ADO_ORG_URL TF_VAR_ado_pat_value DEPLOY_LAYERS_DIR
 }
 
 @test "is_non_empty: rejects whitespace-only values" {
