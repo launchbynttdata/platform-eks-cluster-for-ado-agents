@@ -15,15 +15,17 @@ setup() {
     # Store script directory for use in tests
     local SCRIPT_DIR_LOCAL="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
     export TEST_SCRIPT_DIR="${SCRIPT_DIR_LOCAL}"
-    
-    TEST_DEPLOY_SH="${BATS_TMPDIR}/deploy.sh"
-    sed '/^main /,$d' "${TEST_SCRIPT_DIR}/deploy.sh" > "${TEST_DEPLOY_SH}"
-    source "${TEST_DEPLOY_SH}"
+    export DEPLOY_LAYERS_DIR="${SCRIPT_DIR_LOCAL}"
+
+    # shellcheck source=/dev/null
+    source <(sed '/^if \[\[ "\${BASH_SOURCE\[0\]}" == "\${0}" \]\]; then/,$d' "${TEST_SCRIPT_DIR}/deploy.sh")
+    export AUTO_APPROVE="false"
+    export DRY_RUN="true"
+    export VERBOSE="false"
 }
 
 teardown() {
-    rm -f "${BATS_TMPDIR}/deploy.sh"
-    unset TEST_SCRIPT_DIR
+    unset TEST_SCRIPT_DIR DEPLOY_LAYERS_DIR
 }
 
 # Test: Layer directory structure
@@ -64,6 +66,7 @@ teardown() {
 }
 
 @test "deploy_config_layer: fails early when base cluster_name output missing" {
+    export DRY_RUN="false"
     get_terragrunt_output_raw() { :; }
 
     run deploy_config_layer "${BASE_LAYER_DIR}" "false"
@@ -72,6 +75,7 @@ teardown() {
 }
 
 @test "deploy_config_layer: fails when middleware outputs are missing" {
+    export DRY_RUN="false"
     get_terragrunt_output_raw() {
         if [[ "$1:$2" == "base:cluster_name" ]]; then
             echo "demo-cluster"
@@ -86,6 +90,7 @@ teardown() {
 }
 
 @test "deploy_config_layer: checks application secret output when update requested" {
+    export DRY_RUN="false"
     get_terragrunt_output_raw() {
         case "$1:$2" in
             base:cluster_name) echo "demo-cluster" ;;

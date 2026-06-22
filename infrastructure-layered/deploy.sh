@@ -32,12 +32,14 @@
 #   status        Show status of all layers
 #
 # Options:
-#   --layer LAYER          Deploy specific layer only (base|middleware|application|config)
-#   --auto-approve         Skip interactive prompts (non-interactive mode)
+#   --layer LAYER          Deploy specific layer only (base|middleware|application|config|all)
+#   --auto-approve         Non-interactive mode (no prompts; fail fast on missing input)
 #   --dry-run             Show what would be done without making changes
 #   --region REGION       AWS region (overrides env.hcl)
-#   --update-ado-secret   Prompt for and inject ADO credentials before application layer
-#                         (prevents KEDA authentication errors on initial deployment)
+#   --update-ado-secret   Inject ADO credentials (requires ADO_PAT and ADO_ORG_URL with --auto-approve)
+#   --with-config-layer   Run config layer after Terraform layers (required with --auto-approve)
+#   --skip-config-layer   Skip config layer after Terraform layers
+#   --skip-ado-secret     Skip ADO secret update in config layer (ClusterSecretStore only)
 #   --help                Show this help message
 #   --verbose             Enable verbose output
 
@@ -49,7 +51,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
-readonly LAYERS_DIR="${SCRIPT_DIR}"
+LAYERS_DIR="${DEPLOY_LAYERS_DIR:-${SCRIPT_DIR}}"
+readonly LAYERS_DIR
 readonly SCRIPT_NAME="${0##*/}"
 
 readonly BASE_LAYER_DIR="${LAYERS_DIR}/base"
@@ -58,21 +61,43 @@ readonly APPLICATION_LAYER_DIR="${LAYERS_DIR}/application"
 
 # Default configuration
 DEFAULT_COMMAND="deploy"
-AUTO_APPROVE=true  # Default to auto-approve for non-interactive deployments
+AUTO_APPROVE=false
 DRY_RUN=false
 VERBOSE=false
 TARGET_LAYER=""
 AWS_REGION_OVERRIDE=""
 UPDATE_ADO_SECRET=false
+CONFIG_LAYER_WITH=false
+CONFIG_LAYER_SKIP=false
 
-# Colors for output
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly BLUE='\033[0;34m'
-readonly PURPLE='\033[0;35m'
-readonly CYAN='\033[0;36m'
-readonly NC='\033[0m' # No Color
+# Colors for output (disabled when stderr is not a TTY or NO_COLOR is set)
+RED=''
+GREEN=''
+YELLOW=''
+BLUE=''
+PURPLE=''
+CYAN=''
+NC=''
+
+init_log_colors() {
+    if [[ -n "${NO_COLOR:-}" ]] || [[ ! -t 2 ]]; then
+        RED=''
+        GREEN=''
+        YELLOW=''
+        BLUE=''
+        PURPLE=''
+        CYAN=''
+        NC=''
+    else
+        RED='\033[0;31m'
+        GREEN='\033[0;32m'
+        YELLOW='\033[1;33m'
+        BLUE='\033[0;34m'
+        PURPLE='\033[0;35m'
+        CYAN='\033[0;36m'
+        NC='\033[0m'
+    fi
+}
 
 # =============================================================================
 # Utility Functions
@@ -117,21 +142,26 @@ Commands:
   status        Show status of all layers
   
 Options:
-  --layer LAYER          Deploy specific layer only (base|middleware|application|config)
-  --auto-approve         Skip interactive prompts
+  --layer LAYER          Deploy specific layer only (base|middleware|application|config|all)
+  --auto-approve         Non-interactive mode (no prompts; fail fast on missing input)
   --dry-run             Show what would be done without making changes
   --region REGION       Override AWS region from env.hcl
-  --update-ado-secret   Prompt for and inject ADO credentials before application layer
-                        (prevents KEDA authentication errors on initial deployment)
+  --update-ado-secret   Inject ADO credentials (requires ADO_PAT and ADO_ORG_URL with --auto-approve)
+  --with-config-layer   Run config layer after Terraform layers
+  --skip-config-layer   Skip config layer after Terraform layers
+  --skip-ado-secret     Skip ADO secret update in config layer
   --help                Show this help message
   --verbose             Enable verbose output
 
 Environment Variables:
-  TF_STATE_BUCKET     S3 bucket for Terraform state (required)
-  TF_STATE_REGION     Region for state bucket (optional, uses AWS_REGION)
-  TF_VAR_ado_pat_value    ADO Personal Access Token (required for application layer)
-  AWS_REGION          AWS region (optional, can be set in env.hcl)
-  AWS_PROFILE         AWS profile to use (optional)
+  TF_STATE_BUCKET         S3 bucket for Terraform state (required)
+  TF_STATE_REGION         Region for state bucket (optional, uses AWS_REGION)
+  TF_VAR_ado_pat_value    ADO Personal Access Token (optional; use ADO_PAT with --update-ado-secret)
+  ADO_PAT                 Azure DevOps PAT (required with --update-ado-secret and --auto-approve)
+  ADO_ORG_URL             Azure DevOps org URL (required with --update-ado-secret and --auto-approve)
+  AWS_REGION              AWS region (optional, can be set in env.hcl)
+  AWS_PROFILE             AWS profile to use (optional)
+  NO_COLOR                Disable ANSI color in log output
 
 Examples:
   # Initialize all layers (download external modules)
@@ -162,18 +192,37 @@ Examples:
   ./${SCRIPT_NAME} destroy
 
   # Deploy with auto-approve (CI/CD)
-  ./${SCRIPT_NAME} deploy --auto-approve --update-ado-secret
+  ./${SCRIPT_NAME} deploy --auto-approve --with-config-layer --update-ado-secret
 
 EOF
+}
+
+is_non_empty() {
+    local value="${1:-}"
+    [[ -n "${value// }" ]]
+}
+
+is_stdin_interactive() {
+    [[ -t 0 ]]
+}
+
+is_strict_mode() {
+    [[ "${AUTO_APPROVE}" == "true" ]]
 }
 
 confirm_action() {
     local message="$1"
     local default="${2:-n}"
-    
+
     if [[ "${AUTO_APPROVE}" == "true" ]]; then
         log_info "Auto-approved: ${message}"
         return 0
+    fi
+
+    if ! is_stdin_interactive; then
+        log_error "Confirmation required but stdin is not interactive: ${message}"
+        log_error "Re-run with --auto-approve for non-interactive use"
+        return 1
     fi
     
     local prompt="${message} (y/N): "
@@ -200,6 +249,175 @@ confirm_action() {
     done
 }
 
+require_ado_credentials() {
+    local pat="${ADO_PAT:-${TF_VAR_ado_pat_value:-}}"
+    local org_url="${ADO_ORG_URL:-}"
+
+    if is_non_empty "${pat}" && is_non_empty "${org_url}"; then
+        export ADO_PAT="${pat}"
+        export ADO_ORG_URL="${org_url}"
+        export TF_VAR_ado_pat_value="${pat}"
+        return 0
+    fi
+
+    if is_non_empty "${pat}" && ! is_non_empty "${org_url}"; then
+        log_error "ADO_ORG_URL is required when using --update-ado-secret with --auto-approve"
+        return 1
+    fi
+
+    if ! is_non_empty "${pat}" && is_non_empty "${org_url}"; then
+        log_error "ADO_PAT is required when using --update-ado-secret with --auto-approve"
+        return 1
+    fi
+
+    if [[ "${AUTO_APPROVE}" == "true" ]]; then
+        log_error "--auto-approve with --update-ado-secret requires non-empty ADO_PAT and ADO_ORG_URL"
+        log_error "Set pipeline secret variables before invoking deploy.sh"
+        return 1
+    fi
+
+    prompt_for_ado_credentials
+}
+
+validate_update_ado_secret_prerequisites() {
+    if [[ "${UPDATE_ADO_SECRET}" != "true" ]]; then
+        return 0
+    fi
+
+    if [[ "${AUTO_APPROVE}" == "true" ]]; then
+        require_ado_credentials
+        return $?
+    fi
+
+    return 0
+}
+
+resolve_aws_region() {
+    if [[ -n "${AWS_REGION_OVERRIDE}" ]]; then
+        echo "${AWS_REGION_OVERRIDE}"
+        return 0
+    fi
+
+    if [[ -n "${AWS_REGION:-}" ]]; then
+        echo "${AWS_REGION}"
+        return 0
+    fi
+
+    if [[ -n "${TF_STATE_REGION:-}" ]]; then
+        echo "${TF_STATE_REGION}"
+        return 0
+    fi
+
+    local from_output
+    from_output=$(get_terragrunt_output_raw "base" "aws_region" || true)
+    if [[ -n "${from_output}" ]]; then
+        echo "${from_output}"
+        return 0
+    fi
+
+    local from_cli
+    from_cli=$(aws configure get region 2>/dev/null || true)
+    if [[ -n "${from_cli}" ]]; then
+        echo "${from_cli}"
+        return 0
+    fi
+
+    if [[ "${AUTO_APPROVE}" == "true" ]]; then
+        log_error "Could not resolve AWS region. Set --region, AWS_REGION, or TF_STATE_REGION"
+        return 1
+    fi
+
+    echo "us-west-2"
+}
+
+show_recovery_guidance() {
+    local failed_layer="$1"
+    shift
+    local successful_layers=("$@")
+
+    echo
+    echo "================================"
+    echo "RECOVERY GUIDANCE"
+    echo "================================"
+    echo
+    echo "Current State:"
+    if [[ ${#successful_layers[@]} -gt 0 ]]; then
+        echo "  Successfully deployed: ${successful_layers[*]}"
+    else
+        echo "  No layers successfully deployed"
+    fi
+    echo "  Failed at: ${failed_layer}"
+    echo
+    echo "To recover:"
+    echo "  1. Review the error messages above"
+    echo "  2. Fix the issue in the ${failed_layer} layer"
+    echo "  3. Re-run deployment for just the failed layer:"
+    echo "     ./${SCRIPT_NAME} deploy --layer ${failed_layer}"
+    echo
+
+    case "${failed_layer}" in
+        base)
+            echo "Common base layer issues:"
+            echo "  - Invalid AWS credentials or insufficient permissions"
+            echo "  - VPC or subnet configuration issues"
+            echo "  - S3 bucket does not exist or is not accessible"
+            ;;
+        middleware)
+            echo "Common middleware layer issues:"
+            echo "  - Base layer not fully deployed"
+            echo "  - Kubernetes authentication issues"
+            echo "  - Helm chart repository not accessible"
+            ;;
+        application)
+            echo "Common application layer issues:"
+            echo "  - Base or middleware layers not fully deployed"
+            echo "  - ADO PAT secret value not set"
+            echo "  - ECR repository name conflicts"
+            ;;
+        config)
+            echo "Common config layer issues:"
+            echo "  - kubectl not configured for the cluster"
+            echo "  - External Secrets Operator CRDs not installed"
+            echo "  - ADO_PAT or ADO_ORG_URL missing in non-interactive mode"
+            ;;
+    esac
+    echo
+    echo "To check layer status:"
+    echo "  ./${SCRIPT_NAME} status"
+    echo
+}
+
+report_deployment_failure() {
+    local failed_layer="$1"
+    shift
+    local successful_layers=("$@")
+    local succeeded_csv="none"
+
+    if [[ ${#successful_layers[@]} -gt 0 ]]; then
+        succeeded_csv=$(IFS=,; echo "${successful_layers[*]}")
+    fi
+
+    log_error "=== DEPLOYMENT_FAILED layer=${failed_layer} succeeded=${succeeded_csv} ==="
+    show_recovery_guidance "${failed_layer}" "${successful_layers[@]}"
+}
+
+should_deploy_config_layer() {
+    if [[ "${CONFIG_LAYER_WITH}" == "true" ]]; then
+        return 0
+    fi
+
+    if [[ "${CONFIG_LAYER_SKIP}" == "true" ]]; then
+        return 1
+    fi
+
+    if [[ "${AUTO_APPROVE}" == "true" ]]; then
+        log_info "Skipping config layer (use --with-config-layer to enable in non-interactive mode)"
+        return 1
+    fi
+
+    confirm_action "Deploy config layer (ClusterSecretStore + kubectl setup)?" "y"
+}
+
 # =============================================================================
 # Prerequisites Checking
 # =============================================================================
@@ -209,34 +427,31 @@ check_prerequisites() {
     
     local missing_tools=()
     
-    # Check for required tools
-    for tool in aws terragrunt terraform helm kubectl jq; do
-        if ! command -v "${tool}" &> /dev/null; then
-            missing_tools+=("${tool}")
-        fi
-    done
-    
-    if [[ ${#missing_tools[@]} -gt 0 ]]; then
-        log_error "Missing required tools: ${missing_tools[*]}"
-        log_error "Please install missing tools and try again"
-        log_info "Install Terragrunt: https://terragrunt.gruntwork.io/docs/getting-started/install/"
-        exit 1
-    fi
-    
-    # Check Terragrunt version
-    local tg_version
-    tg_version=$(terragrunt --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 | tr -d 'v')
-    log_debug "Terragrunt version: ${tg_version}"
-    
-    # Check Terraform version
-    local tf_version
-    tf_version=$(terraform version -json | jq -r '.terraform_version' 2>/dev/null || echo "unknown")
-    log_debug "Terraform version: ${tf_version}"
-    
-    # Skip live AWS identity checks in dry-run mode to allow offline validation.
+    # Check Terragrunt version (skipped in dry-run for offline validation)
     if [[ "${DRY_RUN}" == "true" ]]; then
-        log_info "Dry-run mode detected: skipping AWS credentials validation"
+        log_info "Dry-run mode detected: skipping tool and AWS credential checks"
     else
+        for tool in aws terragrunt terraform helm kubectl jq; do
+            if ! command -v "${tool}" &> /dev/null; then
+                missing_tools+=("${tool}")
+            fi
+        done
+
+        if [[ ${#missing_tools[@]} -gt 0 ]]; then
+            log_error "Missing required tools: ${missing_tools[*]}"
+            log_error "Please install missing tools and try again"
+            log_info "Install Terragrunt: https://terragrunt.gruntwork.io/docs/getting-started/install/"
+            exit 1
+        fi
+
+        local tg_version
+        tg_version=$(terragrunt --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 | tr -d 'v')
+        log_debug "Terragrunt version: ${tg_version}"
+
+        local tf_version
+        tf_version=$(terraform version -json | jq -r '.terraform_version' 2>/dev/null || echo "unknown")
+        log_debug "Terraform version: ${tf_version}"
+
         if ! aws sts get-caller-identity &> /dev/null; then
             log_error "AWS credentials not configured or invalid"
             log_error "Run 'aws configure' to set up credentials"
@@ -294,10 +509,14 @@ validate_target_layer() {
     fi
 
     case "${TARGET_LAYER}" in
+        all)
+            TARGET_LAYER=""
+            return 0
+            ;;
         base|middleware|application|config) return 0 ;;
         *)
             log_error "Invalid --layer value: ${TARGET_LAYER}"
-            log_error "Valid values: base, middleware, application, config"
+            log_error "Valid values: base, middleware, application, config, all"
             return 1
             ;;
     esac
@@ -321,14 +540,27 @@ get_terragrunt_output_json() {
     (cd "${layer_dir}" && terragrunt output -json "${output_name}" 2>/dev/null)
 }
 
+cd_layer_dir() {
+    local layer_dir="$1"
+
+    if ! cd "${layer_dir}"; then
+        log_error "Layer directory not found: ${layer_dir}"
+        return 1
+    fi
+
+    return 0
+}
+
 init_layer() {
     local layer="$1"
     local layer_dir="$2"
     local force="${3:-false}"
     
     log_info "Initializing ${layer} layer..."
-    
-    cd "${layer_dir}"
+
+    if ! cd_layer_dir "${layer_dir}"; then
+        return 1
+    fi
     
     if [[ "${DRY_RUN}" == "true" ]]; then
         log_info "[DRY-RUN] Would initialize ${layer} layer"
@@ -408,8 +640,10 @@ validate_layer() {
         return 1
     fi
     
-    cd "${layer_dir}"
-    
+    if ! cd_layer_dir "${layer_dir}"; then
+        return 1
+    fi
+
     if [[ "${DRY_RUN}" == "true" ]]; then
         log_info "[DRY-RUN] Would validate ${layer} layer"
         return 0
@@ -429,8 +663,10 @@ plan_layer() {
     local layer_dir="$2"
     
     log_info "Planning ${layer} layer..."
-    
-    cd "${layer_dir}"
+
+    if ! cd_layer_dir "${layer_dir}"; then
+        return 1
+    fi
     
     if [[ "${DRY_RUN}" == "true" ]]; then
         log_info "[DRY-RUN] Would plan ${layer} layer"
@@ -462,8 +698,10 @@ apply_layer() {
     local layer_dir="$2"
     
     log "Applying ${layer} layer..."
-    
-    cd "${layer_dir}"
+
+    if ! cd_layer_dir "${layer_dir}"; then
+        return 1
+    fi
     
     if [[ "${DRY_RUN}" == "true" ]]; then
         log_info "[DRY-RUN] Would apply ${layer} layer"
@@ -478,7 +716,7 @@ apply_layer() {
     
     local apply_args=()
     if [[ "${AUTO_APPROVE}" == "true" ]]; then
-        apply_args+=("--non-interactive")
+        apply_args+=("--non-interactive" "-auto-approve")
     fi
     if [[ "${VERBOSE}" == "true" ]]; then
         apply_args+=("--terragrunt-log-level" "debug")
@@ -498,8 +736,10 @@ destroy_layer() {
     local layer_dir="$2"
     
     log "Destroying ${layer} layer..."
-    
-    cd "${layer_dir}"
+
+    if ! cd_layer_dir "${layer_dir}"; then
+        return 1
+    fi
     
     if [[ "${DRY_RUN}" == "true" ]]; then
         log_info "[DRY-RUN] Would destroy ${layer} layer"
@@ -508,7 +748,7 @@ destroy_layer() {
     
     local destroy_args=()
     if [[ "${AUTO_APPROVE}" == "true" ]]; then
-        destroy_args+=("--non-interactive")
+        destroy_args+=("--non-interactive" "-auto-approve")
     fi
     if [[ "${VERBOSE}" == "true" ]]; then
         destroy_args+=("--terragrunt-log-level" "debug")
@@ -526,24 +766,26 @@ destroy_layer() {
 show_layer_status() {
     local layer="$1"
     local layer_dir="$2"
-    
-    cd "${layer_dir}"
+
+    if ! cd_layer_dir "${layer_dir}"; then
+        return 1
+    fi
     
     log_info "Status for ${layer} layer:"
     
     if [[ -d "${layer_dir}/.terragrunt-cache" ]]; then
-        echo "  ✅ Terragrunt cache exists"
+        echo "  [OK] Terragrunt cache exists"
     else
-        echo "  ❌ Terragrunt cache not found (not initialized)"
+        echo "  [MISSING] Terragrunt cache not found (not initialized)"
     fi
-    
+
     # Check for state file
     if terragrunt state list --non-interactive &>/dev/null; then
         local resource_count
         resource_count=$(terragrunt state list --non-interactive 2>/dev/null | wc -l)
-        echo "  ✅ State file exists (${resource_count} resources)"
+        echo "  [OK] State file exists (${resource_count} resources)"
     else
-        echo "  ❌ No state file found (not deployed)"
+        echo "  [MISSING] No state file found (not deployed)"
     fi
 }
 
@@ -553,32 +795,23 @@ show_layer_status() {
 
 deploy_all_layers() {
     log "Starting deployment of all layers..."
-    
-    # If updating ADO secret, prompt for credentials BEFORE application layer
+
     if [[ "${UPDATE_ADO_SECRET}" == "true" ]]; then
-        log_info "ADO secret update requested - collecting credentials before deployment..."
-        
-        # Check if ADO_PAT is set (safe for unbound variables)
-        if [[ -z "${ADO_PAT:-}" ]]; then
-            log_info "ADO_PAT not set - prompting for credentials..."
-            if ! prompt_for_ado_credentials; then
-                log_error "Failed to get ADO credentials"
-                return 1
-            fi
-        else
-            log_info "Using existing ADO_PAT from environment"
+        log_info "ADO secret update requested - validating credentials..."
+        if ! require_ado_credentials; then
+            log_error "Failed to get ADO credentials"
+            return 1
         fi
-        
-        prepare_ado_pat_for_terraform
-        log_success "ADO credentials collected and will be available during application layer deploy"
+        log_success "ADO credentials ready for application layer deploy"
     fi
-    
+
     local layers=("base" "middleware" "application")
-    
+    local successful_layers=()
+
     for layer in "${layers[@]}"; do
         local layer_dir
         layer_dir=$(get_layer_dir "${layer}")
-        
+
         if [[ "${DRY_RUN}" != "true" && "${AUTO_APPROVE}" != "true" ]]; then
             echo
             if ! confirm_action "Deploy ${layer} layer?"; then
@@ -586,18 +819,21 @@ deploy_all_layers() {
                 continue
             fi
         fi
-        
+
         if ! apply_layer "${layer}" "${layer_dir}"; then
             log_error "Deployment failed at ${layer} layer"
+            report_deployment_failure "${layer}" "${successful_layers[@]}"
             return 1
         fi
-        
+
+        successful_layers+=("${layer}")
+
         # Special handling for base layer - configure kubectl
         if [[ "${layer}" == "base" && "${DRY_RUN}" != "true" ]]; then
-            configure_kubectl "${layer_dir}"
+            configure_kubectl "${layer_dir}" "false"
         fi
     done
-    
+
     log_success "All layers deployed successfully!"
     return 0
 }
@@ -663,8 +899,12 @@ validate_all_layers() {
 
 destroy_all_layers() {
     log_warning "This will destroy ALL infrastructure layers!"
-    
+
     if [[ "${AUTO_APPROVE}" != "true" ]]; then
+        if ! is_stdin_interactive; then
+            log_error "Destroy requires --auto-approve when stdin is not a TTY"
+            return 1
+        fi
         echo
         if ! confirm_action "Are you absolutely sure you want to destroy everything?"; then
             log_info "Destroy cancelled"
@@ -705,30 +945,51 @@ show_all_status() {
 
 configure_kubectl() {
     local base_dir="$1"
-    
+    local strict="${2:-false}"
+
+    if [[ "${strict}" == "true" ]] || is_strict_mode; then
+        strict="true"
+    fi
+
     log_info "Configuring kubectl access..."
-    
-    cd "${base_dir}"
-    
+
+    if ! cd_layer_dir "${base_dir}"; then
+        if [[ "${strict}" == "true" ]]; then
+            return 1
+        fi
+        return 0
+    fi
+
     local cluster_name
     cluster_name=$(terragrunt output -raw cluster_name 2>/dev/null || echo "")
-    
+
     if [[ -z "${cluster_name}" ]]; then
+        if [[ "${strict}" == "true" ]]; then
+            log_error "Could not retrieve cluster name from outputs"
+            return 1
+        fi
         log_warning "Could not retrieve cluster name from outputs"
         return 0
     fi
-    
-    local region="${AWS_REGION_OVERRIDE:-}"
-    if [[ -z "${region}" ]]; then
-        region=$(aws configure get region 2>/dev/null || echo "us-west-2")
+
+    local region
+    if ! region=$(resolve_aws_region); then
+        return 1
     fi
-    
+
     if aws eks update-kubeconfig --region "${region}" --name "${cluster_name}" --alias "${cluster_name}" 2>/dev/null; then
         log_success "kubectl configured for cluster: ${cluster_name}"
-    else
-        log_warning "Failed to configure kubectl automatically"
-        log_info "Configure manually with: aws eks update-kubeconfig --region ${region} --name ${cluster_name}"
+        return 0
     fi
+
+    if [[ "${strict}" == "true" ]]; then
+        log_error "Failed to configure kubectl for cluster: ${cluster_name}"
+        return 1
+    fi
+
+    log_warning "Failed to configure kubectl automatically"
+    log_info "Configure manually with: aws eks update-kubeconfig --region ${region} --name ${cluster_name}"
+    return 0
 }
 
 # =============================================================================
@@ -736,6 +997,12 @@ configure_kubectl() {
 # =============================================================================
 
 prompt_for_ado_credentials() {
+    if ! is_stdin_interactive; then
+        log_error "ADO credentials required but stdin is not interactive"
+        log_error "Set ADO_PAT and ADO_ORG_URL or use --auto-approve only after exporting them"
+        return 1
+    fi
+
     log ""
     log "Azure DevOps Credentials Required"
     log "=================================="
@@ -761,7 +1028,7 @@ prompt_for_ado_credentials() {
         log_info "Using ADO_ORG_URL from environment variable"
     fi
     
-    if [[ -z "${ADO_ORG_URL}" || -z "${ADO_PAT}" ]]; then
+    if ! is_non_empty "${ADO_ORG_URL}" || ! is_non_empty "${ADO_PAT}"; then
         log_error "Organization URL and PAT token are required"
         log_error "Set via environment variables: ADO_PAT and ADO_ORG_URL"
         return 1
@@ -786,11 +1053,20 @@ refresh_ado_secret_in_cluster() {
     local cluster_name="$1"
     local region="$2"
     local secret_name="$3"
+    local strict="false"
+
+    if is_strict_mode && [[ "${UPDATE_ADO_SECRET}" == "true" ]]; then
+        strict="true"
+    fi
 
     log_info "Refreshing Kubernetes resources to pick up new ADO secret..."
 
     # Ensure kubectl is configured
-    if ! configure_kubectl "${BASE_LAYER_DIR}"; then
+    if ! configure_kubectl "${BASE_LAYER_DIR}" "${strict}"; then
+        if [[ "${strict}" == "true" ]]; then
+            log_error "Could not configure kubectl; cluster refresh failed"
+            return 1
+        fi
         log_warning "Could not configure kubectl; skipping cluster refresh"
         log_info "Manually refresh with: kubectl annotate externalsecret -n ado-agents ${secret_name}-secret force-sync=\$(date +%s) --overwrite"
         log_info "Then restart KEDA: kubectl rollout restart deployment -n keda-system keda-operator"
@@ -799,6 +1075,10 @@ refresh_ado_secret_in_cluster() {
 
     # Check kubectl access
     if ! kubectl get nodes &>/dev/null; then
+        if [[ "${strict}" == "true" ]]; then
+            log_error "Cannot access Kubernetes cluster; cluster refresh failed"
+            return 1
+        fi
         log_warning "Cannot access Kubernetes cluster; skipping cluster refresh"
         return 0
     fi
@@ -818,9 +1098,17 @@ refresh_ado_secret_in_cluster() {
             log_info "Waiting 5s for ESO to sync..."
             sleep 5
         else
+            if [[ "${strict}" == "true" ]]; then
+                log_error "Failed to annotate ExternalSecret ${external_secret_name}"
+                return 1
+            fi
             log_warning "Failed to annotate ExternalSecret (ESO may use different annotation)"
         fi
     else
+        if [[ "${strict}" == "true" ]]; then
+            log_error "ExternalSecret ${external_secret_name} not found in ${ado_namespace}"
+            return 1
+        fi
         log_warning "ExternalSecret ${external_secret_name} not found in ${ado_namespace}; application layer may not be deployed yet"
     fi
 
@@ -830,9 +1118,17 @@ refresh_ado_secret_in_cluster() {
         if kubectl rollout restart deployment keda-operator -n "${keda_namespace}"; then
             log_success "KEDA operator restart initiated"
         else
+            if [[ "${strict}" == "true" ]]; then
+                log_error "Failed to restart KEDA operator"
+                return 1
+            fi
             log_warning "Failed to restart KEDA operator"
         fi
     else
+        if [[ "${strict}" == "true" ]]; then
+            log_error "KEDA operator not found in ${keda_namespace}"
+            return 1
+        fi
         log_warning "KEDA operator not found in ${keda_namespace}; ScaledJobs will reconcile on next sync interval"
     fi
 
@@ -970,7 +1266,7 @@ EOF
     
     while [[ ${attempt} -lt ${max_attempts} ]]; do
         local status
-        status=$(kubectl get clustersecretstore "${secret_store_name}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
+        status=$(kubectl --request-timeout=10s get clustersecretstore "${secret_store_name}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
         
         if [[ "${status}" == "True" ]]; then
             log_success "ClusterSecretStore is ready"
@@ -993,13 +1289,21 @@ EOF
 deploy_config_layer() {
     local base_dir="$1"
     local update_ado_secret="${2:-false}"
-    
+
     log ""
     log "=========================================="
     log "Config Layer Deployment (Post-Deployment Configuration)"
     log "=========================================="
     log ""
-    
+
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        log_info "[DRY-RUN] Would deploy config layer"
+        if [[ "${update_ado_secret}" == "true" ]]; then
+            log_info "[DRY-RUN] Would update ADO secret in AWS Secrets Manager"
+        fi
+        return 0
+    fi
+
     # Verify required Terraform outputs before making cluster-side changes.
     log_info "Verifying prerequisite layer outputs..."
 
@@ -1057,13 +1361,16 @@ deploy_config_layer() {
     fi
 
     log_success "Prerequisite outputs verified"
-    
+
     # Configure kubectl
-    configure_kubectl "${base_dir}"
-    
-    local region="${AWS_REGION_OVERRIDE:-}"
-    if [[ -z "${region}" ]]; then
-        region=$(aws configure get region 2>/dev/null || echo "us-west-2")
+    if ! configure_kubectl "${base_dir}" "true"; then
+        log_error "Failed to configure kubectl for config layer"
+        return 1
+    fi
+
+    local region
+    if ! region=$(resolve_aws_region); then
+        return 1
     fi
 
     # Create ClusterSecretStore
@@ -1082,18 +1389,12 @@ deploy_config_layer() {
     # Update ADO secret if requested
     if [[ "${update_ado_secret}" == "true" ]]; then
         log_info "ADO secret update requested..."
-        
-        # Check if ADO_PAT is set (safe for unbound variables)
-        if [[ -z "${ADO_PAT:-}" ]]; then
-            log_info "ADO_PAT not set - prompting for credentials..."
-            if ! prompt_for_ado_credentials; then
-                log_error "Failed to get ADO credentials"
-                return 1
-            fi
-        else
-            log_info "Using existing ADO_PAT from environment"
+
+        if ! require_ado_credentials; then
+            log_error "Failed to get ADO credentials"
+            return 1
         fi
-        
+
         if ! inject_ado_secret "${cluster_name}" "${region}"; then
             log_error "Failed to inject ADO secret"
             return 1
@@ -1167,6 +1468,20 @@ main() {
                 UPDATE_ADO_SECRET=true
                 shift
                 ;;
+            --with-config-layer)
+                CONFIG_LAYER_WITH=true
+                CONFIG_LAYER_SKIP=false
+                shift
+                ;;
+            --skip-config-layer)
+                CONFIG_LAYER_SKIP=true
+                CONFIG_LAYER_WITH=false
+                shift
+                ;;
+            --skip-ado-secret)
+                UPDATE_ADO_SECRET=false
+                shift
+                ;;
             --verbose)
                 VERBOSE=true
                 shift
@@ -1187,7 +1502,18 @@ main() {
         show_usage
         exit 1
     fi
-    
+
+    if [[ "${CONFIG_LAYER_WITH}" == "true" && "${CONFIG_LAYER_SKIP}" == "true" ]]; then
+        log_error "Cannot use --with-config-layer and --skip-config-layer together"
+        exit 1
+    fi
+
+    init_log_colors
+
+    if ! validate_update_ado_secret_prerequisites; then
+        exit 1
+    fi
+
     # Display configuration
     log_info "Configuration:"
     log_debug "  Command: ${command}"
@@ -1195,6 +1521,9 @@ main() {
     log_debug "  Auto Approve: ${AUTO_APPROVE}"
     log_debug "  Dry Run: ${DRY_RUN}"
     log_debug "  Verbose: ${VERBOSE}"
+    log_debug "  Update ADO Secret: ${UPDATE_ADO_SECRET}"
+    log_debug "  Config Layer With: ${CONFIG_LAYER_WITH}"
+    log_debug "  Config Layer Skip: ${CONFIG_LAYER_SKIP}"
     echo
     
     # Check prerequisites
@@ -1207,62 +1536,62 @@ main() {
             if [[ -n "${TARGET_LAYER}" ]]; then
                 # Special handling for config layer
                 if [[ "${TARGET_LAYER}" == "config" ]]; then
-                    deploy_config_layer "${BASE_LAYER_DIR}" "${UPDATE_ADO_SECRET}"
-                else
-                    # If deploying application layer with ADO secret update, prompt first
-                    if [[ "${TARGET_LAYER}" == "application" && "${UPDATE_ADO_SECRET}" == "true" ]]; then
-                        log_info "ADO secret update requested for application layer - collecting credentials first..."
-                        
-                        # Check if ADO_PAT is set (safe for unbound variables)
-                        if [[ -z "${ADO_PAT:-}" ]]; then
-                            log_info "ADO_PAT not set - prompting for credentials..."
-                            if ! prompt_for_ado_credentials; then
-                                log_error "Failed to get ADO credentials"
-                                exit 1
-                            fi
-                        else
-                            log_info "Using existing ADO_PAT from environment"
-                        fi
-                        
-                        prepare_ado_pat_for_terraform
-                        log_success "ADO credentials collected and will be available during application layer deploy"
+                    if ! deploy_config_layer "${BASE_LAYER_DIR}" "${UPDATE_ADO_SECRET}"; then
+                        report_deployment_failure "config"
+                        exit 1
                     fi
-                    
+                else
+                    # If deploying application layer with ADO secret update, validate credentials first
+                    if [[ "${TARGET_LAYER}" == "application" && "${UPDATE_ADO_SECRET}" == "true" ]]; then
+                        log_info "ADO secret update requested for application layer - validating credentials..."
+                        if ! require_ado_credentials; then
+                            log_error "Failed to get ADO credentials"
+                            exit 1
+                        fi
+                        log_success "ADO credentials ready for application layer deploy"
+                    fi
+
                     local layer_dir
                     layer_dir=$(get_layer_dir "${TARGET_LAYER}")
-                    apply_layer "${TARGET_LAYER}" "${layer_dir}"
-                    
+                    if ! apply_layer "${TARGET_LAYER}" "${layer_dir}"; then
+                        report_deployment_failure "${TARGET_LAYER}"
+                        exit 1
+                    fi
+
                     # If application layer with ADO secret update, inject the secret immediately
                     if [[ "${TARGET_LAYER}" == "application" && "${UPDATE_ADO_SECRET}" == "true" ]]; then
                         log_info "Injecting ADO secret after application layer deployment..."
-                        
+
                         # Get cluster info from base layer
                         cd "${BASE_LAYER_DIR}"
                         local cluster_name region
                         cluster_name=$(terragrunt output -raw cluster_name 2>/dev/null || echo "")
-                        region="${AWS_REGION_OVERRIDE:-}"
-                        if [[ -z "${region}" ]]; then
-                            region=$(aws configure get region 2>/dev/null || echo "us-west-2")
+                        if ! region=$(resolve_aws_region); then
+                            exit 1
                         fi
-                        
+
                         if [[ -z "${cluster_name}" ]]; then
                             log_error "Could not retrieve cluster name from base layer"
                             exit 1
                         fi
-                        
+
                         if ! inject_ado_secret "${cluster_name}" "${region}"; then
                             log_error "Failed to inject ADO secret"
                             exit 1
                         fi
-                        
+
                         log_success "ADO secret injected successfully"
                     fi
                 fi
             else
-                deploy_all_layers
-                # Optionally deploy config layer after all Terraform layers
-                if confirm_action "Deploy config layer (ClusterSecretStore + kubectl setup)?" "y"; then
-                    deploy_config_layer "${BASE_LAYER_DIR}" "${UPDATE_ADO_SECRET}"
+                if ! deploy_all_layers; then
+                    exit 1
+                fi
+                if should_deploy_config_layer; then
+                    if ! deploy_config_layer "${BASE_LAYER_DIR}" "${UPDATE_ADO_SECRET}"; then
+                        report_deployment_failure "config"
+                        exit 1
+                    fi
                 fi
             fi
             ;;
@@ -1321,5 +1650,8 @@ main() {
     esac
 }
 
-# Run main function
-main "$@"
+# Only run main when executed directly (not when sourced by BATS tests)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    trap 'log_error "Command failed at line ${LINENO}: ${BASH_COMMAND}"; exit 1' ERR
+    main "$@"
+fi
