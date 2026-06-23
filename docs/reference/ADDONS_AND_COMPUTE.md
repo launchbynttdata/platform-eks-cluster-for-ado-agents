@@ -4,6 +4,8 @@
 
 EKS managed addons (CoreDNS, kube-proxy, VPC CNI) are **compute-agnostic** - they will schedule on whatever compute is available (Fargate or EC2). However, they **require at least one compute resource to exist** before installation.
 
+> **CNI mode note:** This page describes addon scheduling behavior in the default `vpc-cni` mode. For the optional EC2-only Cilium overlay mode, see [CNI_MODES.md](./CNI_MODES.md). In `cilium-overlay` mode, remove `vpc-cni` from `eks_addons`; the networking layer installs Cilium instead.
+
 ## Architecture Decision
 
 **Addons wait for compute resources to be available before installation**:

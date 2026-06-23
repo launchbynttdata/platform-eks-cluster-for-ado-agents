@@ -44,6 +44,10 @@ locals {
     "subnet-xxxxxxxx",
     "subnet-yyyyyyyy"
   ]
+  # Pod networking mode:
+  # - "vpc-cni": default Amazon VPC CNI mode; required when Fargate profiles are enabled
+  # - "cilium-overlay": EC2-only Cilium overlay mode that allocates pod IPs from Cilium CIDRs
+  pod_networking_mode = "vpc-cni"
 
   # Cluster Access Configuration
   endpoint_public_access = true
@@ -86,6 +90,17 @@ locals {
     "vpc-cni" = {
       version = "v1.21.1-eksbuild.8"
     }
+  }
+
+  # Cilium CNI Configuration
+  # Used only when pod_networking_mode = "cilium-overlay".
+  # In cilium-overlay mode, set fargate_profiles = {}, configure at least one
+  # EC2 node group, and remove "vpc-cni" from eks_addons.
+  cilium_networking = {
+    chart_version                   = "1.19.5"
+    cluster_pool_ipv4_pod_cidr_list = ["100.64.0.0/10"]
+    cluster_pool_ipv4_mask_size     = 24
+    helm_values_override            = {}
   }
 
   # VPC Endpoints Configuration

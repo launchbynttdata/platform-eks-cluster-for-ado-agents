@@ -143,8 +143,30 @@ teardown() {
     run init_all_layers
     [ "$status" -eq 0 ]
     [[ "$output" =~ "base" ]]
+    [[ "$output" =~ "networking" ]]
     [[ "$output" =~ "middleware" ]]
     [[ "$output" =~ "application" ]]
+}
+
+@test "init_all_layers: dry-run mode orders networking between base and middleware" {
+    export DRY_RUN="true"
+    run init_all_layers
+    [ "$status" -eq 0 ]
+
+    local base_index networking_index middleware_index application_index prefix
+    [[ "$output" == *base* ]]
+    [[ "$output" == *networking* ]]
+    [[ "$output" == *middleware* ]]
+    [[ "$output" == *application* ]]
+    prefix="${output%%base*}"; base_index=${#prefix}
+    prefix="${output%%networking*}"; networking_index=${#prefix}
+    prefix="${output%%middleware*}"; middleware_index=${#prefix}
+    prefix="${output%%application*}"; application_index=${#prefix}
+
+    [ "$base_index" -gt 0 ]
+    [ "$networking_index" -gt "$base_index" ]
+    [ "$middleware_index" -gt "$networking_index" ]
+    [ "$application_index" -gt "$middleware_index" ]
 }
 
 @test "init_all_layers: shows success message on completion" {
@@ -343,12 +365,103 @@ teardown() {
     [[ "$output" =~ "middleware" ]]
 }
 
+@test "init_layer: works with networking layer directory" {
+    export DRY_RUN="true"
+    local SCRIPT_DIR_LOCAL="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+    run init_layer "networking" "${SCRIPT_DIR_LOCAL}/networking" "false"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "networking" ]]
+}
+
 @test "init_layer: works with application layer directory" {
     export DRY_RUN="true"
     local SCRIPT_DIR_LOCAL="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
     run init_layer "application" "${SCRIPT_DIR_LOCAL}/application" "false"
     [ "$status" -eq 0 ]
     [[ "$output" =~ "application" ]]
+}
+
+@test "deploy command: networking layer dry-run is supported" {
+    local SCRIPT_DIR_LOCAL="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+
+    run bash -c "cd ${SCRIPT_DIR_LOCAL} && ./deploy.sh deploy --layer networking --dry-run 2>&1"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "networking" ]]
+    [[ "$output" =~ "Would apply networking layer" ]]
+}
+
+@test "plan command: all-layer dry-run includes networking between base and middleware" {
+    local SCRIPT_DIR_LOCAL="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+
+    run bash -c "cd ${SCRIPT_DIR_LOCAL} && ./deploy.sh plan --layer all --dry-run 2>&1"
+    [ "$status" -eq 0 ]
+
+    local base_index networking_index middleware_index application_index prefix
+    [[ "$output" == *base* ]]
+    [[ "$output" == *networking* ]]
+    [[ "$output" == *middleware* ]]
+    [[ "$output" == *application* ]]
+    prefix="${output%%base*}"; base_index=${#prefix}
+    prefix="${output%%networking*}"; networking_index=${#prefix}
+    prefix="${output%%middleware*}"; middleware_index=${#prefix}
+    prefix="${output%%application*}"; application_index=${#prefix}
+
+    [ "$base_index" -gt 0 ]
+    [ "$networking_index" -gt "$base_index" ]
+    [ "$middleware_index" -gt "$networking_index" ]
+    [ "$application_index" -gt "$middleware_index" ]
+}
+
+@test "deploy_all_layers: dry-run orders networking between base and middleware" {
+    export DRY_RUN="true"
+    run deploy_all_layers
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Would apply base layer"* ]]
+    [[ "$output" == *"Would apply networking layer"* ]]
+    [[ "$output" == *"Would apply middleware layer"* ]]
+    [[ "$output" == *"Would apply application layer"* ]]
+}
+
+@test "validate_all_layers: dry-run orders networking between base and middleware" {
+    export DRY_RUN="true"
+    run validate_all_layers
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Would validate base layer"* ]]
+    [[ "$output" == *"Would validate networking layer"* ]]
+    [[ "$output" == *"Would validate middleware layer"* ]]
+    [[ "$output" == *"Would validate application layer"* ]]
+}
+
+@test "destroy_all_layers: dry-run destroys networking before base" {
+    export DRY_RUN="true"
+    export AUTO_APPROVE="true"
+    run destroy_all_layers
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Would destroy application layer"* ]]
+    [[ "$output" == *"Would destroy middleware layer"* ]]
+    [[ "$output" == *"Would destroy networking layer"* ]]
+    [[ "$output" == *"Would destroy base layer"* ]]
+}
+
+@test "show_all_status: includes networking between base and middleware" {
+    show_layer_status() { echo "status:$1"; }
+
+    run show_all_status
+    [ "$status" -eq 0 ]
+
+    local base_index networking_index middleware_index application_index prefix
+    [[ "$output" == *status:base* ]]
+    [[ "$output" == *status:networking* ]]
+    [[ "$output" == *status:middleware* ]]
+    [[ "$output" == *status:application* ]]
+    prefix="${output%%status:base*}"; base_index=${#prefix}
+    prefix="${output%%status:networking*}"; networking_index=${#prefix}
+    prefix="${output%%status:middleware*}"; middleware_index=${#prefix}
+    prefix="${output%%status:application*}"; application_index=${#prefix}
+
+    [ "$networking_index" -gt "$base_index" ]
+    [ "$middleware_index" -gt "$networking_index" ]
+    [ "$application_index" -gt "$middleware_index" ]
 }
 
 # =============================================================================

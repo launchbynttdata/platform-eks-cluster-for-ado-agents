@@ -28,6 +28,7 @@ locals {
     subnet_ids            = ["subnet-mock1", "subnet-mock2"]
     security_group_id     = "sg-mock"
     node_security_group_id = "sg-mock-node"
+    pod_networking_mode   = "vpc-cni"
   }
   
   mock_outputs_middleware = {
@@ -48,6 +49,7 @@ locals {
   
   # Determine if we're in a specific layer
   is_base_layer        = local.layer_name == "base"
+  is_networking_layer  = local.layer_name == "networking"
   is_middleware_layer  = local.layer_name == "middleware"
   is_application_layer = local.layer_name == "application"
 }

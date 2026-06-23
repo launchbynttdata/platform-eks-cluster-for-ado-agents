@@ -93,6 +93,17 @@ variable "subnet_ids" {
   }
 }
 
+variable "pod_networking_mode" {
+  description = "Pod networking implementation. Use vpc-cni for Amazon VPC CNI and Fargate support, or cilium-overlay for EC2-only Cilium overlay networking."
+  type        = string
+  default     = "vpc-cni"
+
+  validation {
+    condition     = contains(["vpc-cni", "cilium-overlay"], var.pod_networking_mode)
+    error_message = "pod_networking_mode must be either \"vpc-cni\" or \"cilium-overlay\"."
+  }
+}
+
 # IAM Configuration
 variable "create_iam_roles" {
   description = "Whether to create IAM roles or use existing ones"

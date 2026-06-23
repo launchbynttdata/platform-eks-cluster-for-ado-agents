@@ -6,6 +6,7 @@ This document provides a complete reference for all configuration options availa
 
 - [Global Settings](#global-settings)
 - [Base Layer Configuration](#base-layer-configuration)
+- [Networking Layer Configuration](#networking-layer-configuration)
 - [Middleware Layer Configuration](#middleware-layer-configuration)
 - [Application Layer Configuration](#application-layer-configuration)
 - [Examples](#examples)
@@ -52,6 +53,7 @@ cluster_version = "1.33"
 ```hcl
 vpc_id = "vpc-xxxxx"
 subnet_ids = ["subnet-xxxxx", "subnet-yyyyy"]
+pod_networking_mode = "vpc-cni"
 
 endpoint_public_access = true
 public_access_cidrs    = ["203.0.113.0/24"]
@@ -61,6 +63,7 @@ public_access_cidrs    = ["203.0.113.0/24"]
 |----------|------|----------|-------------|
 | `vpc_id` | string | Yes | Existing VPC ID where EKS will be created |
 | `subnet_ids` | list(string) | Yes | List of private subnet IDs (minimum 2) |
+| `pod_networking_mode` | string | No | Pod CNI mode: `vpc-cni` or `cilium-overlay` |
 | `endpoint_public_access` | bool | No | Enable public access to EKS API (default: false) |
 | `public_access_cidrs` | list(string) | No | CIDR blocks allowed to access EKS API |
 
@@ -111,6 +114,8 @@ fargate_profiles = {
 
 Set to `{}` to disable Fargate entirely.
 
+Fargate requires `pod_networking_mode = "vpc-cni"` and the `vpc-cni` EKS add-on.
+
 ### EKS Add-ons
 
 ```hcl
@@ -138,6 +143,8 @@ eks_addons = {
 - `vpc-cni` - VPC networking
 - `aws-ebs-csi-driver` - EBS volume support
 - `aws-efs-csi-driver` - EFS volume support
+
+When `pod_networking_mode = "cilium-overlay"`, remove `vpc-cni` from this map.
 
 ### VPC Endpoints
 
@@ -189,6 +196,41 @@ ec2_node_groups = {
 | `ec2_node_groups` | map(object) | No | EC2 node groups for non-Fargate workloads |
 
 Set to `{}` to use Fargate only.
+
+## Networking Layer Configuration
+
+The networking layer is a no-op when `pod_networking_mode = "vpc-cni"`. When `pod_networking_mode = "cilium-overlay"`, it installs Cilium into `kube-system` with overlay cluster-pool IPAM.
+
+```hcl
+pod_networking_mode = "cilium-overlay"
+
+fargate_profiles = {}
+
+eks_addons = {
+  "coredns" = {
+    version = "v1.14.2-eksbuild.4"
+  }
+  "kube-proxy" = {
+    version = "v1.35.3-eksbuild.2"
+  }
+}
+
+cilium_networking = {
+  chart_version                   = "1.19.5"
+  cluster_pool_ipv4_pod_cidr_list = ["100.64.0.0/10"]
+  cluster_pool_ipv4_mask_size     = 24
+  helm_values_override            = {}
+}
+```
+
+| Variable | Type | Required | Description |
+|----------|------|----------|-------------|
+| `cilium_networking.chart_version` | string | No | Cilium Helm chart version |
+| `cilium_networking.cluster_pool_ipv4_pod_cidr_list` | list(string) | No | Non-overlapping CIDR blocks Cilium uses for pod IPs |
+| `cilium_networking.cluster_pool_ipv4_mask_size` | number | No | Per-node Cilium pod CIDR mask size |
+| `cilium_networking.helm_values_override` | map/object | No | Advanced Helm values merged into the default Cilium overlay values |
+
+`cilium-overlay` is EC2-only. It requires at least one EC2 node group and does not support Fargate profiles.
 
 ## Middleware Layer Configuration
 

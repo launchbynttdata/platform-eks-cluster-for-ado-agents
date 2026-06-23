@@ -2,7 +2,7 @@
 
 ## Overview
 
-The **config layer** is a special post-deployment layer that performs Kubernetes-native configuration after all Terraform layers are deployed. Unlike the other layers (base, middleware, application), the config layer does **NOT** use Terraform/Terragrunt—it uses `kubectl` and AWS CLI directly.
+The **config layer** is a special post-deployment layer that performs Kubernetes-native configuration after all Terraform layers are deployed. Unlike the other layers (base, networking, middleware, application), the config layer does **NOT** use Terraform/Terragrunt—it uses `kubectl` and AWS CLI directly.
 
 ## Purpose
 

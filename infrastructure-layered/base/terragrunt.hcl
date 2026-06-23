@@ -58,8 +58,9 @@ inputs = {
   cluster_version = local.env.locals.cluster_version
 
   # Networking Configuration
-  vpc_id     = local.env.locals.vpc_id
-  subnet_ids = local.env.locals.subnet_ids
+  vpc_id              = local.env.locals.vpc_id
+  subnet_ids          = local.env.locals.subnet_ids
+  pod_networking_mode = try(local.env.locals.pod_networking_mode, "vpc-cni")
 
   # Security Configuration
   endpoint_public_access = local.env.locals.endpoint_public_access

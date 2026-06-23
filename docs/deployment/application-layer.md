@@ -4,8 +4,9 @@ This layer deploys application-specific resources for Azure DevOps (ADO) agents 
 
 ## Overview
 
-The application layer is the third and final layer in the infrastructure stack:
-- **Base Layer**: Core EKS cluster, networking, and foundational resources
+The application layer is the fourth and final Terraform layer in the infrastructure stack:
+- **Base Layer**: Core EKS cluster and foundational AWS resources
+- **Networking Layer**: Optional CNI components
 - **Middleware Layer**: KEDA, External Secrets Operator, buildkitd, and cluster operators
 - **Application Layer**: ECR repositories, secrets, IAM roles, and ADO agent deployments ← You are here
 
@@ -72,7 +73,7 @@ The application layer is the third and final layer in the infrastructure stack:
 
 ## Dependencies
 
-This layer depends on both base and middleware layers:
+This layer depends on base and middleware layers. The deploy script and Terragrunt ordering run the networking layer before middleware.
 
 ```
 Base Layer (Remote State)

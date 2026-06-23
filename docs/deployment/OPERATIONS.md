@@ -23,11 +23,12 @@ This guide provides operational procedures for deploying, configuring, and maint
 
 ### Layer Deployment Sequence
 
-The infrastructure is deployed in three layers:
+The infrastructure is deployed in four Terraform layers:
 
 1. **Base Layer** - VPC, EKS cluster, node groups
-2. **Middleware Layer** - KEDA, External Secrets Operator, Buildkitd
-3. **Application Layer** - ADO agents, ECR repositories, ExternalSecrets
+2. **Networking Layer** - Optional CNI components
+3. **Middleware Layer** - KEDA, External Secrets Operator, Buildkitd
+4. **Application Layer** - ADO agents, ECR repositories, ExternalSecrets
 
 #### Deploy All Layers
 
@@ -43,6 +44,9 @@ cd infrastructure-layered
 ```bash
 # Base layer
 ./deploy.sh --layer base deploy
+
+# Networking layer
+./deploy.sh --layer networking deploy
 
 # Middleware layer
 ./deploy.sh --layer middleware deploy
@@ -81,7 +85,7 @@ This region propagates to:
 
 ### Complete Infrastructure Post-Deployment
 
-After ALL infrastructure layers are deployed (base + middleware + application), you **must** run the config layer to complete the setup.
+After ALL infrastructure layers are deployed (base + networking + middleware + application), you **must** run the config layer to complete the setup.
 
 #### Why This Step is Required
 
@@ -113,7 +117,7 @@ export ADO_ORG_URL='https://dev.azure.com/your-org'
 
 #### What the Config Layer Does
 
-1. **Verifies** all infrastructure layers are deployed (base, middleware, application)
+1. **Verifies** all infrastructure layers are deployed (base, networking, middleware, application)
 2. **Auto-detects** cluster name and AWS region from Terraform state
 3. **Configures** kubectl access to your EKS cluster
 4. **Creates** ClusterSecretStore for AWS Secrets Manager integration

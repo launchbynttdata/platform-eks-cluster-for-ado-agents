@@ -37,6 +37,10 @@ teardown() {
     [ -d "${TEST_SCRIPT_DIR}/middleware" ]
 }
 
+@test "networking layer directory exists" {
+    [ -d "${TEST_SCRIPT_DIR}/networking" ]
+}
+
 @test "application layer directory exists" {
     [ -d "${TEST_SCRIPT_DIR}/application" ]
 }
@@ -49,8 +53,18 @@ teardown() {
     [ -f "${TEST_SCRIPT_DIR}/middleware/terragrunt.hcl" ]
 }
 
+@test "networking layer has terragrunt.hcl" {
+    [ -f "${TEST_SCRIPT_DIR}/networking/terragrunt.hcl" ]
+}
+
 @test "application layer has terragrunt.hcl" {
     [ -f "${TEST_SCRIPT_DIR}/application/terragrunt.hcl" ]
+}
+
+@test "networking layer has Terraform entrypoints" {
+    [ -f "${TEST_SCRIPT_DIR}/networking/main.tf" ]
+    [ -f "${TEST_SCRIPT_DIR}/networking/variables.tf" ]
+    [ -f "${TEST_SCRIPT_DIR}/networking/remote_state.tf" ]
 }
 
 @test "root.hcl exists" {
@@ -106,4 +120,11 @@ teardown() {
     run deploy_config_layer "${BASE_LAYER_DIR}" "true"
     [ "$status" -ne 0 ]
     [[ "$output" =~ "Application layer output missing: ado_pat_secret.name" ]]
+}
+
+@test "report_deployment_failure: includes networking recovery guidance" {
+    run report_deployment_failure "networking" "base"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "Failed at: networking" ]]
+    [[ "$output" =~ "Common networking layer issues" ]]
 }

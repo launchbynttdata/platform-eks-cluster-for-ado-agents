@@ -95,6 +95,11 @@ output "subnet_ids" {
   value       = var.subnet_ids
 }
 
+output "pod_networking_mode" {
+  description = "Configured cluster pod networking mode."
+  value       = var.pod_networking_mode
+}
+
 # VPC Endpoints
 output "vpc_endpoints" {
   description = "Map of VPC endpoint information"

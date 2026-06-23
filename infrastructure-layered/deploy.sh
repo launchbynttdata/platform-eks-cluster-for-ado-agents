@@ -4,13 +4,14 @@
 # EKS ADO Agents Infrastructure Deployment Script (Terragrunt)
 # =============================================================================
 #
-# This script orchestrates the deployment of a three-layer infrastructure
+# This script orchestrates the deployment of a four-layer infrastructure
 # stack for Azure DevOps (ADO) agents running on Amazon EKS using Terragrunt.
 #
 # Layers:
 # 1. Base Layer: Core EKS cluster, networking, IAM, KMS
-# 2. Middleware Layer: KEDA, External Secrets Operator, buildkitd
-# 3. Application Layer: ECR repositories, secrets, ADO agent deployments
+# 2. Networking Layer: Optional CNI components
+# 3. Middleware Layer: KEDA, External Secrets Operator, buildkitd
+# 4. Application Layer: ECR repositories, secrets, ADO agent deployments
 #
 # Features:
 # - Terragrunt-based configuration management
@@ -32,7 +33,7 @@
 #   status        Show status of all layers
 #
 # Options:
-#   --layer LAYER          Deploy specific layer only (base|middleware|application|config|all)
+#   --layer LAYER          Deploy specific layer only (base|networking|middleware|application|config|all)
 #   --auto-approve         Non-interactive mode (no prompts; fail fast on missing input)
 #   --dry-run             Show what would be done without making changes
 #   --region REGION       AWS region (overrides env.hcl)
@@ -56,6 +57,7 @@ readonly LAYERS_DIR
 readonly SCRIPT_NAME="${0##*/}"
 
 readonly BASE_LAYER_DIR="${LAYERS_DIR}/base"
+readonly NETWORKING_LAYER_DIR="${LAYERS_DIR}/networking"
 readonly MIDDLEWARE_LAYER_DIR="${LAYERS_DIR}/middleware"
 readonly APPLICATION_LAYER_DIR="${LAYERS_DIR}/application"
 
@@ -142,7 +144,7 @@ Commands:
   status        Show status of all layers
   
 Options:
-  --layer LAYER          Deploy specific layer only (base|middleware|application|config|all)
+  --layer LAYER          Deploy specific layer only (base|networking|middleware|application|config|all)
   --auto-approve         Non-interactive mode (no prompts; fail fast on missing input)
   --dry-run             Show what would be done without making changes
   --region REGION       Override AWS region from env.hcl
@@ -362,6 +364,12 @@ show_recovery_guidance() {
             echo "  - VPC or subnet configuration issues"
             echo "  - S3 bucket does not exist or is not accessible"
             ;;
+        networking)
+            echo "Common networking layer issues:"
+            echo "  - Base layer not fully deployed"
+            echo "  - Kubernetes or Helm authentication issues"
+            echo "  - CNI mode configuration conflicts"
+            ;;
         middleware)
             echo "Common middleware layer issues:"
             echo "  - Base layer not fully deployed"
@@ -493,11 +501,12 @@ get_layer_dir() {
     
     case "${layer}" in
         base)        echo "${BASE_LAYER_DIR}" ;;
+        networking)  echo "${NETWORKING_LAYER_DIR}" ;;
         middleware)  echo "${MIDDLEWARE_LAYER_DIR}" ;;
         application) echo "${APPLICATION_LAYER_DIR}" ;;
         config)      echo "${BASE_LAYER_DIR}" ;;  # Config uses base dir for outputs
         *)
-            log_error "Unknown layer: ${layer}. Valid layers: base, middleware, application, config"
+            log_error "Unknown layer: ${layer}. Valid layers: base, networking, middleware, application, config"
             return 1
             ;;
     esac
@@ -513,10 +522,10 @@ validate_target_layer() {
             TARGET_LAYER=""
             return 0
             ;;
-        base|middleware|application|config) return 0 ;;
+        base|networking|middleware|application|config) return 0 ;;
         *)
             log_error "Invalid --layer value: ${TARGET_LAYER}"
-            log_error "Valid values: base, middleware, application, config, all"
+            log_error "Valid values: base, networking, middleware, application, config, all"
             return 1
             ;;
     esac
@@ -805,7 +814,7 @@ deploy_all_layers() {
         log_success "ADO credentials ready for application layer deploy"
     fi
 
-    local layers=("base" "middleware" "application")
+    local layers=("base" "networking" "middleware" "application")
     local successful_layers=()
 
     for layer in "${layers[@]}"; do
@@ -841,7 +850,7 @@ deploy_all_layers() {
 init_all_layers() {
     log "Initializing all layers..."
     
-    local layers=("base" "middleware" "application")
+    local layers=("base" "networking" "middleware" "application")
     
     for layer in "${layers[@]}"; do
         local layer_dir
@@ -861,7 +870,7 @@ init_all_layers() {
 plan_all_layers() {
     log "Planning all layers..."
     
-    local layers=("base" "middleware" "application")
+    local layers=("base" "networking" "middleware" "application")
     
     for layer in "${layers[@]}"; do
         local layer_dir
@@ -881,7 +890,7 @@ plan_all_layers() {
 validate_all_layers() {
     log "Validating all layers..."
     
-    local layers=("base" "middleware" "application")
+    local layers=("base" "networking" "middleware" "application")
     
     for layer in "${layers[@]}"; do
         local layer_dir
@@ -913,7 +922,7 @@ destroy_all_layers() {
     fi
     
     # Destroy in reverse order
-    local layers=("application" "middleware" "base")
+    local layers=("application" "middleware" "networking" "base")
     
     for layer in "${layers[@]}"; do
         local layer_dir
@@ -933,7 +942,7 @@ show_all_status() {
     log_info "Infrastructure Status:"
     echo
     
-    local layers=("base" "middleware" "application")
+    local layers=("base" "networking" "middleware" "application")
     
     for layer in "${layers[@]}"; do
         local layer_dir
@@ -1440,7 +1449,7 @@ main() {
                 ;;
             --layer)
                 if [[ $# -lt 2 || -z "${2:-}" || "${2:-}" == --* ]]; then
-                    log_error "Option --layer requires a value (base|middleware|application|config)"
+                    log_error "Option --layer requires a value (base|networking|middleware|application|config)"
                     show_usage
                     exit 1
                 fi

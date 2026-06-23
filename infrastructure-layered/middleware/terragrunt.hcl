@@ -7,7 +7,7 @@
 # - Buildkitd (container image builder)
 # - Namespaces and RBAC configuration
 #
-# Dependencies: Base Layer (requires EKS cluster and KMS key)
+# Dependencies: Base Layer (requires EKS cluster and KMS key) + Networking Layer ordering
 
 # Include root configuration
 include "root" {
@@ -23,10 +23,10 @@ include "common" {
 terraform {
   source = "."
 
-  # Ensure base layer is applied before middleware
+  # Ensure base and networking layers are applied before middleware
   before_hook "check_base_dependency" {
     commands = ["apply", "plan"]
-    execute  = ["echo", "⏳ Middleware layer depends on base layer outputs..."]
+    execute  = ["echo", "Middleware layer depends on base and networking layers..."]
   }
 
   after_hook "middleware_deployed" {
@@ -51,7 +51,12 @@ locals {
 # =============================================================================
 # Dependencies
 # =============================================================================
-# This layer depends on the base layer for cluster information
+# This layer depends on the base layer for cluster information and the
+# networking layer for CNI readiness ordering.
+
+dependencies {
+  paths = ["../networking"]
+}
 
 dependency "base" {
   config_path = "../base"

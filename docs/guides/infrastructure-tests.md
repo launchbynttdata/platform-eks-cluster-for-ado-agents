@@ -89,7 +89,7 @@ The Terragrunt-based script follows shell best practices and should have minimal
 
 ### Currently Tested
 
-- ✅ get_layer_dir function for all layers (base, middleware, application, config)
+- ✅ get_layer_dir function for all layers (base, networking, middleware, application, config)
 - ✅ Logging functions (log_info, log_success, log_warning, log_error, log_debug)
 - ✅ Layer directory structure validation
 - ✅ Terragrunt configuration file existence
@@ -171,4 +171,3 @@ To expand test coverage:
 - ✅ Manual testing of all commands
 - ✅ Feature parity verification with legacy script
 - ✅ Comprehensive documentation
-

@@ -53,8 +53,24 @@ locals {
   )
 
   # Determine if we have any compute resources configured
-  has_fargate = length(var.fargate_profiles) > 0
-  has_ec2     = length(var.ec2_node_group) > 0
+  has_fargate              = length(var.fargate_profiles) > 0
+  has_ec2                  = length(var.ec2_node_group) > 0
+  use_vpc_cni              = var.pod_networking_mode == "vpc-cni"
+  use_cilium_overlay       = var.pod_networking_mode == "cilium-overlay"
+  vpc_cni_addon_enabled    = contains(keys(var.eks_addons), "vpc-cni")
+  cilium_startup_taint     = { key = "node.cilium.io/agent-not-ready", value = "true", effect = "NO_EXECUTE" }
+  cilium_startup_taint_key = local.cilium_startup_taint.key
+  effective_ec2_node_group_policies = local.use_cilium_overlay ? [
+    for policy_arn in var.ec2_node_group_policies : policy_arn
+    if policy_arn != "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+  ] : var.ec2_node_group_policies
+  effective_ec2_node_group_taints = {
+    for name, config in var.ec2_node_group : name => (
+      local.use_cilium_overlay && !contains([for taint in try(config.taints, []) : taint.key], local.cilium_startup_taint_key)
+      ? concat(try(config.taints, []), [local.cilium_startup_taint])
+      : try(config.taints, [])
+    )
+  }
 
   # Smart public endpoint logic:
   # - If user explicitly sets endpoint_public_access = true AND provides restricted CIDRs, use them
@@ -102,6 +118,37 @@ locals {
           category = ["scheduledChange"]
         }
       }
+    }
+  }
+}
+
+resource "terraform_data" "pod_networking_mode_validation" {
+  input = var.pod_networking_mode
+
+  lifecycle {
+    precondition {
+      condition     = !local.use_cilium_overlay || !local.has_fargate
+      error_message = "pod_networking_mode = \"cilium-overlay\" is EC2-only. Set fargate_profiles = {} or use pod_networking_mode = \"vpc-cni\"."
+    }
+
+    precondition {
+      condition     = !local.use_cilium_overlay || local.has_ec2
+      error_message = "pod_networking_mode = \"cilium-overlay\" requires at least one EC2 node group."
+    }
+
+    precondition {
+      condition     = !local.use_cilium_overlay || !local.vpc_cni_addon_enabled
+      error_message = "pod_networking_mode = \"cilium-overlay\" must not include the \"vpc-cni\" EKS add-on in eks_addons."
+    }
+
+    precondition {
+      condition     = !local.has_fargate || local.use_vpc_cni
+      error_message = "Fargate profiles require pod_networking_mode = \"vpc-cni\"."
+    }
+
+    precondition {
+      condition     = !local.has_fargate || local.vpc_cni_addon_enabled
+      error_message = "Fargate profiles require the \"vpc-cni\" EKS add-on in eks_addons."
     }
   }
 }
@@ -483,7 +530,7 @@ module "vpc_cni_irsa_role" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
   version = "~> 0.1"
-  count   = var.create_iam_roles ? 1 : 0
+  count   = var.create_iam_roles && local.use_vpc_cni ? 1 : 0
 
   name = "${local.cluster_name}-vpc-cni-irsa-role"
 
@@ -519,7 +566,7 @@ module "vpc_cni_policy_attachment" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
   version = "~> 0.1"
-  count   = var.create_iam_roles ? 1 : 0
+  count   = var.create_iam_roles && local.use_vpc_cni ? 1 : 0
 
   role_name  = module.vpc_cni_irsa_role[0].role_name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
@@ -527,7 +574,7 @@ module "vpc_cni_policy_attachment" {
 
 # VPC CNI Addon (deployed before compute resources)
 resource "aws_eks_addon" "vpc_cni" {
-  count = contains(keys(var.eks_addons), "vpc-cni") ? 1 : 0
+  count = local.use_vpc_cni && local.vpc_cni_addon_enabled ? 1 : 0
 
   cluster_name                = module.eks_cluster.name
   addon_name                  = "vpc-cni"
@@ -627,7 +674,7 @@ module "ec2_nodes" {
   desired_size    = try(each.value.desired_size, 1)
   max_size        = try(each.value.max_size, 3)
   min_size        = try(each.value.min_size, 0)
-  taints          = try(each.value.taints, [])
+  taints          = local.effective_ec2_node_group_taints[each.key]
 
   # Cluster Autoscaler Configuration
   enable_cluster_autoscaler = var.enable_cluster_autoscaler
@@ -637,7 +684,7 @@ module "ec2_nodes" {
     },
     # Dynamically create taint labels from the actual taints configuration
     {
-      for taint in try(each.value.taints, []) :
+      for taint in local.effective_ec2_node_group_taints[each.key] :
       "k8s.io/cluster-autoscaler/node-template/taint/${taint.key}" => "${taint.value}:${taint.effect}"
     },
     # Dynamically create labels from the actual labels configuration
@@ -696,7 +743,7 @@ module "ec2_node_group_policy_attachments" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source   = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
   version  = "~> 0.1"
-  for_each = length(var.ec2_node_group) > 0 ? toset(var.ec2_node_group_policies) : []
+  for_each = length(var.ec2_node_group) > 0 ? toset(local.effective_ec2_node_group_policies) : []
 
   role_name  = module.ec2_node_group_role[0].role_name
   policy_arn = each.value
