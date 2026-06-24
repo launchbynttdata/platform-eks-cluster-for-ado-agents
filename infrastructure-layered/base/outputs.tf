@@ -100,6 +100,16 @@ output "pod_networking_mode" {
   value       = var.pod_networking_mode
 }
 
+output "cilium_release" {
+  description = "Cilium Helm release metadata when cilium-overlay mode is enabled."
+  value = var.pod_networking_mode == "cilium-overlay" ? {
+    name      = helm_release.cilium_bootstrap[0].name
+    namespace = helm_release.cilium_bootstrap[0].namespace
+    version   = helm_release.cilium_bootstrap[0].version
+    status    = helm_release.cilium_bootstrap[0].status
+  } : null
+}
+
 # VPC Endpoints
 output "vpc_endpoints" {
   description = "Map of VPC endpoint information"
@@ -192,4 +202,9 @@ output "aws_account_id" {
 output "common_tags" {
   description = "Common tags applied to all resources"
   value       = local.common_tags
+}
+
+output "cluster_admin_access_principal_arns" {
+  description = "IAM role ARNs granted cluster-admin via EKS access entries"
+  value       = var.cluster_admin_access_principal_arns
 }

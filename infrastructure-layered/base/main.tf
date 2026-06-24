@@ -57,9 +57,24 @@ locals {
   has_ec2                  = length(var.ec2_node_group) > 0
   use_vpc_cni              = var.pod_networking_mode == "vpc-cni"
   use_cilium_overlay       = var.pod_networking_mode == "cilium-overlay"
+  cluster_minor_version    = tonumber(regex("^1\\.([0-9]+)$", var.cluster_version)[0])
+  has_al2_node_group       = anytrue([for config in var.ec2_node_group : try(config.ami_type, "AL2023_x86_64_STANDARD") == "AL2_x86_64"])
   vpc_cni_addon_enabled    = contains(keys(var.eks_addons), "vpc-cni")
   cilium_startup_taint     = { key = "node.cilium.io/agent-not-ready", value = "true", effect = "NO_EXECUTE" }
   cilium_startup_taint_key = local.cilium_startup_taint.key
+  cilium_default_helm_values = {
+    routingMode          = "tunnel"
+    tunnelProtocol       = "vxlan"
+    kubeProxyReplacement = false
+    ipam = {
+      mode = "cluster-pool"
+      operator = {
+        clusterPoolIPv4PodCIDRList = var.cilium_networking.cluster_pool_ipv4_pod_cidr_list
+        clusterPoolIPv4MaskSize    = var.cilium_networking.cluster_pool_ipv4_mask_size
+      }
+    }
+  }
+  cilium_helm_values = merge(local.cilium_default_helm_values, var.cilium_networking.helm_values_override)
   effective_ec2_node_group_policies = local.use_cilium_overlay ? [
     for policy_arn in var.ec2_node_group_policies : policy_arn
     if policy_arn != "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
@@ -149,6 +164,11 @@ resource "terraform_data" "pod_networking_mode_validation" {
     precondition {
       condition     = !local.has_fargate || local.vpc_cni_addon_enabled
       error_message = "Fargate profiles require the \"vpc-cni\" EKS add-on in eks_addons."
+    }
+
+    precondition {
+      condition     = !local.has_al2_node_group || local.cluster_minor_version <= 32
+      error_message = "EKS node group AMI type AL2_x86_64 is only supported for Kubernetes 1.32 or earlier. Use AL2023_x86_64_STANDARD for newer clusters."
     }
   }
 }
@@ -462,6 +482,8 @@ module "cluster_security_group_ingress_from_fargate" {
 # EKS Cluster
 #checkov:skip=CKV_AWS_39:Public endpoint access is restricted to specific CIDRs or disabled based on public_access_cidrs variable
 #checkov:skip=CKV_AWS_38:Public endpoint CIDR restrictions enforced via local.enable_public_endpoint logic
+# The cluster waits for managed VPC endpoints so private-only clusters and
+# bootstrapping nodes have AWS service endpoints available as early as possible.
 module "eks_cluster" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source  = "terraform.registry.launch.nttdata.com/module_primitive/eks_cluster/aws"
@@ -498,10 +520,43 @@ module "eks_cluster" {
   tags = local.common_tags
 
   depends_on = [
+    module.vpc_endpoints,
     module.eks_cluster_role,
     module.eks_cluster_policy_attachment,
     module.eks_vpc_resource_controller_attachment
   ]
+}
+
+resource "aws_eks_access_entry" "cluster_admin" {
+  for_each = toset(var.cluster_admin_access_principal_arns)
+
+  cluster_name  = module.eks_cluster.name
+  principal_arn = each.value
+  type          = "STANDARD"
+
+  tags = local.common_tags
+
+  depends_on = [module.eks_cluster]
+}
+
+resource "aws_eks_access_policy_association" "cluster_admin" {
+  for_each = toset(var.cluster_admin_access_principal_arns)
+
+  cluster_name  = module.eks_cluster.name
+  principal_arn = aws_eks_access_entry.cluster_admin[each.key].principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.cluster_admin]
+}
+
+resource "time_sleep" "cluster_api_ready" {
+  create_duration = var.cluster_api_ready_wait_duration
+
+  depends_on = [module.eks_cluster]
 }
 
 # # Create OIDC provider for IRSA
@@ -590,6 +645,31 @@ resource "aws_eks_addon" "vpc_cni" {
   ]
 
   tags = local.common_tags
+}
+
+# Cilium must exist before EKS managed node groups bootstrap in cilium-overlay
+# mode. Otherwise kubelets stay NotReady with "cni plugin not initialized", and
+# managed node group creation fails before the later networking layer can run.
+resource "helm_release" "cilium_bootstrap" {
+  count = local.use_cilium_overlay ? 1 : 0
+
+  name       = "cilium"
+  repository = "https://helm.cilium.io/"
+  chart      = "cilium"
+  version    = var.cilium_networking.chart_version
+  namespace  = "kube-system"
+
+  atomic                     = false
+  cleanup_on_fail            = true
+  disable_openapi_validation = true
+  timeout                    = 900
+  wait                       = false
+
+  values = [
+    yamlencode(local.cilium_helm_values)
+  ]
+
+  depends_on = [time_sleep.cluster_api_ready]
 }
 
 # VPC Endpoints (optional)
@@ -711,6 +791,7 @@ module "ec2_nodes" {
   depends_on = [
     module.eks_cluster,
     aws_eks_addon.vpc_cni,
+    helm_release.cilium_bootstrap,
     module.ec2_node_group_role
   ]
 }

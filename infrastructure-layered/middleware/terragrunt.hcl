@@ -35,9 +35,9 @@ terraform {
     run_on_error = false
   }
 
-  # Validate kubectl access before applying
+  # Validate kubectl access before plan/apply (requires EKS access entry for caller IAM role)
   before_hook "validate_kubectl" {
-    commands = ["apply"]
+    commands = ["apply", "plan"]
     execute  = ["bash", "-c", "kubectl cluster-info --context ${dependency.base.outputs.cluster_name} 2>/dev/null || (echo '⚠️  Warning: kubectl not configured.'; aws eks update-kubeconfig --alias ${dependency.base.outputs.cluster_name} --name ${dependency.base.outputs.cluster_name}; kubectl cluster-info --context ${dependency.base.outputs.cluster_name})"]
   }
 }

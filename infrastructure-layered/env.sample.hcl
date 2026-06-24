@@ -35,8 +35,9 @@ locals {
   # =============================================================================
 
   # EKS Cluster Configuration
-  cluster_name    = "poc-ado-agent-cluster"
-  cluster_version = "1.35"
+  cluster_name                    = "poc-ado-agent-cluster"
+  cluster_version                 = "1.35"
+  cluster_api_ready_wait_duration = "90s"
 
   # Networking Configuration
   vpc_id = "vpc-xxxxxxxx"
@@ -52,6 +53,11 @@ locals {
   # Cluster Access Configuration
   endpoint_public_access = true
   public_access_cidrs    = ["203.0.113.0/24"]
+
+  # External IAM roles granted EKS cluster-admin (ECS IaC agents, jumpboxes, etc.)
+  cluster_admin_access_principal_arns = [
+    # "arn:aws:iam::375235800848:role/dmv-adoecsagent-shared-ecs_task-instance-role",
+  ]
 
   # IAM Configuration
   create_iam_roles = true
@@ -110,6 +116,7 @@ locals {
     "ecr_dkr",
     "ecr_api",
     "ec2",
+    "eks",
     "logs",
     "monitoring",
     "sts",
@@ -123,7 +130,7 @@ locals {
     "buildkit-nodes" = {
       instance_types = ["t3a.xlarge"]
       disk_size      = 100
-      ami_type       = "AL2_x86_64"
+      ami_type       = "AL2023_x86_64_STANDARD"
       capacity_type  = "ON_DEMAND"
       desired_size   = 1
       max_size       = 5
@@ -142,7 +149,7 @@ locals {
     "agent-nodes" = {
       instance_types = ["t3a.xlarge"]
       disk_size      = 100
-      ami_type       = "AL2_x86_64"
+      ami_type       = "AL2023_x86_64_STANDARD"
       capacity_type  = "ON_DEMAND"
       desired_size   = 1
       max_size       = 5
@@ -161,7 +168,7 @@ locals {
     "system-nodes" = {
       instance_types = ["t3a.medium"]
       disk_size      = 50
-      ami_type       = "AL2_x86_64"
+      ami_type       = "AL2023_x86_64_STANDARD"
       capacity_type  = "ON_DEMAND"
       desired_size   = 1
       max_size       = 3
