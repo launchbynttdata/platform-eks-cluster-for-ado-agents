@@ -106,7 +106,9 @@ locals {
     chart_version                   = "1.19.5"
     cluster_pool_ipv4_pod_cidr_list = ["100.64.0.0/10"]
     cluster_pool_ipv4_mask_size     = 24
-    helm_values_override            = {}
+    # Private clusters without NAT must mirror Cilium images to a reachable registry
+    # and override image.repository / operator.image.repository here.
+    helm_values_override = {}
   }
 
   # VPC Endpoints Configuration
@@ -402,6 +404,8 @@ locals {
   agent_cleanup_timeout_seconds          = 300
   agent_termination_grace_period_seconds = 420
   agent_automount_service_account_token  = true
+  ado_agents_helm_atomic                 = false
+  ado_agents_helm_cleanup_on_fail        = false
 
   ado_agent_pools = {
     default = {

@@ -160,7 +160,8 @@ Environment Variables:
   TF_STATE_REGION         Region for state bucket (optional, uses AWS_REGION)
   TF_VAR_ado_pat_value    ADO Personal Access Token (optional; use ADO_PAT with --update-ado-secret)
   ADO_PAT                 Azure DevOps PAT (required with --update-ado-secret and --auto-approve)
-  ADO_ORG_URL             Azure DevOps org URL (required with --update-ado-secret and --auto-approve)
+  ADO_ORG_URL             Azure DevOps org URL (required with --update-ado-secret and --auto-approve; overrides env.hcl for application deploys)
+  ADO_ORG                 Azure DevOps org name override (optional; ADO_ORG_URL takes precedence)
   AWS_REGION              AWS region (optional, can be set in env.hcl)
   AWS_PROFILE             AWS profile to use (optional)
   NO_COLOR                Disable ANSI color in log output
@@ -202,6 +203,12 @@ EOF
 is_non_empty() {
     local value="${1:-}"
     [[ -n "${value// }" ]]
+}
+
+ado_org_from_url() {
+    local org_url="${1%/}"
+    org_url="${org_url#https://dev.azure.com/}"
+    echo "${org_url}"
 }
 
 is_stdin_interactive() {
@@ -259,6 +266,9 @@ require_ado_credentials() {
         export ADO_PAT="${pat}"
         export ADO_ORG_URL="${org_url}"
         export TF_VAR_ado_pat_value="${pat}"
+        export TF_VAR_ado_url="${org_url%/}"
+        TF_VAR_ado_org="$(ado_org_from_url "${org_url}")"
+        export TF_VAR_ado_org
         return 0
     fi
 
@@ -381,6 +391,12 @@ show_recovery_guidance() {
             echo "  - Base or middleware layers not fully deployed"
             echo "  - ADO PAT secret value not set"
             echo "  - ECR repository name conflicts"
+            echo "  - Placeholder hook jobs failing"
+            echo
+            echo "Inspect failed application hook jobs:"
+            echo "  kubectl get jobs,pods -n ado-agents"
+            echo "  kubectl describe job -n ado-agents <failed-placeholder-job>"
+            echo "  kubectl logs -n ado-agents job/<failed-placeholder-job> --all-containers=true"
             ;;
         config)
             echo "Common config layer issues:"
@@ -1046,6 +1062,9 @@ prompt_for_ado_credentials() {
     export ADO_ORG_URL
     export ADO_PAT
     export TF_VAR_ado_pat_value="${ADO_PAT}"
+    export TF_VAR_ado_url="${ADO_ORG_URL%/}"
+    TF_VAR_ado_org="$(ado_org_from_url "${ADO_ORG_URL}")"
+    export TF_VAR_ado_org
     log_success "Credentials received"
     return 0
 }
@@ -1053,6 +1072,11 @@ prompt_for_ado_credentials() {
 prepare_ado_pat_for_terraform() {
     if [[ -n "${ADO_PAT:-}" ]]; then
         export TF_VAR_ado_pat_value="${ADO_PAT}"
+    fi
+    if [[ -n "${ADO_ORG_URL:-}" ]]; then
+        export TF_VAR_ado_url="${ADO_ORG_URL%/}"
+        TF_VAR_ado_org="$(ado_org_from_url "${ADO_ORG_URL}")"
+        export TF_VAR_ado_org
     fi
 }
 
@@ -1522,6 +1546,7 @@ main() {
     if ! validate_update_ado_secret_prerequisites; then
         exit 1
     fi
+    prepare_ado_pat_for_terraform
 
     # Display configuration
     log_info "Configuration:"

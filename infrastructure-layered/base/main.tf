@@ -559,6 +559,28 @@ resource "time_sleep" "cluster_api_ready" {
   depends_on = [module.eks_cluster]
 }
 
+resource "terraform_data" "disable_aws_node_daemonset" {
+  count = local.use_cilium_overlay ? 1 : 0
+
+  input = {
+    cluster_name = module.eks_cluster.name
+    region       = data.aws_region.current.name
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      aws eks update-kubeconfig --region '${self.input.region}' --name '${self.input.cluster_name}' --alias '${self.input.cluster_name}' >/dev/null
+      if kubectl --context '${self.input.cluster_name}' -n kube-system get daemonset aws-node >/dev/null 2>&1; then
+        kubectl --context '${self.input.cluster_name}' -n kube-system patch daemonset aws-node --type merge -p '{"spec":{"template":{"spec":{"nodeSelector":{"node.cilium.io/aws-node-disabled":"true"}}}}}'
+      fi
+    EOT
+  }
+
+  depends_on = [time_sleep.cluster_api_ready]
+}
+
 # # Create OIDC provider for IRSA
 # resource "aws_iam_openid_connect_provider" "eks" {
 #   client_id_list  = ["sts.amazonaws.com"]
@@ -669,7 +691,10 @@ resource "helm_release" "cilium_bootstrap" {
     yamlencode(local.cilium_helm_values)
   ]
 
-  depends_on = [time_sleep.cluster_api_ready]
+  depends_on = [
+    time_sleep.cluster_api_ready,
+    terraform_data.disable_aws_node_daemonset
+  ]
 }
 
 # VPC Endpoints (optional)
@@ -681,7 +706,7 @@ module "vpc_endpoints" {
   vpc_id                    = var.vpc_id
   subnet_ids                = var.subnet_ids
   route_table_ids           = data.aws_route_tables.private.ids
-  security_group_ids        = [module.fargate_security_group.id]
+  security_group_ids        = [module.cluster_security_group.id, module.fargate_security_group.id]
   endpoint_services         = var.vpc_endpoint_services
   exclude_endpoint_services = var.exclude_vpc_endpoint_services
 

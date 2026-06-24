@@ -59,6 +59,8 @@ cilium_networking = {
 
 Choose a Cilium pod CIDR that does not overlap the VPC CIDR, Kubernetes service CIDR, peered VPC CIDRs, on-premises routes, or other routed networks.
 
+Private clusters without NAT must use a registry path reachable from the node subnets for Cilium images. The default Cilium chart images are not served by AWS VPC endpoints. Mirror the Cilium agent and operator images to private ECR or another reachable registry and set the Helm image repository overrides in `helm_values_override`.
+
 ## Operational Caveats
 
 - EKS supports alternate CNI installation on EC2 nodes, but Amazon VPC CNI is the only CNI supported by Amazon EKS for EC2 nodes.
@@ -68,6 +70,7 @@ Choose a Cilium pod CIDR that does not overlap the VPC CIDR, Kubernetes service 
 - The EKS API server cannot directly route to overlay pod IPs. Admission webhooks must use host networking or be exposed through a service path that works with this limitation.
 - EC2 node groups receive the Cilium startup taint `node.cilium.io/agent-not-ready=true:NoExecute` so workloads wait until Cilium is ready.
 - Cilium must be present before managed node groups bootstrap. If nodes start before any CNI is installed, managed node group creation can fail with `cni plugin not initialized`.
+- The base layer patches any existing `kube-system/aws-node` DaemonSet so it does not schedule in `cilium-overlay` mode. Do not re-enable it unless switching back to `vpc-cni`.
 
 ## Existing Cluster Conversion Notes
 

@@ -147,7 +147,6 @@ resource "kubernetes_secret" "ado_pat_bootstrap" {
 
   lifecycle {
     ignore_changes = [
-      data,
       metadata[0].annotations,
       metadata[0].labels
     ]
@@ -404,9 +403,10 @@ resource "helm_release" "ado_agents" {
   wait_for_jobs = false
   timeout       = 600
 
-  # Enable atomic operations for safe upgrades
-  atomic            = true
-  cleanup_on_fail   = true
+  # Default to preserving failed hook jobs/pods so deployment failures can be
+  # inspected. Environments can opt back into rollback cleanup after validation.
+  atomic            = var.ado_agents_helm_atomic
+  cleanup_on_fail   = var.ado_agents_helm_cleanup_on_fail
   disable_crd_hooks = false
   # KEDA and ESO CRDs are installed by the middleware layer. Discovery can lag briefly
   # after CRD creation, so avoid failing the release on stale local OpenAPI data.

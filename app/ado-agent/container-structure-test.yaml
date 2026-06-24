@@ -1,0 +1,149 @@
+# Container structure tests for the Azure DevOps agent image.
+# Run: container-structure-test test --image <tag> --config container-structure-test.yaml
+# Command tests use containerRunOptions.user so runtime matches the agent user (not only image USER).
+schemaVersion: "2.0.0"
+
+containerRunOptions:
+  user: "agent"
+
+metadataTest:
+  user: "agent"
+  workdir: "/azp/"
+  envVars:
+    - key: "NVM_DIR"
+      value: "/usr/local/nvm"
+    - key: "DEBIAN_FRONTEND"
+      value: "noninteractive"
+    - key: "PATH"
+      value: ".*/local/node-active/bin:.*"
+      isRegex: true
+  entrypoint: ["./start.sh"]
+
+commandTests:
+  - name: "runtime user is agent"
+    command: "id"
+    args: ["-un"]
+    expectedOutput: ["\\bagent\\b"]
+
+  - name: "node resolves on PATH"
+    command: "bash"
+    args: ["-c", "command -v node"]
+    expectedOutput: ["node-active/bin/node"]
+
+  - name: "node major version"
+    command: "node"
+    args: ["-p", "process.version"]
+    expectedOutput: ["v24\\."]
+
+  - name: "npm"
+    command: "npm"
+    args: ["--version"]
+    expectedOutput: ["[0-9]+\\.[0-9]+\\.[0-9]+"]
+
+  - name: "npx"
+    command: "npx"
+    args: ["--version"]
+    expectedOutput: ["[0-9]+\\.[0-9]+\\.[0-9]+"]
+
+  - name: "dotnet sdk"
+    command: "dotnet"
+    args: ["--version"]
+    expectedOutput: ["\\b9\\."]
+
+  - name: "azure cli"
+    command: "az"
+    args: ["version"]
+    expectedOutput: ["\"azure-cli\""]
+
+  - name: "aws cli"
+    command: "aws"
+    args: ["--version"]
+    expectedOutput: ["aws-cli/"]
+
+  - name: "buildctl"
+    command: "buildctl"
+    args: ["--version"]
+    expectedOutput: ["buildctl github.com/moby/buildkit"]
+
+  - name: "endorctl"
+    command: "endorctl"
+    args: ["--version"]
+    expectedOutput: ["endorctl version v[0-9]+\\."]
+
+  - name: "jq"
+    command: "jq"
+    args: ["--version"]
+    expectedOutput: ["jq-"]
+
+  - name: "git"
+    command: "git"
+    args: ["--version"]
+    expectedOutput: ["git version"]
+
+  - name: "python3"
+    command: "python3"
+    args: ["--version"]
+    expectedOutput: ["Python 3\\."]
+
+  - name: "psql client"
+    command: "psql"
+    args: ["--version"]
+    expectedOutput: ["psql \\(PostgreSQL\\)"]
+
+  # mise install in jobs needs network; not exercised here (CLI-only image).
+  - name: "mise version"
+    command: "mise"
+    args: ["--version"]
+    expectedOutput: ["[0-9]+\\.[0-9]+"]
+
+  - name: "mise resolves on PATH"
+    command: "bash"
+    args: ["-c", "command -v mise"]
+    expectedOutput: ["/usr/local/bin/mise"]
+
+  - name: "mise login shell"
+    command: "bash"
+    args: ["-lc", "mise --version"]
+    expectedOutput: ["[0-9]+\\.[0-9]+"]
+
+fileExistenceTests:
+  - name: "start script"
+    path: "/azp/start.sh"
+    shouldExist: true
+    isExecutableBy: "any"
+
+  - name: "nvm script"
+    path: "/usr/local/nvm/nvm.sh"
+    shouldExist: true
+
+  - name: "active node binary"
+    path: "/usr/local/node-active/bin/node"
+    shouldExist: true
+    isExecutableBy: "any"
+
+  - name: "node profile helper"
+    path: "/etc/profile.d/node-nvm.sh"
+    shouldExist: true
+
+  - name: "symlink node in usr local bin"
+    path: "/usr/local/bin/node"
+    shouldExist: true
+    isExecutableBy: "any"
+
+  - name: "mise binary"
+    path: "/usr/local/bin/mise"
+    shouldExist: true
+    isExecutableBy: "any"
+
+  - name: "mise profile helper"
+    path: "/etc/profile.d/mise.sh"
+    shouldExist: true
+
+fileContentTests:
+  - name: "agent bashrc sources node profile"
+    path: "/home/agent/.bashrc"
+    expectedContents: ["\\. /etc/profile\\.d/node-nvm\\.sh"]
+
+  - name: "agent bashrc sources mise profile"
+    path: "/home/agent/.bashrc"
+    expectedContents: ["\\. /etc/profile\\.d/mise\\.sh"]

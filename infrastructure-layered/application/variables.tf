@@ -240,7 +240,7 @@ variable "agent_pools" {
     enabled              = bool
     ado_pool_name        = string
     ecr_repository_key   = string
-    image_repository     = string
+    image_repository     = optional(string, "")
     image_tag            = string
     image_pull_policy    = string
     service_account_name = string
@@ -455,6 +455,18 @@ variable "agent_automount_service_account_token" {
   description = "Whether ADO agent worker and placeholder pods should automount their Kubernetes service account token. Keep enabled when IRSA or pod identity needs projected service account tokens."
   type        = bool
   default     = true
+}
+
+variable "ado_agents_helm_atomic" {
+  description = "Whether the ADO agents Helm release should roll back automatically on failure. Keep false when debugging hook jobs so failed pods and jobs remain inspectable."
+  type        = bool
+  default     = false
+}
+
+variable "ado_agents_helm_cleanup_on_fail" {
+  description = "Whether Helm should delete newly-created resources when the ADO agents release fails. Keep false when debugging hook jobs so failed pods and jobs remain inspectable."
+  type        = bool
+  default     = false
 }
 
 # =============================================================================

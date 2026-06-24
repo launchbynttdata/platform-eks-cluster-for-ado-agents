@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ -z "${AZP_AGENT_NAME:-}" ]; then
-  export AZP_AGENT_NAME="${POD_NAME}"
+  export AZP_AGENT_NAME="${POD_NAME:-$(hostname)}"
 fi
 
 arch="$(uname -m)"
@@ -22,17 +22,38 @@ if [ -z "${AZP_URL:-}" ]; then
   fi
 fi
 
-if [ -n "${AZP_CLIENTID:-}" ]; then
-  echo "Using service principal credentials to get token"
-  az login --allow-no-subscriptions --service-principal --username "$AZP_CLIENTID" --password "$AZP_CLIENTSECRET" --tenant "$AZP_TENANTID"
-  # adapted from https://learn.microsoft.com/en-us/azure/databricks/dev-tools/user-aad-token
-  AZP_TOKEN=$(az account get-access-token --query accessToken --output tsv)
+# Azure Workload Identity and SPN auth take priority over PAT. Both paths obtain
+# an Azure DevOps-scoped token that the agent accepts through --auth PAT.
+AZP_TOKEN_RESOURCE="${AZP_TOKEN_RESOURCE:-499b84ac-1321-427f-aa17-267ca6975798}"
+if [ "${AZP_AUTH_MODE:-pat}" = "azure_workload" ]; then
+  if [ -z "${AZURE_FEDERATED_TOKEN_FILE:-}" ] || [ -z "${AZURE_CLIENT_ID:-}" ] || [ -z "${AZURE_TENANT_ID:-}" ]; then
+    echo 1>&2 "error: Azure Workload Identity auth requires AZURE_FEDERATED_TOKEN_FILE, AZURE_CLIENT_ID, and AZURE_TENANT_ID"
+    exit 1
+  fi
+
+  echo "Using Azure Workload Identity credentials for Azure DevOps"
+  az login \
+    --allow-no-subscriptions \
+    --service-principal \
+    --username "$AZURE_CLIENT_ID" \
+    --tenant "$AZURE_TENANT_ID" \
+    --federated-token "$(cat "$AZURE_FEDERATED_TOKEN_FILE")"
+
+  AZP_TOKEN=$(az account get-access-token --resource "$AZP_TOKEN_RESOURCE" --query accessToken --output tsv)
   echo "Token retrieved"
+elif [ -n "${AZP_CLIENTID:-}" ] && [ -n "${AZP_CLIENTSECRET:-}" ] && [ -n "${AZP_TENANTID:-}" ]; then
+  echo "Using service principal credentials for Azure DevOps (SPN priority over PAT)"
+  az login --allow-no-subscriptions --service-principal --username "$AZP_CLIENTID" --password "$AZP_CLIENTSECRET" --tenant "$AZP_TENANTID"
+  AZP_TOKEN=$(az account get-access-token --resource "$AZP_TOKEN_RESOURCE" --query accessToken --output tsv)
+  echo "Token retrieved"
+elif [ -n "${AZP_CLIENTID:-}" ] || [ -n "${AZP_CLIENTSECRET:-}" ] || [ -n "${AZP_TENANTID:-}" ]; then
+  echo 1>&2 "error: SPN auth requires AZP_CLIENTID, AZP_CLIENTSECRET, and AZP_TENANTID"
+  exit 1
 fi
 
 if [ -z "${AZP_TOKEN_FILE:-}" ]; then
   if [ -z "${AZP_TOKEN:-}" ]; then
-    echo 1>&2 "error: missing AZP_TOKEN environment variable"
+    echo 1>&2 "error: missing AZP_TOKEN (set PAT/org secret) or complete SPN environment variables"
     exit 1
   fi
 
@@ -71,27 +92,30 @@ source_azure_agent_env() {
 }
 
 cleanup() {
-  local timeout_seconds="${AZP_CLEANUP_TIMEOUT_SECONDS:-300}"
-  local deadline=$((SECONDS + timeout_seconds))
-
-  if [ -e ./config.sh ]; then
-    print_header "Cleanup. Removing Azure Pipelines agent..."
-
-    # If the agent has some running jobs, the configuration removal process will fail.
-    # So, give it some time to finish the job.
-    while [ "${SECONDS}" -lt "${deadline}" ]; do
-      if run_azure_agent_command ./config.sh remove --unattended --auth "PAT" --token "$(cat "${AZP_TOKEN_FILE}")"; then
-        echo "Azure Pipelines agent removed."
-        return 0
-      fi
-
-      echo "Retrying in 30 seconds..."
-      sleep 30
-    done
-
-    echo "error: timed out removing Azure Pipelines agent after ${timeout_seconds}s" >&2
-    return 1
+  if [ ! -e ./config.sh ]; then
+    return 0
   fi
+
+  print_header "Cleanup. Removing Azure Pipelines agent..."
+
+  # If the agent has a running job, config removal can fail until the job ends.
+  local cleanup_timeout_seconds="${AZP_CLEANUP_TIMEOUT_SECONDS:-300}"
+  local cleanup_deadline=$((SECONDS + cleanup_timeout_seconds))
+
+  while true; do
+    if run_azure_agent_command ./config.sh remove --unattended --auth "PAT" --token "$(cat "${AZP_TOKEN_FILE}")"; then
+      print_header "Cleanup complete. Azure Pipelines agent removed."
+      return 0
+    fi
+
+    if [ "${SECONDS}" -ge "${cleanup_deadline}" ]; then
+      echo 1>&2 "error: timed out removing Azure Pipelines agent after ${cleanup_timeout_seconds} seconds"
+      return 1
+    fi
+
+    echo "Retrying in 30 seconds..."
+    sleep 30
+  done
 }
 
 delete_own_pod() {
@@ -99,24 +123,33 @@ delete_own_pod() {
     return 0
   fi
 
+  print_header "Recycling pod after one completed agent run..."
+
   if [ -z "${POD_NAME:-}" ] || [ -z "${POD_NAMESPACE:-}" ]; then
-    echo "error: cannot recycle pod because POD_NAME or POD_NAMESPACE is missing" >&2
+    echo 1>&2 "error: pod recycling requires POD_NAME and POD_NAMESPACE"
+    return 1
+  fi
+
+  if [ -z "${KUBERNETES_SERVICE_HOST:-}" ]; then
+    echo 1>&2 "error: pod recycling requires Kubernetes service environment variables"
     return 1
   fi
 
   local token_file="/var/run/secrets/kubernetes.io/serviceaccount/token"
   local ca_file="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
   if [ ! -r "${token_file}" ] || [ ! -r "${ca_file}" ]; then
-    echo "error: cannot recycle pod because the Kubernetes service account token is not mounted" >&2
+    echo 1>&2 "error: pod recycling requires a mounted Kubernetes service account token"
     return 1
   fi
 
-  print_header "Recycling pod ${POD_NAMESPACE}/${POD_NAME}..."
   local token
   token="$(cat "${token_file}")"
-  local api="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT_HTTPS:-443}/api/v1/namespaces/${POD_NAMESPACE}/pods/${POD_NAME}"
+  local api
+  api="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT_HTTPS:-443}/api/v1/namespaces/${POD_NAMESPACE}/pods/${POD_NAME}"
+
+  local response_file="/tmp/delete-pod-response.json"
   local http_code
-  http_code="$(curl -sS -o /tmp/delete-pod-response.json -w "%{http_code}" \
+  http_code="$(curl -sS -o "${response_file}" -w "%{http_code}" \
     --cacert "${ca_file}" \
     -H "Authorization: Bearer ${token}" \
     -X DELETE \
@@ -124,14 +157,24 @@ delete_own_pod() {
 
   case "${http_code}" in
     200|202)
-      echo "Pod recycle requested."
+      print_header "Pod recycle requested for ${POD_NAMESPACE}/${POD_NAME}."
       ;;
     *)
-      echo "error: failed to recycle pod; Kubernetes API returned ${http_code}" >&2
-      cat /tmp/delete-pod-response.json >&2 || true
+      echo 1>&2 "error: failed to request pod recycle for ${POD_NAMESPACE}/${POD_NAME}; Kubernetes API returned HTTP ${http_code}"
+      if [ -s "${response_file}" ]; then
+        cat "${response_file}" >&2
+      fi
       return 1
       ;;
   esac
+}
+
+# shellcheck disable=SC2329
+cleanup_and_exit() {
+  local exit_code="$1"
+  trap "" EXIT
+  cleanup || true
+  exit "${exit_code}"
 }
 
 # Let the agent ignore the token env variables
@@ -146,7 +189,7 @@ AZP_AGENT_PACKAGES=$(curl -LsS \
 
 AZP_AGENT_PACKAGE_LATEST_URL=$(echo "${AZP_AGENT_PACKAGES}" | jq -r ".value[0].downloadUrl")
 
-if [ -z "${AZP_AGENT_PACKAGE_LATEST_URL}" ] || [ "${AZP_AGENT_PACKAGE_LATEST_URL}" == "null" ]; then
+if [ -z "${AZP_AGENT_PACKAGE_LATEST_URL}" ] || [ "${AZP_AGENT_PACKAGE_LATEST_URL}" = "null" ]; then
   echo 1>&2 "error: could not determine a matching Azure Pipelines agent"
   echo 1>&2 "check that account ${AZP_URL} is correct and the token is valid for that account"
   exit 1
@@ -157,14 +200,6 @@ print_header "2. Downloading and extracting Azure Pipelines agent..."
 curl -LsS "${AZP_AGENT_PACKAGE_LATEST_URL}" | tar -xz & wait $!
 
 source_azure_agent_env
-
-# shellcheck disable=SC2329
-cleanup_and_exit() {
-  local exit_code="$1"
-  trap "" EXIT
-  cleanup || true
-  exit "${exit_code}"
-}
 
 trap 'cleanup_and_exit $?' EXIT
 trap "cleanup_and_exit 130" INT
@@ -193,13 +228,12 @@ print_header "4. Running Azure Pipelines agent..."
 
 chmod +x ./run.sh
 
-# To be aware of TERM and INT signals call ./run.sh
-# Running it with the --once flag at the end will shut down the agent after the build is executed
 run_args=("$@")
 if [ "${AZP_RUN_ONCE:-false}" = "true" ]; then
   run_args+=("--once")
 fi
 
+# To be aware of TERM and INT signals call ./run.sh directly and wait on it.
 set +u
 ./run.sh "${run_args[@]}" &
 agent_pid=$!

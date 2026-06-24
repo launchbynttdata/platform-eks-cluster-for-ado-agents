@@ -5,6 +5,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 ARG BUILDCTL_VERSION=0.24.0
 ARG DOTNET_CHANNEL=9.0
+# NVM: pinned Git commit (tag v0.40.4); update NVM_COMMIT_SHA when changing releases.
+ARG NVM_COMMIT_SHA=62387b8f92aa012d48202747fd75c40850e5e261
+ARG NODE_MAJOR_VERSION=24
+ARG MISE_VERSION=v2026.5.13
 
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
@@ -32,6 +36,7 @@ RUN apt-get update && apt-get upgrade -y && \
       python3 \
       python3-dev \
       python3-pip \
+      python3-venv \
       tar \
       tk-dev \
       unzip \
@@ -80,6 +85,65 @@ RUN set -eux; \
   chmod +x /usr/local/bin/endorctl; \
   endorctl --version
 
+# Azure CLI (service principal login in start.sh). https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-linux
+RUN set -eux; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends gnupg; \
+  install -d /usr/share/keyrings; \
+  curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg; \
+  chmod go+r /usr/share/keyrings/microsoft-prod.gpg; \
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/repos/azure-cli/ noble main" > /etc/apt/sources.list.d/azure-cli.list; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends azure-cli; \
+  rm -rf /var/lib/apt/lists/*; \
+  az version
+
+# NVM + Node.js: shallow clone nvm at a fixed commit (no remote install.sh | bash).
+ENV NVM_DIR=/usr/local/nvm
+RUN /bin/bash -c 'set -euo pipefail; \
+  NVM_DIR=/usr/local/nvm; \
+  COMMIT_SHA="'"${NVM_COMMIT_SHA}"'"; \
+  NODE_VER="'"${NODE_MAJOR_VERSION}"'"; \
+  mkdir -p "${NVM_DIR}"; \
+  git init -q "${NVM_DIR}"; \
+  git -C "${NVM_DIR}" remote add origin https://github.com/nvm-sh/nvm.git; \
+  GIT_TERMINAL_PROMPT=0 git -C "${NVM_DIR}" fetch --depth 1 origin "${COMMIT_SHA}"; \
+  git -C "${NVM_DIR}" checkout -q FETCH_HEAD; \
+  . "${NVM_DIR}/nvm.sh"; \
+  nvm install "${NODE_VER}"; \
+  nvm alias default "${NODE_VER}"; \
+  nvm use default; \
+  NODE_HOME="$(dirname "$(dirname "$(command -v node)")")"; \
+  ln -sfn "${NODE_HOME}" /usr/local/node-active; \
+  rm -rf "${NVM_DIR}/.git"; \
+  /usr/local/node-active/bin/node --version; \
+  /usr/local/node-active/bin/npm --version'
+
+# agent user: keep Node on PATH for login shells (profile.d) and minimal PATH (symlinks).
+RUN printf '%s\n' \
+    'export NVM_DIR=/usr/local/nvm' \
+    'case ":${PATH}:" in *:/usr/local/node-active/bin:*) ;; *) export PATH="/usr/local/node-active/bin:${PATH}" ;; esac' \
+    > /etc/profile.d/node-nvm.sh && chmod 644 /etc/profile.d/node-nvm.sh && \
+  ln -sfn /usr/local/node-active/bin/node /usr/local/bin/node && \
+  ln -sfn /usr/local/node-active/bin/npm /usr/local/bin/npm && \
+  ln -sfn /usr/local/node-active/bin/npx /usr/local/bin/npx && \
+  if [ -x /usr/local/node-active/bin/corepack ]; then ln -sfn /usr/local/node-active/bin/corepack /usr/local/bin/corepack; fi
+
+ENV PATH="/usr/local/node-active/bin:${PATH}"
+
+# mise: pinned install; bash activation via /etc/profile.d/mise.sh (see agent .bashrc).
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ENV MISE_INSTALL_PATH=/usr/local/bin/mise
+RUN curl -fsSL https://mise.run | MISE_VERSION="${MISE_VERSION}" MISE_INSTALL_PATH="${MISE_INSTALL_PATH}" sh && \
+    "${MISE_INSTALL_PATH}" --version
+
+RUN printf '%s\n' \
+    '# mise: shims + env hooks for login/interactive bash' \
+    'if command -v mise >/dev/null 2>&1; then' \
+    '  eval "$(mise activate bash)"' \
+    'fi' \
+    > /etc/profile.d/mise.sh && chmod 644 /etc/profile.d/mise.sh
+
 WORKDIR /azp/
 
 COPY --chmod=755 ./start.sh ./
@@ -87,7 +151,9 @@ COPY --chmod=755 ./start.sh ./
 # Create agent user and set up home directory
 RUN useradd -m -d /home/agent agent && \
     mkdir -p /azp/agent && \
-    chown -R agent:agent /azp /home/agent
+    chown -R agent:agent /azp /home/agent && \
+    printf '\n# Node (nvm-managed; PATH + NVM_DIR)\n. /etc/profile.d/node-nvm.sh\n\n# mise (PATH + shims via activate)\n. /etc/profile.d/mise.sh\n' >> /home/agent/.bashrc && \
+    chown agent:agent /home/agent/.bashrc
 
 USER agent
 # Another option is to run the agent as root.

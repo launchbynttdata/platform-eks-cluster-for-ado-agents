@@ -408,6 +408,15 @@ ado_execution_roles = {
 |----------|------|----------|-------------|
 | `ado_execution_roles` | map(object) | No | IAM roles for agent service accounts |
 
+### ADO Agent Helm Behavior
+
+```hcl
+ado_agents_helm_atomic          = false
+ado_agents_helm_cleanup_on_fail = false
+```
+
+Keep both values `false` while validating new environments so failed Helm hook jobs and pods remain available for `kubectl describe` and `kubectl logs`. Set them to `true` only when you prefer automatic rollback over preserving failure evidence.
+
 ### ADO Agent Pools
 
 ```hcl
