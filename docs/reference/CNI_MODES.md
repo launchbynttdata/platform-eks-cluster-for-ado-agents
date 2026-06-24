@@ -46,7 +46,7 @@ eks_addons = {
 }
 ```
 
-The networking layer installs Cilium with overlay cluster-pool IPAM:
+The base layer bootstraps Cilium with overlay cluster-pool IPAM before EC2 managed node groups are created:
 
 ```hcl
 cilium_networking = {
@@ -67,6 +67,7 @@ Choose a Cilium pod CIDR that does not overlap the VPC CIDR, Kubernetes service 
 - Traffic from pods to VPC resources and AWS services is masqueraded through the EC2 node IP.
 - The EKS API server cannot directly route to overlay pod IPs. Admission webhooks must use host networking or be exposed through a service path that works with this limitation.
 - EC2 node groups receive the Cilium startup taint `node.cilium.io/agent-not-ready=true:NoExecute` so workloads wait until Cilium is ready.
+- Cilium must be present before managed node groups bootstrap. If nodes start before any CNI is installed, managed node group creation can fail with `cni plugin not initialized`.
 
 ## Existing Cluster Conversion Notes
 
@@ -77,10 +78,10 @@ High-level conversion notes:
 1. Stop or scale down application workload intake.
 2. Disable Fargate profiles and ensure all required workloads can run on EC2 nodes.
 3. Remove `vpc-cni` from `eks_addons` and set `pod_networking_mode = "cilium-overlay"`.
-4. Apply the base layer so VPC CNI resources are no longer managed and EC2 nodes receive the Cilium startup taint.
+4. Apply the base layer so Cilium is bootstrapped, VPC CNI resources are no longer managed, and EC2 nodes receive the Cilium startup taint.
 5. Patch or remove the existing `aws-node` DaemonSet to avoid CNI conflicts.
 6. Flush VPC CNI iptables chains on EC2 nodes if converting nodes in place.
-7. Apply the networking layer and wait for Cilium readiness.
+7. Apply the networking layer to validate networking mode consistency.
 8. Restart unmanaged pods so they are created under Cilium networking.
 9. Apply middleware, application, and config layers, then restore workload intake.
 

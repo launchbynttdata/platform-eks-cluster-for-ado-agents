@@ -39,14 +39,16 @@ locals {
 ### EKS Cluster
 
 ```hcl
-cluster_name    = "ado-agent-cluster"
-cluster_version = "1.33"
+cluster_name                    = "ado-agent-cluster"
+cluster_version                 = "1.35"
+cluster_api_ready_wait_duration = "90s"
 ```
 
 | Variable | Type | Required | Description |
 |----------|------|----------|-------------|
 | `cluster_name` | string | Yes | Unique name for the EKS cluster |
-| `cluster_version` | string | Yes | Kubernetes version (1.31, 1.32, 1.33, 1.34) |
+| `cluster_version` | string | Yes | Kubernetes version |
+| `cluster_api_ready_wait_duration` | string | No | Time to wait after EKS cluster creation before using Kubernetes/Helm providers |
 
 ### Networking
 
@@ -154,6 +156,11 @@ vpc_endpoint_services = [
   "s3",
   "ecr_dkr",
   "ecr_api",
+  "ec2",
+  "eks",
+  "logs",
+  "monitoring",
+  "sts",
   "secretsmanager"
 ]
 exclude_vpc_endpoint_services = []
@@ -172,7 +179,7 @@ ec2_node_groups = {
   "buildkit-nodes" = {
     instance_types = ["t3.medium", "t3.large"]
     disk_size      = 100
-    ami_type       = "AL2_x86_64"
+    ami_type       = "AL2023_x86_64_STANDARD"
     capacity_type  = "ON_DEMAND"
     desired_size   = 1
     max_size       = 5
@@ -197,9 +204,11 @@ ec2_node_groups = {
 
 Set to `{}` to use Fargate only.
 
+Use `AL2023_x86_64_STANDARD` for Kubernetes 1.33 and newer node groups. `AL2_x86_64` is only valid for Kubernetes 1.32 and earlier.
+
 ## Networking Layer Configuration
 
-The networking layer is a no-op when `pod_networking_mode = "vpc-cni"`. When `pod_networking_mode = "cilium-overlay"`, it installs Cilium into `kube-system` with overlay cluster-pool IPAM.
+The networking layer is a no-op when `pod_networking_mode = "vpc-cni"`. When `pod_networking_mode = "cilium-overlay"`, Cilium is bootstrapped by the base layer before EC2 managed node groups so kubelets have a CNI during startup. The networking layer validates that the configured mode matches the base layer output.
 
 ```hcl
 pod_networking_mode = "cilium-overlay"

@@ -31,6 +31,7 @@ variable "endpoint_services" {
     "ecr_dkr",
     "ecr_api",
     "ec2",
+    "eks",
     "logs",
     "monitoring",
     "sts",
