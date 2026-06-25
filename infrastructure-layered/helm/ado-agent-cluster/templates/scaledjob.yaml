@@ -72,11 +72,29 @@ spec:
               secretKeyRef:
                 name: {{ $poolConfig.ado.secretName }}
                 key: adourl
+          {{- if eq ($.Values.auth.mode | default "pat") "spn" }}
+          - name: AZP_CLIENTID
+            valueFrom:
+              secretKeyRef:
+                name: {{ $.Values.auth.spnSecretName }}
+                key: AZP_CLIENTID
+          - name: AZP_CLIENTSECRET
+            valueFrom:
+              secretKeyRef:
+                name: {{ $.Values.auth.spnSecretName }}
+                key: AZP_CLIENTSECRET
+          - name: AZP_TENANTID
+            valueFrom:
+              secretKeyRef:
+                name: {{ $.Values.auth.spnSecretName }}
+                key: AZP_TENANTID
+          {{- else }}
           - name: AZP_TOKEN
             valueFrom:
               secretKeyRef:
                 name: {{ $poolConfig.ado.secretName }}
                 key: personalAccessToken
+          {{- end }}
           - name: AZP_POOL
             value: {{ $poolConfig.ado.poolName | quote }}
           - name: POD_NAME

@@ -4,9 +4,10 @@ FROM ubuntu:24.04
 ARG TARGETPLATFORM TARGETOS TARGETARCH TARGETVARIANT BUILDPLATFORM
 
 ARG GO_VERSION=1.24.7
-ARG PYTHON_VERSION=3.13.0
+# ARG PYTHON_VERSION=3.13.0
 ARG TERRAFORM_VERSION=1.13.5
 ARG TERRAGRUNT_VERSION=0.93.5
+ARG MISE_VERSION=v2026.5.13
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
@@ -21,6 +22,7 @@ RUN apt-get update && apt-get upgrade -y && \
       tar \
       wget \
       unzip \
+      zip \
       postgresql-client \
       libicu74 \
       libssl-dev \
@@ -86,16 +88,16 @@ RUN set -eux; \
   terragrunt --version
 
   # Install Python from official tarball (manual compilation)
-RUN set -eux; \
-  curl -fsSL -o /tmp/python.tgz "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz"; \
-  tar -C /tmp -xzf /tmp/python.tgz; \
-  cd /tmp/Python-${PYTHON_VERSION}; \
-  PYTHON_MAJOR_MINOR=$(echo ${PYTHON_VERSION} | cut -d. -f1,2); \
-  ./configure --prefix=/usr/local/python${PYTHON_MAJOR_MINOR} --enable-optimizations --with-ensurepip=install; \
-  make -j$(nproc); \
-  make install; \
-  rm -rf /tmp/python.tgz /tmp/Python-${PYTHON_VERSION}; \
-  /usr/local/python${PYTHON_MAJOR_MINOR}/bin/python3 --version
+# RUN set -eux; \
+#   curl -fsSL -o /tmp/python.tgz "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz"; \
+#   tar -C /tmp -xzf /tmp/python.tgz; \
+#   cd /tmp/Python-${PYTHON_VERSION}; \
+#   PYTHON_MAJOR_MINOR=$(echo ${PYTHON_VERSION} | cut -d. -f1,2); \
+#   ./configure --prefix=/usr/local/python${PYTHON_MAJOR_MINOR} --enable-optimizations --with-ensurepip=install; \
+#   make -j$(nproc); \
+#   make install; \
+#   rm -rf /tmp/python.tgz /tmp/Python-${PYTHON_VERSION}; \
+#   /usr/local/python${PYTHON_MAJOR_MINOR}/bin/python3 --version
 
 WORKDIR /azp/
 
@@ -103,24 +105,49 @@ COPY --chmod=0755 ./start.sh ./
 
 # Create agent user and set up home directory
 RUN useradd -m -d /home/agent agent && \
+    mkdir -p /home/agent/.local/share/mise/shims /home/agent/.config/mise /home/agent/.cache/mise && \
     chown -R agent:agent /azp /home/agent
+
+# Azure CLI (service principal login in start.sh). https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-linux
+RUN set -eux; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends gnupg; \
+  install -d /usr/share/keyrings; \
+  curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg; \
+  chmod go+r /usr/share/keyrings/microsoft-prod.gpg; \
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/repos/azure-cli/ noble main" > /etc/apt/sources.list.d/azure-cli.list; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends azure-cli; \
+  rm -rf /var/lib/apt/lists/*; \
+  az version
 
 # Create Python symlinks as root before switching to agent user
 RUN PYTHON_MAJOR_MINOR=$(echo ${PYTHON_VERSION} | cut -d. -f1,2) && \
     PYTHON_MAJOR=$(echo ${PYTHON_VERSION} | cut -d. -f1) && \
     ln -sf /usr/local/python${PYTHON_MAJOR_MINOR}/bin/python${PYTHON_MAJOR} /usr/local/bin/python${PYTHON_MAJOR} && \
-    ln -sf /usr/local/python${PYTHON_MAJOR_MINOR}/bin/pip${PYTHON_MAJOR} /usr/local/bin/pip${PYTHON_MAJOR}
+    ln -sf /usr/local/python${PYTHON_MAJOR_MINOR}/bin/pip${PYTHON_MAJOR} /usr/local/bin/pip${PYTHON_MAJOR} && \
+    ln -sf /usr/local/python${PYTHON_MAJOR_MINOR}/bin/python${PYTHON_MAJOR_MINOR} /usr/local/bin/python${PYTHON_MAJOR_MINOR}
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ENV MISE_INSTALL_PATH=/usr/local/bin/mise
+RUN curl -fsSL https://mise.run | MISE_VERSION="${MISE_VERSION}" sh && \
+    mise --version
 
 USER agent
 
 # Ensure HOME is set for the agent user
 ENV HOME=/home/agent
+ENV MISE_DATA_DIR=/home/agent/.local/share/mise
+ENV MISE_CONFIG_DIR=/home/agent/.config/mise
+ENV MISE_CACHE_DIR=/home/agent/.cache/mise
 # Configure PATH for agent user
 RUN PYTHON_MAJOR_MINOR=$(echo ${PYTHON_VERSION} | cut -d. -f1,2) && \
-    echo "export PATH=\"/usr/local/go/bin:/usr/local/bin:/usr/local/python${PYTHON_MAJOR_MINOR}/bin:\${PATH}:/home/agent/bin\"" >> /home/agent/.profile && \
-    echo "export PATH=\"/usr/local/go/bin:/usr/local/bin:/usr/local/python${PYTHON_MAJOR_MINOR}/bin:\${PATH}:/home/agent/bin\"" >> /home/agent/.bashrc
-# Set PATH with symlinked python location
-ENV PATH="/usr/local/go/bin:/usr/local/bin:${PATH}:/home/agent/bin"
+    echo "export PATH=\"/home/agent/.local/share/mise/shims:/usr/local/go/bin:/usr/local/bin:/usr/local/python${PYTHON_MAJOR_MINOR}/bin:\${PATH}:/home/agent/bin\"" >> /home/agent/.profile && \
+    echo "export PATH=\"/home/agent/.local/share/mise/shims:/usr/local/go/bin:/usr/local/bin:/usr/local/python${PYTHON_MAJOR_MINOR}/bin:\${PATH}:/home/agent/bin\"" >> /home/agent/.bashrc
+# Set PATH with symlinked python location and mise shims
+ENV PATH="/home/agent/.local/share/mise/shims:/usr/local/go/bin:/usr/local/bin:${PATH}:/home/agent/bin"
+
+RUN mise --version
 
 # HEALTHCHECK --interval=10s --timeout=3s --start-period=180s --retries=3 \
 #         CMD [ "bash", "-c", "ps -ef | grep -q 'Agent.Listener' || exit 1" ]

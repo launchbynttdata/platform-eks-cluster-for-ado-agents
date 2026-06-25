@@ -138,6 +138,46 @@ variable "secret_refresh_interval" {
   }
 }
 
+variable "ado_agent_auth_mode" {
+  description = "Authentication mode for ADO agent pods. KEDA continues to use the PAT secret."
+  type        = string
+  default     = "pat"
+  nullable    = false
+
+  validation {
+    condition     = contains(["pat", "spn"], var.ado_agent_auth_mode)
+    error_message = "ado_agent_auth_mode must be either \"pat\" or \"spn\"."
+  }
+}
+
+variable "ado_agent_spn_secret" {
+  description = "Externally managed AWS Secrets Manager secret for ADO agent SPN authentication."
+  type = object({
+    aws_secret_name  = string
+    k8s_secret_name  = optional(string, "ado-agent-spn")
+    refresh_interval = optional(string, "")
+  })
+  default = {
+    aws_secret_name = ""
+  }
+  nullable = false
+
+  validation {
+    condition     = var.ado_agent_spn_secret.aws_secret_name == null || can(regex("^[a-zA-Z0-9/_+=.@-]*$", var.ado_agent_spn_secret.aws_secret_name))
+    error_message = "ado_agent_spn_secret.aws_secret_name must contain only alphanumeric characters, hyphens, underscores, forward slashes, plus signs, equals signs, periods, and at signs."
+  }
+
+  validation {
+    condition     = var.ado_agent_spn_secret.k8s_secret_name == null || can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", var.ado_agent_spn_secret.k8s_secret_name))
+    error_message = "ado_agent_spn_secret.k8s_secret_name must be a valid Kubernetes secret name."
+  }
+
+  validation {
+    condition     = var.ado_agent_spn_secret.refresh_interval == null || var.ado_agent_spn_secret.refresh_interval == "" || can(regex("^\\d+[smh]$", var.ado_agent_spn_secret.refresh_interval))
+    error_message = "ado_agent_spn_secret.refresh_interval must be empty or use a duration like '5m', '30s', or '1h'."
+  }
+}
+
 # =============================================================================
 # IAM Execution Roles for ADO Agents (IRSA)
 # =============================================================================

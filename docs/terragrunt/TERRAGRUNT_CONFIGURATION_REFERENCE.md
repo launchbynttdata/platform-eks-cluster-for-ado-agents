@@ -356,6 +356,12 @@ buildkitd_storage_size = "50Gi"
 ado_org             = "your-org"
 ado_url             = "https://dev.azure.com/your-org"
 ado_pat_secret_name = "ado-agent-pat"
+ado_agent_auth_mode = "pat"
+ado_agent_spn_secret = {
+  aws_secret_name  = ""
+  k8s_secret_name  = "ado-agent-spn"
+  refresh_interval = ""
+}
 secret_recovery_days = 7
 secret_refresh_interval = "5m"
 ```
@@ -365,6 +371,10 @@ secret_refresh_interval = "5m"
 | `ado_org` | string | Yes | Azure DevOps organization name |
 | `ado_url` | string | Yes | Azure DevOps organization URL |
 | `ado_pat_secret_name` | string | No | AWS Secrets Manager secret name |
+| `ado_agent_auth_mode` | string | No | Agent pod auth mode: `pat` or `spn`. Defaults to `pat`. KEDA continues to use the PAT secret in both modes. |
+| `ado_agent_spn_secret.aws_secret_name` | string | Required for SPN mode | Existing AWS Secrets Manager secret name/path containing `ClientId`, `ClientSecret`, and `TenantId`. Terraform reads this secret metadata and grants ESO read access; it does not create the secret. |
+| `ado_agent_spn_secret.k8s_secret_name` | string | No | Kubernetes secret name for synced SPN credentials. Defaults to `ado-agent-spn`. |
+| `ado_agent_spn_secret.refresh_interval` | string | No | ESO refresh interval for the SPN secret. Empty uses `secret_refresh_interval`. |
 | `secret_recovery_days` | number | No | Days to recover deleted secret (7-30) |
 | `secret_refresh_interval` | string | No | How often ESO syncs secret |
 
@@ -373,6 +383,25 @@ secret_refresh_interval = "5m"
 ```bash
 export TF_VAR_ado_pat_value='your-personal-access-token'
 ```
+
+To run agent containers with SPN auth while keeping KEDA on the PAT path:
+
+```hcl
+ado_agent_auth_mode = "spn"
+ado_agent_spn_secret = {
+  aws_secret_name  = "/path/to/external/spn-secret"
+  k8s_secret_name  = "ado-agent-spn"
+  refresh_interval = ""
+}
+```
+
+The external SPN secret must already exist in AWS Secrets Manager and contain non-empty JSON string properties named `ClientId`, `ClientSecret`, and `TenantId`. The application layer checks that the deploy runner can read the secret value before deploying the agents, but does not print or store the secret value. It maps those properties into the Kubernetes secret keys `AZP_CLIENTID`, `AZP_CLIENTSECRET`, and `AZP_TENANTID` that the agent containers expect.
+
+In SPN mode, the application layer idempotently applies the ESO
+`ClusterSecretStore`, creates or updates the SPN `ExternalSecret` bridge, and
+waits for ESO to sync the target Kubernetes secret before the ADO agents Helm
+release starts. This prevents placeholder hook jobs from starting before
+`ado-agent-spn` exists.
 
 ### ECR Repositories
 

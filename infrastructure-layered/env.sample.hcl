@@ -328,6 +328,12 @@ locals {
   ado_org                 = "launch-dso"
   ado_url                 = "https://dev.azure.com/launch-dso"
   ado_pat_secret_name     = "ado-agent-pat"
+  ado_agent_auth_mode     = "pat"
+  ado_agent_spn_secret = {
+    aws_secret_name  = ""
+    k8s_secret_name  = "ado-agent-spn"
+    refresh_interval = ""
+  }
   secret_recovery_days    = 7
   secret_refresh_interval = "5m"
 

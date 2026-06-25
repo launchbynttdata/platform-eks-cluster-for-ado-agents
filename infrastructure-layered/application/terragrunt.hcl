@@ -93,6 +93,8 @@ inputs = {
   ado_org                 = local.effective_ado_org
   ado_url                 = local.effective_ado_url
   ado_pat_secret_name     = local.env.locals.ado_pat_secret_name
+  ado_agent_auth_mode     = try(local.env.locals.ado_agent_auth_mode, "pat")
+  ado_agent_spn_secret    = try(local.env.locals.ado_agent_spn_secret, { aws_secret_name = "" })
   secret_recovery_days    = local.env.locals.secret_recovery_days
   secret_refresh_interval = local.env.locals.secret_refresh_interval
 
