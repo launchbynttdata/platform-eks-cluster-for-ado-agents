@@ -74,9 +74,9 @@ variable "cluster_admin_access_principal_arns" {
   validation {
     condition = alltrue([
       for arn in var.cluster_admin_access_principal_arns :
-      can(regex("^arn:aws:iam::[0-9]{12}:role/.+$", arn))
+      can(regex("^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/.+$", arn))
     ])
-    error_message = "Each cluster_admin_access_principal_arns entry must be an IAM role ARN (arn:aws:iam::<account>:role/<name>)."
+    error_message = "Each cluster_admin_access_principal_arns entry must be an IAM role ARN (arn:<partition>:iam::<account>:role/<name>)."
   }
 }
 

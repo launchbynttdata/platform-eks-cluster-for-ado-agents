@@ -421,6 +421,56 @@ curl -u ":${PAT_TOKEN}" \
     "https://dev.azure.com/${ORG_NAME}/_apis/distributedtask/pools?api-version=6.0"
 ```
 
+### ADO Agents Helm Release Failed
+
+The application layer defaults to preserving failed Helm hook jobs and pods so
+placeholder-agent registration failures can be inspected. This means a failed
+install or upgrade may leave the `ado-agents` Helm release in `failed` status
+instead of automatically rolling back.
+
+```bash
+# Check release and hook resources
+helm status ado-agents -n ado-agents
+kubectl get jobs,pods -n ado-agents
+
+# Inspect the exact failed placeholder job from the Terraform or Helm error
+kubectl describe job -n ado-agents <failed-placeholder-job>
+kubectl logs -n ado-agents job/<failed-placeholder-job> --all-containers=true
+
+# After fixing the underlying issue, either retry Terraform or roll back/uninstall
+# the failed release if Helm refuses the next upgrade.
+helm history ado-agents -n ado-agents
+helm rollback ado-agents <last-good-revision> -n ado-agents
+# or, for disposable environments:
+helm uninstall ado-agents -n ado-agents
+```
+
+Set `ado_agents_helm_atomic = true` and
+`ado_agents_helm_cleanup_on_fail = true` only when automatic rollback is more
+important than preserving failed hook resources for debugging.
+
+### Cilium Bootstrap Helm Release Failed
+
+In `cilium-overlay` mode, the base layer installs the `cilium` Helm release in
+`kube-system` before EC2 managed node groups are created. If that first install
+fails and Helm leaves the release in `failed` state, the base layer can remain
+blocked because node groups depend on Cilium bootstrap.
+
+```bash
+# Inspect the failed bootstrap release
+helm status cilium -n kube-system
+kubectl get pods -n kube-system -l k8s-app=cilium
+kubectl get pods -n kube-system -l io.cilium/app=operator
+
+# For disposable or not-yet-healthy clusters, remove the failed release and retry
+# the base layer after fixing the underlying image, registry, API, or values issue.
+helm uninstall cilium -n kube-system
+./deploy.sh deploy --layer base
+```
+
+For private clusters without NAT, verify the configured Cilium images are served
+from a registry reachable from the node subnets before retrying.
+
 ### Remote State Access Denied
 
 ```bash

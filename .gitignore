@@ -58,3 +58,6 @@ infrastructure-layered/env.hcl
 !infrastructure-layered/env.sample.hcl
 
 logs/
+
+# Local peer review artifact (not for version control)
+local_code_review.md

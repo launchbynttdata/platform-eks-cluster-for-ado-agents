@@ -46,6 +46,14 @@ teardown() {
     [ "${TF_VAR_ado_org}" = "myorg" ]
 }
 
+@test "require_ado_credentials: rejects unsupported ADO_ORG_URL shape" {
+    export ADO_PAT="abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcd"
+    export ADO_ORG_URL="https://myorg.visualstudio.com"
+    run require_ado_credentials
+    [ "$status" -eq 1 ]
+    [[ "$output" =~ "https://dev.azure.com/<org>" ]]
+}
+
 @test "prepare_ado_pat_for_terraform: maps ADO environment variables to Terraform variables" {
     export ADO_PAT="abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcd"
     export ADO_ORG_URL="https://dev.azure.com/myorg/"
@@ -53,6 +61,15 @@ teardown() {
     [ "${TF_VAR_ado_pat_value}" = "${ADO_PAT}" ]
     [ "${TF_VAR_ado_url}" = "https://dev.azure.com/myorg" ]
     [ "${TF_VAR_ado_org}" = "myorg" ]
+}
+
+@test "prepare_ado_pat_for_terraform: leaves invalid ADO org derivation unset" {
+    export ADO_PAT="abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcd"
+    export ADO_ORG_URL="https://myorg.visualstudio.com"
+    prepare_ado_pat_for_terraform
+    [ "${TF_VAR_ado_pat_value}" = "${ADO_PAT}" ]
+    [ "${TF_VAR_ado_url}" = "${ADO_ORG_URL}" ]
+    [ -z "${TF_VAR_ado_org:-}" ]
 }
 
 @test "validate_update_ado_secret_prerequisites: no-op when update flag false" {

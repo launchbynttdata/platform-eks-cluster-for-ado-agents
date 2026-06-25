@@ -207,8 +207,18 @@ is_non_empty() {
 
 ado_org_from_url() {
     local org_url="${1%/}"
-    org_url="${org_url#https://dev.azure.com/}"
-    echo "${org_url}"
+
+    case "${org_url}" in
+        https://dev.azure.com/*)
+            local org="${org_url#https://dev.azure.com/}"
+            if [[ -n "${org}" && "${org}" != */* ]]; then
+                echo "${org}"
+                return 0
+            fi
+            ;;
+    esac
+
+    return 1
 }
 
 is_stdin_interactive() {
@@ -263,11 +273,17 @@ require_ado_credentials() {
     local org_url="${ADO_ORG_URL:-}"
 
     if is_non_empty "${pat}" && is_non_empty "${org_url}"; then
+        local org_name
+        if ! org_name="$(ado_org_from_url "${org_url}")"; then
+            log_error "ADO_ORG_URL must use the form https://dev.azure.com/<org>"
+            return 1
+        fi
+
         export ADO_PAT="${pat}"
         export ADO_ORG_URL="${org_url}"
         export TF_VAR_ado_pat_value="${pat}"
         export TF_VAR_ado_url="${org_url%/}"
-        TF_VAR_ado_org="$(ado_org_from_url "${org_url}")"
+        TF_VAR_ado_org="${org_name}"
         export TF_VAR_ado_org
         return 0
     fi
@@ -1058,12 +1074,18 @@ prompt_for_ado_credentials() {
         log_error "Set via environment variables: ADO_PAT and ADO_ORG_URL"
         return 1
     fi
+
+    local org_name
+    if ! org_name="$(ado_org_from_url "${ADO_ORG_URL}")"; then
+        log_error "ADO_ORG_URL must use the form https://dev.azure.com/<org>"
+        return 1
+    fi
     
     export ADO_ORG_URL
     export ADO_PAT
     export TF_VAR_ado_pat_value="${ADO_PAT}"
     export TF_VAR_ado_url="${ADO_ORG_URL%/}"
-    TF_VAR_ado_org="$(ado_org_from_url "${ADO_ORG_URL}")"
+    TF_VAR_ado_org="${org_name}"
     export TF_VAR_ado_org
     log_success "Credentials received"
     return 0
@@ -1075,8 +1097,11 @@ prepare_ado_pat_for_terraform() {
     fi
     if [[ -n "${ADO_ORG_URL:-}" ]]; then
         export TF_VAR_ado_url="${ADO_ORG_URL%/}"
-        TF_VAR_ado_org="$(ado_org_from_url "${ADO_ORG_URL}")"
-        export TF_VAR_ado_org
+        if TF_VAR_ado_org="$(ado_org_from_url "${ADO_ORG_URL}")"; then
+            export TF_VAR_ado_org
+        else
+            unset TF_VAR_ado_org
+        fi
     fi
 }
 
@@ -1202,9 +1227,11 @@ inject_ado_secret() {
     
     log_debug "Using secret name: ${secret_name}"
     
-    # Extract organization name from URL (remove https://dev.azure.com/ prefix and trailing slash)
     local org_name
-    org_name=$(echo "${ADO_ORG_URL}" | sed 's|https://dev.azure.com/||' | sed 's|/$||')
+    if ! org_name="$(ado_org_from_url "${ADO_ORG_URL}")"; then
+        log_error "ADO_ORG_URL must use the form https://dev.azure.com/<org>"
+        return 1
+    fi
     
     # Check if secret exists
     if aws secretsmanager describe-secret --secret-id "${secret_name}" --region "${region}" &>/dev/null; then

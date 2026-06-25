@@ -35,9 +35,10 @@ terraform {
     run_on_error = false
   }
 
-  # Validate kubectl access before plan/apply (requires EKS access entry for caller IAM role)
+  # Validate kubectl access before apply (requires EKS access entry for caller IAM role).
+  # Keep plan cluster-access-free for PR validation and pre-cluster workflows.
   before_hook "validate_kubectl" {
-    commands = ["apply", "plan"]
+    commands = ["apply"]
     execute  = ["bash", "-c", "kubectl cluster-info --context ${dependency.base.outputs.cluster_name} 2>/dev/null || (echo '⚠️  Warning: kubectl not configured.'; aws eks update-kubeconfig --alias ${dependency.base.outputs.cluster_name} --name ${dependency.base.outputs.cluster_name}; kubectl cluster-info --context ${dependency.base.outputs.cluster_name})"]
   }
 }

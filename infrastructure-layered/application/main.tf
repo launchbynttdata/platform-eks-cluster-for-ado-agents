@@ -147,9 +147,24 @@ resource "kubernetes_secret" "ado_pat_bootstrap" {
 
   lifecycle {
     ignore_changes = [
+      data,
       metadata[0].annotations,
       metadata[0].labels
     ]
+  }
+}
+
+resource "terraform_data" "agent_pool_image_repository_validation" {
+  input = length(var.ecr_repositories)
+
+  lifecycle {
+    precondition {
+      condition = length(var.ecr_repositories) > 0 || alltrue([
+        for pool_config in values(var.agent_pools) :
+        !pool_config.enabled || trimspace(pool_config.image_repository) != ""
+      ])
+      error_message = "Each enabled agent pool must set image_repository when ecr_repositories is empty."
+    }
   }
 }
 
@@ -394,6 +409,7 @@ resource "helm_release" "ado_agents" {
   depends_on = [
     aws_secretsmanager_secret_version.ado_pat,
     kubernetes_secret.ado_pat_bootstrap,
+    terraform_data.agent_pool_image_repository_validation,
     module.ado_agent_execution_policy_attachment,
     module.eso_ado_secret_access_policy_attachment
   ]

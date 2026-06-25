@@ -73,11 +73,15 @@ public_access_cidrs    = ["203.0.113.0/24"]
 
 ```hcl
 create_iam_roles = true
+cluster_admin_access_principal_arns = [
+  "arn:aws:iam::123456789012:role/example-admin-role"
+]
 ```
 
 | Variable | Type | Required | Description |
 |----------|------|----------|-------------|
 | `create_iam_roles` | bool | No | Create IAM roles for EKS (default: true) |
+| `cluster_admin_access_principal_arns` | list(string) | No | IAM role ARNs granted `AmazonEKSClusterAdminPolicy` through EKS access entries. Use this for external operators or jump roles that need cluster-admin access. Do not include the role that creates the cluster, because EKS already grants it admin access when bootstrap creator permissions are enabled. |
 
 ### KMS Encryption
 
@@ -238,6 +242,12 @@ cilium_networking = {
 | `cilium_networking.cluster_pool_ipv4_pod_cidr_list` | list(string) | No | Non-overlapping CIDR blocks Cilium uses for pod IPs |
 | `cilium_networking.cluster_pool_ipv4_mask_size` | number | No | Per-node Cilium pod CIDR mask size |
 | `cilium_networking.helm_values_override` | map/object | No | Advanced Helm values merged into the default Cilium overlay values |
+
+`helm_values_override` is merged at the top level. Nested override objects replace
+the corresponding default object wholesale. For example, overriding `ipam` must
+include the full desired `ipam` structure, including the cluster-pool CIDR and
+mask settings. Distinct top-level overrides such as `image` and `operator` are
+safe for private-registry image configuration.
 
 `cilium-overlay` is EC2-only. It requires at least one EC2 node group and does not support Fargate profiles.
 
@@ -424,7 +434,7 @@ ado_agent_pools = {
   default = {
     pool_name           = "EKS-ADO-Agents"
     service_account     = "ado-agent"
-    image_repository    = ""  # Empty = public image
+    image_repository    = "123456789012.dkr.ecr.us-west-2.amazonaws.com/ado-agent"
     image_tag           = "latest"
     min_replicas        = 1
     max_replicas        = 10
@@ -456,7 +466,7 @@ ado_agent_pools = {
 
 - `pool_name` - ADO agent pool name
 - `service_account` - Kubernetes service account
-- `image_repository` - ECR repository URL (empty = use public image)
+- `image_repository` - Container image repository URL. Required for enabled pools when `ecr_repositories` is empty; ignored in favor of the managed ECR repository output when `ecr_repositories` is configured.
 - `image_tag` - Container image tag
 - `min_replicas` - Minimum number of agents
 - `max_replicas` - Maximum number of agents
