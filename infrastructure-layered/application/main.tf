@@ -386,7 +386,7 @@ resource "terraform_data" "wait_for_ado_agent_spn_secret" {
         name: ${local.ado_agent_spn_external_secret_name}
         namespace: ${data.terraform_remote_state.middleware.outputs.ado_agents_namespace}
         labels:
-          app.kubernetes.io/managed-by: terraform
+          app.kubernetes.io/managed-by: terraform-local-exec
           app.kubernetes.io/component: ado-agent-spn
           app.kubernetes.io/name: ado-agent-cluster
       spec:

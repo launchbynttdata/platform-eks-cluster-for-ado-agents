@@ -395,13 +395,17 @@ ado_agent_spn_secret = {
 }
 ```
 
-The external SPN secret must already exist in AWS Secrets Manager and contain non-empty JSON string properties named `ClientId`, `ClientSecret`, and `TenantId`. The application layer checks that the deploy runner can read the secret value before deploying the agents, but does not print or store the secret value. It maps those properties into the Kubernetes secret keys `AZP_CLIENTID`, `AZP_CLIENTSECRET`, and `AZP_TENANTID` that the agent containers expect.
+The external SPN secret must already exist in AWS Secrets Manager and contain non-empty JSON string properties named `ClientId`, `ClientSecret`, and `TenantId`. This AWS secret is intentionally outside this Terraform state: it is expected to be created, rotated, and governed by a separate credential-management process. The application layer consumes the existing secret by looking up its metadata, checking that the deploy runner can read the secret value, and granting ESO read access to that existing secret ARN. It does not create, update, print, or store the SPN credential value.
+
+The application layer maps the AWS secret properties into the Kubernetes secret keys `AZP_CLIENTID`, `AZP_CLIENTSECRET`, and `AZP_TENANTID` that the agent containers expect.
 
 In SPN mode, the application layer idempotently applies the ESO
 `ClusterSecretStore`, creates or updates the SPN `ExternalSecret` bridge, and
 waits for ESO to sync the target Kubernetes secret before the ADO agents Helm
 release starts. This prevents placeholder hook jobs from starting before
-`ado-agent-spn` exists.
+`ado-agent-spn` exists. The Kubernetes `ExternalSecret` bridge is applied by the
+application layer because the chart hook jobs must wait on the synced secret; the
+underlying AWS Secrets Manager credential remains externally managed.
 
 ### ECR Repositories
 

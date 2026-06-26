@@ -23,9 +23,9 @@ Environment:
 
 Structure tests:
   When <context>/container-structure-test.yaml exists, the script builds once,
-  runs container-structure-test, then pushes (or loads) that image. Multi-arch
-  pushes build and test the first --platforms value, push it, then build any
-  remaining platforms and assemble the manifest with buildx imagetools.
+  runs container-structure-test, then pushes (or loads) the requested image tag.
+  Multi-arch pushes test the first --platforms value locally, then build and push
+  the full multi-platform image to the requested tag.
 
 Examples:
   # Push one manifest tag that works on Linux x86_64 and arm64 cluster nodes.
@@ -53,40 +53,6 @@ require_value() {
 first_platform() {
   local platforms="$1"
   echo "${platforms%%,*}"
-}
-
-platform_tag_suffix() {
-  local platform="${1//[[:space:]]/}"
-
-  case "$platform" in
-    linux/amd64) echo "amd64" ;;
-    linux/arm64) echo "arm64" ;;
-    *)
-      echo "$platform" | tr '/:' '--'
-      ;;
-  esac
-}
-
-remaining_platforms() {
-  local platforms="$1"
-  local skip="${2//[[:space:]]/}"
-  local -a remaining=()
-  local p
-
-  IFS=',' read -ra platform_list <<< "$platforms"
-  for p in "${platform_list[@]}"; do
-    p="${p//[[:space:]]/}"
-    if [[ -n "$p" && "$p" != "$skip" ]]; then
-      remaining+=("$p")
-    fi
-  done
-
-  if [[ ${#remaining[@]} -eq 0 ]]; then
-    echo ""
-  else
-    local IFS=,
-    echo "${remaining[*]}"
-  fi
 }
 
 # --- args ---
@@ -211,9 +177,11 @@ ACCOUNT_ID="$(aws sts get-caller-identity --region "$REGION" --query Account --o
 ECR_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 IMAGE="${ECR_URI}/${REPO}:${TAG}"
 
-# --- ensure repo exists ---
+# --- verify repo exists ---
 if ! aws ecr describe-repositories --region "$REGION" --repository-names "$REPO" >/dev/null 2>&1; then
-  aws ecr create-repository --region "$REGION" --repository-name "$REPO" >/dev/null
+  echo "ECR repository not found in ${REGION}: ${REPO}" >&2
+  echo "Create the repository outside this build script, then rerun the push." >&2
+  exit 1
 fi
 
 # --- login to ECR ---
@@ -292,13 +260,8 @@ run_structure_tests() {
 TEST_PLATFORM="$(first_platform "$PLATFORMS")"
 
 if [[ "$RUN_STRUCTURE_TESTS" == true ]]; then
-  if [[ "$PLATFORMS" == *,* ]]; then
-    BUILD_IMAGE="${IMAGE}-$(platform_tag_suffix "$TEST_PLATFORM")"
-    BUILD_PLATFORM="$TEST_PLATFORM"
-  else
-    BUILD_IMAGE="$IMAGE"
-    BUILD_PLATFORM="$PLATFORMS"
-  fi
+  BUILD_IMAGE="$IMAGE"
+  BUILD_PLATFORM="$TEST_PLATFORM"
 
   echo "Building image: $BUILD_IMAGE"
   echo "Context: $CTX"
@@ -308,37 +271,10 @@ if [[ "$RUN_STRUCTURE_TESTS" == true ]]; then
   run_structure_tests "$BUILD_IMAGE" "$BUILD_PLATFORM"
 
   if [[ "$LOAD" == true ]]; then
-    if [[ "$BUILD_IMAGE" != "$IMAGE" ]]; then
-      docker tag "$BUILD_IMAGE" "$IMAGE"
-    fi
     echo "Loaded locally: $IMAGE ($BUILD_PLATFORM)"
-  elif [[ "$PLATFORMS" == *,* ]]; then
-    echo "Pushing structure-tested image: $BUILD_IMAGE"
-    docker push "$BUILD_IMAGE"
   else
     echo "Pushing image: $IMAGE"
-    docker push "$IMAGE"
-    echo "Pushed: $IMAGE ($PLATFORMS)"
-  fi
-
-  if [[ "$LOAD" == false && "$PLATFORMS" == *,* ]]; then
-    platforms_to_build="$(remaining_platforms "$PLATFORMS" "$TEST_PLATFORM")"
-    if [[ -n "$platforms_to_build" ]]; then
-      refs=("$BUILD_IMAGE")
-      IFS=',' read -ra other_platforms <<< "$platforms_to_build"
-      for platform in "${other_platforms[@]}"; do
-        platform="${platform//[[:space:]]/}"
-        arch_image="${IMAGE}-$(platform_tag_suffix "$platform")"
-        echo "Building and pushing platform: $platform ($arch_image)"
-        run_buildx "$platform" --push "$arch_image"
-        refs+=("$arch_image")
-      done
-      echo "Creating multi-arch manifest: $IMAGE"
-      docker buildx imagetools create -t "$IMAGE" "${refs[@]}"
-    else
-      echo "Creating manifest: $IMAGE"
-      docker buildx imagetools create -t "$IMAGE" "$BUILD_IMAGE"
-    fi
+    run_buildx "$PLATFORMS" --push "$IMAGE"
     echo "Pushed: $IMAGE ($PLATFORMS)"
   fi
 else

@@ -134,7 +134,9 @@ spec:
   - type: azure-pipelines
     metadata:
       organizationURLFromEnv: "AZP_URL"
+      {{- if ne ($.Values.auth.mode | default "pat") "spn" }}
       personalAccessTokenFromEnv: "AZP_TOKEN"
+      {{- end }}
       {{- if $poolConfig.autoscaling.poolID }}
       poolID: {{ $poolConfig.autoscaling.poolID | quote }}
       {{- else }}
