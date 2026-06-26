@@ -192,10 +192,11 @@ aws eks describe-cluster --name your-cluster-name
 
 ## Dependencies
 
-This layer has no dependencies on other infrastructure layers. It creates all foundational resources needed for the middleware and application layers.
+This layer has no dependencies on other infrastructure layers. It creates all foundational resources needed for the networking, middleware, and application layers.
 
 ## Next Steps
 
 After deploying the base layer, proceed to:
-1. **Middleware Layer**: Deploy KEDA, ESO, and other cluster operators
-2. **Application Layer**: Deploy ADO agents and application-specific resources
+1. **Networking Layer**: Install optional CNI components
+2. **Middleware Layer**: Deploy KEDA, ESO, and other cluster operators
+3. **Application Layer**: Deploy ADO agents and application-specific resources

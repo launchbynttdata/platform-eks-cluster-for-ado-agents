@@ -66,10 +66,35 @@ variable "public_access_cidrs" {
   }
 }
 
+variable "cluster_admin_access_principal_arns" {
+  description = "IAM principal ARNs granted AmazonEKSClusterAdminPolicy via EKS access entries (external operators such as ECS IaC agents or jumpboxes)."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for arn in var.cluster_admin_access_principal_arns :
+      can(regex("^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/.+$", arn))
+    ])
+    error_message = "Each cluster_admin_access_principal_arns entry must be an IAM role ARN (arn:<partition>:iam::<account>:role/<name>)."
+  }
+}
+
 variable "enabled_cluster_log_types" {
   description = "List of control plane log types to enable"
   type        = list(string)
   default     = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+}
+
+variable "cluster_api_ready_wait_duration" {
+  description = "Duration to wait after EKS cluster creation before using Kubernetes or Helm providers against the cluster API."
+  type        = string
+  default     = "90s"
+
+  validation {
+    condition     = can(regex("^[0-9]+(s|m|h)$", var.cluster_api_ready_wait_duration))
+    error_message = "cluster_api_ready_wait_duration must be a Terraform duration string using s, m, or h, such as \"90s\" or \"2m\"."
+  }
 }
 
 # Networking Configuration
@@ -90,6 +115,46 @@ variable "subnet_ids" {
   validation {
     condition     = length(var.subnet_ids) >= 2
     error_message = "At least 2 subnets are required for high availability."
+  }
+}
+
+variable "pod_networking_mode" {
+  description = "Pod networking implementation. Use vpc-cni for Amazon VPC CNI and Fargate support, or cilium-overlay for EC2-only Cilium overlay networking."
+  type        = string
+  default     = "vpc-cni"
+
+  validation {
+    condition     = contains(["vpc-cni", "cilium-overlay"], var.pod_networking_mode)
+    error_message = "pod_networking_mode must be either \"vpc-cni\" or \"cilium-overlay\"."
+  }
+}
+
+variable "cilium_networking" {
+  description = "Cilium Helm and cluster-pool IPAM configuration used when pod_networking_mode is cilium-overlay."
+  type = object({
+    chart_version                   = optional(string, "1.19.5")
+    cluster_pool_ipv4_pod_cidr_list = optional(list(string), ["100.64.0.0/10"])
+    cluster_pool_ipv4_mask_size     = optional(number, 24)
+    helm_values_override            = optional(any, {})
+  })
+  default = {
+    chart_version                   = "1.19.5"
+    cluster_pool_ipv4_pod_cidr_list = ["100.64.0.0/10"]
+    cluster_pool_ipv4_mask_size     = 24
+    helm_values_override            = {}
+  }
+
+  validation {
+    condition = alltrue([
+      for cidr in var.cilium_networking.cluster_pool_ipv4_pod_cidr_list :
+      can(cidrhost(cidr, 0))
+    ])
+    error_message = "Every cilium_networking.cluster_pool_ipv4_pod_cidr_list entry must be a valid CIDR block."
+  }
+
+  validation {
+    condition     = var.cilium_networking.cluster_pool_ipv4_mask_size >= 16 && var.cilium_networking.cluster_pool_ipv4_mask_size <= 30
+    error_message = "cilium_networking.cluster_pool_ipv4_mask_size must be between 16 and 30."
   }
 }
 
@@ -208,6 +273,7 @@ variable "vpc_endpoint_services" {
     "ecr_dkr",
     "ecr_api",
     "ec2",
+    "eks",
     "logs",
     "monitoring",
     "sts",
@@ -227,7 +293,7 @@ variable "ec2_node_group" {
   type = map(object({
     instance_types = optional(list(string), ["t3.medium"])
     disk_size      = optional(number, 50)
-    ami_type       = optional(string, "AL2_x86_64")
+    ami_type       = optional(string, "AL2023_x86_64_STANDARD")
     capacity_type  = optional(string, "ON_DEMAND")
     labels         = optional(map(string), {})
     desired_size   = optional(number, 1)

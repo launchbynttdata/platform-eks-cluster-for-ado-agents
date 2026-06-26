@@ -30,6 +30,24 @@ locals {
   eso_role_name            = split("/", data.terraform_remote_state.middleware.outputs.eso_role_arn)[1]
   ado_secret_name          = data.terraform_remote_state.middleware.outputs.ado_secret_name
   ado_external_secret_name = "${local.ado_secret_name}-secret"
+  ado_agent_auth_mode      = lower(var.ado_agent_auth_mode)
+  ado_agent_spn_enabled    = local.ado_agent_auth_mode == "spn"
+  ado_agent_spn_aws_secret_name = (
+    var.ado_agent_spn_secret.aws_secret_name != null
+    ? trimspace(var.ado_agent_spn_secret.aws_secret_name)
+    : ""
+  )
+  ado_agent_spn_secret_name = (
+    var.ado_agent_spn_secret.k8s_secret_name != null && trimspace(var.ado_agent_spn_secret.k8s_secret_name) != ""
+    ? trimspace(var.ado_agent_spn_secret.k8s_secret_name)
+    : "ado-agent-spn"
+  )
+  ado_agent_spn_refresh_interval = (
+    var.ado_agent_spn_secret.refresh_interval != null && trimspace(var.ado_agent_spn_secret.refresh_interval) != ""
+    ? trimspace(var.ado_agent_spn_secret.refresh_interval)
+    : var.secret_refresh_interval
+  )
+  ado_agent_spn_external_secret_name = "${local.ado_agent_spn_secret_name}-secret"
   requires_ado_pat_secret = anytrue([
     for pool in values(var.agent_pools) : pool.enabled
   ])
@@ -69,6 +87,11 @@ locals {
       )
     }
   }
+}
+
+data "aws_secretsmanager_secret" "ado_agent_spn" {
+  count = local.ado_agent_spn_enabled && local.ado_agent_spn_aws_secret_name != "" ? 1 : 0
+  name  = local.ado_agent_spn_aws_secret_name
 }
 
 # ECR Repositories for ADO agent images
@@ -154,6 +177,31 @@ resource "kubernetes_secret" "ado_pat_bootstrap" {
   }
 }
 
+resource "terraform_data" "agent_pool_image_repository_validation" {
+  input = length(var.ecr_repositories)
+
+  lifecycle {
+    precondition {
+      condition = length(var.ecr_repositories) > 0 || alltrue([
+        for pool_config in values(var.agent_pools) :
+        !pool_config.enabled || trimspace(pool_config.image_repository) != ""
+      ])
+      error_message = "Each enabled agent pool must set image_repository when ecr_repositories is empty."
+    }
+  }
+}
+
+resource "terraform_data" "ado_agent_auth_validation" {
+  input = local.ado_agent_auth_mode
+
+  lifecycle {
+    precondition {
+      condition     = !local.ado_agent_spn_enabled || local.ado_agent_spn_aws_secret_name != ""
+      error_message = "ado_agent_spn_secret.aws_secret_name is required when ado_agent_auth_mode is \"spn\"."
+    }
+  }
+}
+
 # ADO Agent Execution Roles (IRSA)
 module "ado_agent_execution_role" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
@@ -236,7 +284,10 @@ module "eso_ado_secret_access_policy" {
         "secretsmanager:GetSecretValue",
         "secretsmanager:DescribeSecret"
       ]
-      resources = [aws_secretsmanager_secret.ado_pat.arn]
+      resources = concat(
+        [aws_secretsmanager_secret.ado_pat.arn],
+        length(data.aws_secretsmanager_secret.ado_agent_spn) > 0 ? [data.aws_secretsmanager_secret.ado_agent_spn[0].arn] : []
+      )
     }
   }
 
@@ -250,6 +301,194 @@ module "eso_ado_secret_access_policy_attachment" {
 
   role_name  = local.eso_role_name
   policy_arn = module.eso_ado_secret_access_policy.policy_arn
+}
+
+resource "terraform_data" "wait_for_ado_agent_spn_secret" {
+  count = local.ado_agent_spn_enabled ? 1 : 0
+
+  triggers_replace = {
+    cluster_name         = local.cluster_name
+    region               = data.aws_region.current.name
+    namespace            = data.terraform_remote_state.middleware.outputs.ado_agents_namespace
+    spn_secret_name      = local.ado_agent_spn_secret_name
+    external_secret_name = local.ado_agent_spn_external_secret_name
+    aws_secret_name      = local.ado_agent_spn_aws_secret_name
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+
+      aws eks update-kubeconfig \
+        --alias '${local.cluster_name}' \
+        --name '${local.cluster_name}' \
+        --region '${data.aws_region.current.name}' >/dev/null
+
+      kubectl apply --context '${local.cluster_name}' -f - <<'YAML'
+      apiVersion: external-secrets.io/v1
+      kind: ClusterSecretStore
+      metadata:
+        name: ${data.terraform_remote_state.middleware.outputs.cluster_secret_store_name}
+      spec:
+        provider:
+          aws:
+            service: SecretsManager
+            region: ${data.aws_region.current.name}
+            auth:
+              jwt:
+                serviceAccountRef:
+                  name: ${data.terraform_remote_state.middleware.outputs.eso_service_account_name}
+                  namespace: ${data.terraform_remote_state.middleware.outputs.eso_namespace}
+      YAML
+
+      for _ in $(seq 1 30); do
+        store_status="$(kubectl get clustersecretstore '${data.terraform_remote_state.middleware.outputs.cluster_secret_store_name}' \
+          --context '${local.cluster_name}' \
+          -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+        if [ "$store_status" = "True" ]; then
+          break
+        fi
+        sleep 2
+      done
+
+      store_status="$(kubectl get clustersecretstore '${data.terraform_remote_state.middleware.outputs.cluster_secret_store_name}' \
+        --context '${local.cluster_name}' \
+        -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+      if [ "$store_status" != "True" ]; then
+        echo "Timed out waiting for ClusterSecretStore '${data.terraform_remote_state.middleware.outputs.cluster_secret_store_name}' to become Ready." >&2
+        kubectl get clustersecretstore '${data.terraform_remote_state.middleware.outputs.cluster_secret_store_name}' \
+          --context '${local.cluster_name}' \
+          -o yaml >&2 || true
+        exit 1
+      fi
+
+      secret_json="$(aws secretsmanager get-secret-value \
+        --secret-id '${local.ado_agent_spn_aws_secret_name}' \
+        --region '${data.aws_region.current.name}' \
+        --query SecretString \
+        --output text)"
+
+      if ! jq -e '
+        type == "object"
+        and (.ClientId | type == "string" and length > 0)
+        and (.ClientSecret | type == "string" and length > 0)
+        and (.TenantId | type == "string" and length > 0)
+      ' >/dev/null <<< "$secret_json"; then
+        echo "SPN secret '${local.ado_agent_spn_aws_secret_name}' must be readable and contain non-empty ClientId, ClientSecret, and TenantId string properties." >&2
+        exit 1
+      fi
+
+      kubectl apply --context '${local.cluster_name}' -f - <<'YAML'
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: ${local.ado_agent_spn_external_secret_name}
+        namespace: ${data.terraform_remote_state.middleware.outputs.ado_agents_namespace}
+        labels:
+          app.kubernetes.io/managed-by: terraform-local-exec
+          app.kubernetes.io/component: ado-agent-spn
+          app.kubernetes.io/name: ado-agent-cluster
+      spec:
+        refreshInterval: ${local.ado_agent_spn_refresh_interval}
+        secretStoreRef:
+          name: ${data.terraform_remote_state.middleware.outputs.cluster_secret_store_name}
+          kind: ClusterSecretStore
+        target:
+          name: ${local.ado_agent_spn_secret_name}
+          creationPolicy: Owner
+          template:
+            type: Opaque
+        data:
+        - secretKey: AZP_CLIENTID
+          remoteRef:
+            key: ${local.ado_agent_spn_aws_secret_name}
+            property: ClientId
+        - secretKey: AZP_CLIENTSECRET
+          remoteRef:
+            key: ${local.ado_agent_spn_aws_secret_name}
+            property: ClientSecret
+        - secretKey: AZP_TENANTID
+          remoteRef:
+            key: ${local.ado_agent_spn_aws_secret_name}
+            property: TenantId
+      YAML
+
+      for _ in $(seq 1 60); do
+        if kubectl get secret '${local.ado_agent_spn_secret_name}' \
+          --namespace '${data.terraform_remote_state.middleware.outputs.ado_agents_namespace}' \
+          --context '${local.cluster_name}' \
+          -o jsonpath='{.data.AZP_CLIENTID}{"\n"}{.data.AZP_CLIENTSECRET}{"\n"}{.data.AZP_TENANTID}' 2>/dev/null |
+          awk 'NF { count++ } END { exit count == 3 ? 0 : 1 }'; then
+          exit 0
+        fi
+        sleep 5
+      done
+
+      echo "Timed out waiting for SPN secret '${local.ado_agent_spn_secret_name}' in namespace '${data.terraform_remote_state.middleware.outputs.ado_agents_namespace}'." >&2
+      kubectl get externalsecret '${local.ado_agent_spn_external_secret_name}' \
+        --namespace '${data.terraform_remote_state.middleware.outputs.ado_agents_namespace}' \
+        --context '${local.cluster_name}' \
+        -o yaml >&2 || true
+      exit 1
+    EOT
+  }
+
+  provisioner "local-exec" {
+    when        = destroy
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+
+      aws eks update-kubeconfig \
+        --alias '${self.triggers_replace.cluster_name}' \
+        --name '${self.triggers_replace.cluster_name}' \
+        --region '${self.triggers_replace.region}' >/dev/null || exit 0
+
+      if ! kubectl get namespace '${self.triggers_replace.namespace}' \
+        --context '${self.triggers_replace.cluster_name}' >/dev/null 2>&1; then
+        exit 0
+      fi
+
+      if ! kubectl get externalsecret '${self.triggers_replace.external_secret_name}' \
+        --namespace '${self.triggers_replace.namespace}' \
+        --context '${self.triggers_replace.cluster_name}' >/dev/null 2>&1; then
+        exit 0
+      fi
+
+      kubectl delete externalsecret '${self.triggers_replace.external_secret_name}' \
+        --namespace '${self.triggers_replace.namespace}' \
+        --context '${self.triggers_replace.cluster_name}' \
+        --wait=false \
+        --ignore-not-found=true || true
+
+      for _ in $(seq 1 30); do
+        if ! kubectl get externalsecret '${self.triggers_replace.external_secret_name}' \
+          --namespace '${self.triggers_replace.namespace}' \
+          --context '${self.triggers_replace.cluster_name}' >/dev/null 2>&1; then
+          exit 0
+        fi
+        sleep 2
+      done
+
+      kubectl patch externalsecret '${self.triggers_replace.external_secret_name}' \
+        --namespace '${self.triggers_replace.namespace}' \
+        --context '${self.triggers_replace.cluster_name}' \
+        --type=merge \
+        -p '{"metadata":{"finalizers":null}}' || true
+
+      kubectl delete externalsecret '${self.triggers_replace.external_secret_name}' \
+        --namespace '${self.triggers_replace.namespace}' \
+        --context '${self.triggers_replace.cluster_name}' \
+        --wait=false \
+        --ignore-not-found=true || true
+    EOT
+  }
+
+  depends_on = [
+    module.eso_ado_secret_access_policy_attachment,
+    terraform_data.ado_agent_auth_validation
+  ]
 }
 
 # Prepare Helm values for ADO agent deployment
@@ -334,6 +573,11 @@ locals {
       }
     )
 
+    auth = {
+      mode          = local.ado_agent_auth_mode
+      spnSecretName = local.ado_agent_spn_secret_name
+    }
+
     externalSecrets = {
       enabled                = true
       clusterSecretStoreName = data.terraform_remote_state.middleware.outputs.cluster_secret_store_name
@@ -395,6 +639,9 @@ resource "helm_release" "ado_agents" {
   depends_on = [
     aws_secretsmanager_secret_version.ado_pat,
     kubernetes_secret.ado_pat_bootstrap,
+    terraform_data.agent_pool_image_repository_validation,
+    terraform_data.ado_agent_auth_validation,
+    terraform_data.wait_for_ado_agent_spn_secret,
     module.ado_agent_execution_policy_attachment,
     module.eso_ado_secret_access_policy_attachment
   ]
@@ -404,9 +651,10 @@ resource "helm_release" "ado_agents" {
   wait_for_jobs = false
   timeout       = 600
 
-  # Enable atomic operations for safe upgrades
-  atomic            = true
-  cleanup_on_fail   = true
+  # Default to preserving failed hook jobs/pods so deployment failures can be
+  # inspected. Environments can opt back into rollback cleanup after validation.
+  atomic            = var.ado_agents_helm_atomic
+  cleanup_on_fail   = var.ado_agents_helm_cleanup_on_fail
   disable_crd_hooks = false
   # KEDA and ESO CRDs are installed by the middleware layer. Discovery can lag briefly
   # after CRD creation, so avoid failing the release on stale local OpenAPI data.

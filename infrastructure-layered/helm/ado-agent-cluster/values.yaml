@@ -17,6 +17,12 @@ agent:
   terminationGracePeriodSeconds: 420
   automountServiceAccountToken: true
 
+# Agent authentication. KEDA TriggerAuthentication continues to use the ADO PAT
+# secret because the azure-pipelines scaler does not use the agent SPN flow here.
+auth:
+  mode: pat
+  spnSecretName: ado-agent-spn
+
 # Agent pool configurations
 # Multiple agent pools can be defined, each with their own configuration
 agentPools:

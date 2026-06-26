@@ -42,6 +42,12 @@ teardown() {
     [[ "$output" =~ /middleware$ ]]
 }
 
+@test "get_layer_dir: returns correct path for networking" {
+    run get_layer_dir "networking"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ /networking$ ]]
+}
+
 @test "get_layer_dir: returns correct path for application" {
     run get_layer_dir "application"
     [ "$status" -eq 0 ]

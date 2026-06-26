@@ -60,6 +60,10 @@ terraform {
 locals {
   env    = read_terragrunt_config(find_in_parent_folders("env.hcl"))
   common = read_terragrunt_config(find_in_parent_folders("common.hcl"))
+
+  ado_org_url_override = trimspace(get_env("ADO_ORG_URL", ""))
+  effective_ado_url    = local.ado_org_url_override != "" ? trimsuffix(local.ado_org_url_override, "/") : local.env.locals.ado_url
+  effective_ado_org    = local.ado_org_url_override != "" ? replace(local.effective_ado_url, "https://dev.azure.com/", "") : get_env("ADO_ORG", local.env.locals.ado_org)
 }
 
 # =============================================================================
@@ -86,9 +90,11 @@ inputs = {
   remote_state_region      = get_env("TF_STATE_REGION", local.env.locals.aws_region)
 
   # Azure DevOps Configuration
-  ado_org                 = local.env.locals.ado_org
-  ado_url                 = local.env.locals.ado_url
+  ado_org                 = local.effective_ado_org
+  ado_url                 = local.effective_ado_url
   ado_pat_secret_name     = local.env.locals.ado_pat_secret_name
+  ado_agent_auth_mode     = try(local.env.locals.ado_agent_auth_mode, "pat")
+  ado_agent_spn_secret    = try(local.env.locals.ado_agent_spn_secret, { aws_secret_name = "" })
   secret_recovery_days    = local.env.locals.secret_recovery_days
   secret_refresh_interval = local.env.locals.secret_refresh_interval
 
@@ -109,6 +115,8 @@ inputs = {
   agent_cleanup_timeout_seconds          = try(local.env.locals.agent_cleanup_timeout_seconds, 300)
   agent_termination_grace_period_seconds = try(local.env.locals.agent_termination_grace_period_seconds, 420)
   agent_automount_service_account_token  = try(local.env.locals.agent_automount_service_account_token, true)
+  ado_agents_helm_atomic                 = try(local.env.locals.ado_agents_helm_atomic, false)
+  ado_agents_helm_cleanup_on_fail        = try(local.env.locals.ado_agents_helm_cleanup_on_fail, false)
 }
 
 # =============================================================================

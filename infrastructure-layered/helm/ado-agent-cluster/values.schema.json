@@ -91,6 +91,13 @@
         "automountServiceAccountToken": {"type": "boolean"}
       }
     },
+    "auth": {
+      "type": "object",
+      "properties": {
+        "mode": {"type": "string", "enum": ["pat", "spn"]},
+        "spnSecretName": {"type": "string"}
+      }
+    },
     "externalSecrets": {
       "type": "object",
       "properties": {

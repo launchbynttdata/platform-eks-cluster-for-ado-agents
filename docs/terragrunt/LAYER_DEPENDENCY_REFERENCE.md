@@ -14,21 +14,23 @@ Keeping these contracts explicit makes it easier to troubleshoot empty remote-st
 ## Layer Execution Order
 
 1. **Base** – provisions the EKS control plane, shared IAM roles, networking references, and the shared KMS key. All other Terraform layers depend on the state written here.
-2. **Middleware** – installs KEDA, External Secrets Operator, and buildkitd. Reads base outputs to configure IRSA and encryption integration.
-3. **Application** – deploys agent workloads, secrets, and Helm releases. Pulls from both base and middleware state.
-4. **Config (post-Terraform)** – optional script-driven tasks (kubectl + AWS CLI) that finalize ESO configuration. This layer runs after Terraform completes and does not write Terraform state.
+2. **Networking** – installs optional CNI components such as Cilium overlay. In VPC CNI mode this is a Terraform-valid no-op.
+3. **Middleware** – installs KEDA, External Secrets Operator, and buildkitd. Reads base outputs to configure IRSA and encryption integration.
+4. **Application** – deploys agent workloads, secrets, and Helm releases. Pulls from both base and middleware state.
+5. **Config (post-Terraform)** – optional script-driven tasks (kubectl + AWS CLI) that finalize ESO configuration. This layer runs after Terraform completes and does not write Terraform state.
 
-Terragrunt enforces base → middleware → application ordering through `dependency` blocks and the `deploy.sh` orchestrator.
+Terragrunt and the deployment script enforce base → networking → middleware → application ordering.
 
 ## Remote State Wiring
 
-Terragrunt stores Terraform state in `s3://${TF_STATE_BUCKET}/${environment}/${layer}/terraform.tfstate`, where `environment` comes from `env.hcl` (for example `dev`) and `layer` is `base`, `middleware`, or `application`.
+Terragrunt stores Terraform state in `s3://${TF_STATE_BUCKET}/${environment}/${layer}/terraform.tfstate`, where `environment` comes from `env.hcl` (for example `dev`) and `layer` is `base`, `networking`, `middleware`, or `application`.
 
 Each Terraform layer also defines explicit `terraform_remote_state` data sources so the code still works if Terraform is executed directly (without Terragrunt). The resulting wiring looks like this:
 
 | Layer | Produces State Key (default) | Consumes Remote State | Config Variables |
 | --- | --- | --- | --- |
 | Base | `${environment}/base/terraform.tfstate` | n/a | Managed entirely by Terragrunt |
+| Networking | `${environment}/networking/terraform.tfstate` | `data.terraform_remote_state.base` | `remote_state_bucket`, `base_state_key` (default `base/terraform.tfstate`), `aws_region` |
 | Middleware | `${environment}/middleware/terraform.tfstate` | `data.terraform_remote_state.base` | `remote_state_bucket`, `base_state_key` (default `base/terraform.tfstate`), `aws_region` |
 | Application | `${environment}/application/terraform.tfstate` | `data.terraform_remote_state.base` and `data.terraform_remote_state.middleware` | `remote_state_bucket`, `remote_state_region` (from root inputs) |
 
@@ -52,6 +54,7 @@ Each Terraform layer also defines explicit `terraform_remote_state` data sources
 | `kms_key_arn` | Shared KMS CMK for encryption | Granted to ESO IAM policy for decrypt access | Referenced by Secrets Manager secrets and other encrypted resources |
 | `fargate_role_name` | Fargate pod execution role name | Not consumed | Used by the ECR collection module to attach pull permissions |
 | `cluster_endpoint`, `cluster_certificate_authority_data` | API endpoint and CA bundle | Injected into generated Kubernetes/Helm providers via Terragrunt | Same as middleware |
+| `pod_networking_mode` | Selected CNI mode | Validated by networking layer | Not consumed |
 
 ### Middleware Outputs Consumed by the Application Layer
 
@@ -68,6 +71,7 @@ If any of these outputs change shape (name or data type), all downstream referen
 
 ## Data Flow Highlights
 
+- **CNI Ordering:** Networking runs after base and before middleware so optional CNI components are ready before cluster operators and workloads are installed.
 - **IRSA Trust Chain:** Base publishes the OIDC issuer URL and provider ARN. Middleware and application layers both build IRSA trust policies from those values to grant pods AWS permissions.
 - **Shared KMS Key:** Secrets Manager secrets and ESO decryption use the same customer-managed key exported by the base layer. Losing that output causes ESO to fail when fetching secrets.
 - **Common Tagging:** Every layer merges the base `common_tags` to ensure resources remain traceable across AWS and Kubernetes components.
@@ -98,7 +102,14 @@ Run these checks when diagnosing cross-layer issues or after refactoring outputs
    terragrunt output --json | jq 'keys'
    ```
 
-4. **Validate remote state data sources:**
+4. **Inspect networking outputs:**
+
+   ```bash
+   cd ../networking
+   terragrunt output --json | jq 'keys'
+   ```
+
+5. **Validate remote state data sources:**
 
    ```bash
    cd ../middleware
@@ -106,7 +117,7 @@ Run these checks when diagnosing cross-layer issues or after refactoring outputs
    # Look for "terraform_remote_state.base" to confirm outputs resolve
    ```
 
-5. **Re-run the dependent layer:** if remote state objects were missing (for example after a destroy), redeploy the upstream layer (`./deploy.sh --layer base deploy`) before applying middleware or application.
+6. **Re-run the dependent layer:** if remote state objects were missing (for example after a destroy), redeploy the upstream layer (`./deploy.sh --layer base deploy`) before applying networking, middleware, or application.
 
 Export `ENVIRONMENT` to match `env.hcl` (for example `export ENVIRONMENT=dev`) when running the S3 commands above.
 

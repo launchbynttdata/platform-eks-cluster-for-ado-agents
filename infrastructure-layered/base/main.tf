@@ -53,8 +53,39 @@ locals {
   )
 
   # Determine if we have any compute resources configured
-  has_fargate = length(var.fargate_profiles) > 0
-  has_ec2     = length(var.ec2_node_group) > 0
+  has_fargate              = length(var.fargate_profiles) > 0
+  has_ec2                  = length(var.ec2_node_group) > 0
+  use_vpc_cni              = var.pod_networking_mode == "vpc-cni"
+  use_cilium_overlay       = var.pod_networking_mode == "cilium-overlay"
+  cluster_minor_version    = tonumber(regex("^1\\.([0-9]+)$", var.cluster_version)[0])
+  has_al2_node_group       = anytrue([for config in var.ec2_node_group : try(config.ami_type, "AL2023_x86_64_STANDARD") == "AL2_x86_64"])
+  vpc_cni_addon_enabled    = contains(keys(var.eks_addons), "vpc-cni")
+  cilium_startup_taint     = { key = "node.cilium.io/agent-not-ready", value = "true", effect = "NO_EXECUTE" }
+  cilium_startup_taint_key = local.cilium_startup_taint.key
+  cilium_default_helm_values = {
+    routingMode          = "tunnel"
+    tunnelProtocol       = "vxlan"
+    kubeProxyReplacement = false
+    ipam = {
+      mode = "cluster-pool"
+      operator = {
+        clusterPoolIPv4PodCIDRList = var.cilium_networking.cluster_pool_ipv4_pod_cidr_list
+        clusterPoolIPv4MaskSize    = var.cilium_networking.cluster_pool_ipv4_mask_size
+      }
+    }
+  }
+  cilium_helm_values = merge(local.cilium_default_helm_values, var.cilium_networking.helm_values_override)
+  effective_ec2_node_group_policies = local.use_cilium_overlay ? [
+    for policy_arn in var.ec2_node_group_policies : policy_arn
+    if policy_arn != "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+  ] : var.ec2_node_group_policies
+  effective_ec2_node_group_taints = {
+    for name, config in var.ec2_node_group : name => (
+      local.use_cilium_overlay && !contains([for taint in try(config.taints, []) : taint.key], local.cilium_startup_taint_key)
+      ? concat(try(config.taints, []), [local.cilium_startup_taint])
+      : try(config.taints, [])
+    )
+  }
 
   # Smart public endpoint logic:
   # - If user explicitly sets endpoint_public_access = true AND provides restricted CIDRs, use them
@@ -102,6 +133,42 @@ locals {
           category = ["scheduledChange"]
         }
       }
+    }
+  }
+}
+
+resource "terraform_data" "pod_networking_mode_validation" {
+  input = var.pod_networking_mode
+
+  lifecycle {
+    precondition {
+      condition     = !local.use_cilium_overlay || !local.has_fargate
+      error_message = "pod_networking_mode = \"cilium-overlay\" is EC2-only. Set fargate_profiles = {} or use pod_networking_mode = \"vpc-cni\"."
+    }
+
+    precondition {
+      condition     = !local.use_cilium_overlay || local.has_ec2
+      error_message = "pod_networking_mode = \"cilium-overlay\" requires at least one EC2 node group."
+    }
+
+    precondition {
+      condition     = !local.use_cilium_overlay || !local.vpc_cni_addon_enabled
+      error_message = "pod_networking_mode = \"cilium-overlay\" must not include the \"vpc-cni\" EKS add-on in eks_addons."
+    }
+
+    precondition {
+      condition     = !local.has_fargate || local.use_vpc_cni
+      error_message = "Fargate profiles require pod_networking_mode = \"vpc-cni\"."
+    }
+
+    precondition {
+      condition     = !local.has_fargate || local.vpc_cni_addon_enabled
+      error_message = "Fargate profiles require the \"vpc-cni\" EKS add-on in eks_addons."
+    }
+
+    precondition {
+      condition     = !local.has_al2_node_group || local.cluster_minor_version <= 32
+      error_message = "EKS node group AMI type AL2_x86_64 is only supported for Kubernetes 1.32 or earlier. Use AL2023_x86_64_STANDARD for newer clusters."
     }
   }
 }
@@ -415,6 +482,8 @@ module "cluster_security_group_ingress_from_fargate" {
 # EKS Cluster
 #checkov:skip=CKV_AWS_39:Public endpoint access is restricted to specific CIDRs or disabled based on public_access_cidrs variable
 #checkov:skip=CKV_AWS_38:Public endpoint CIDR restrictions enforced via local.enable_public_endpoint logic
+# The cluster waits for managed VPC endpoints so private-only clusters and
+# bootstrapping nodes have AWS service endpoints available as early as possible.
 module "eks_cluster" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source  = "terraform.registry.launch.nttdata.com/module_primitive/eks_cluster/aws"
@@ -451,10 +520,65 @@ module "eks_cluster" {
   tags = local.common_tags
 
   depends_on = [
+    module.vpc_endpoints,
     module.eks_cluster_role,
     module.eks_cluster_policy_attachment,
     module.eks_vpc_resource_controller_attachment
   ]
+}
+
+resource "aws_eks_access_entry" "cluster_admin" {
+  for_each = toset(var.cluster_admin_access_principal_arns)
+
+  cluster_name  = module.eks_cluster.name
+  principal_arn = each.value
+  type          = "STANDARD"
+
+  tags = local.common_tags
+
+  depends_on = [module.eks_cluster]
+}
+
+resource "aws_eks_access_policy_association" "cluster_admin" {
+  for_each = toset(var.cluster_admin_access_principal_arns)
+
+  cluster_name  = module.eks_cluster.name
+  principal_arn = aws_eks_access_entry.cluster_admin[each.key].principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.cluster_admin]
+}
+
+resource "time_sleep" "cluster_api_ready" {
+  create_duration = var.cluster_api_ready_wait_duration
+
+  depends_on = [module.eks_cluster]
+}
+
+resource "terraform_data" "disable_aws_node_daemonset" {
+  count = local.use_cilium_overlay ? 1 : 0
+
+  input = {
+    cluster_name = module.eks_cluster.name
+    region       = data.aws_region.current.name
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      aws eks update-kubeconfig --region '${self.input.region}' --name '${self.input.cluster_name}' --alias '${self.input.cluster_name}' >/dev/null
+      if kubectl --context '${self.input.cluster_name}' -n kube-system get daemonset aws-node >/dev/null 2>&1; then
+        kubectl --context '${self.input.cluster_name}' -n kube-system patch daemonset aws-node --type merge -p '{"spec":{"template":{"spec":{"nodeSelector":{"node.cilium.io/aws-node-disabled":"true"}}}}}'
+      fi
+    EOT
+  }
+
+  depends_on = [time_sleep.cluster_api_ready]
 }
 
 # # Create OIDC provider for IRSA
@@ -483,7 +607,7 @@ module "vpc_cni_irsa_role" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
   version = "~> 0.1"
-  count   = var.create_iam_roles ? 1 : 0
+  count   = var.create_iam_roles && local.use_vpc_cni ? 1 : 0
 
   name = "${local.cluster_name}-vpc-cni-irsa-role"
 
@@ -519,7 +643,7 @@ module "vpc_cni_policy_attachment" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
   version = "~> 0.1"
-  count   = var.create_iam_roles ? 1 : 0
+  count   = var.create_iam_roles && local.use_vpc_cni ? 1 : 0
 
   role_name  = module.vpc_cni_irsa_role[0].role_name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
@@ -527,7 +651,7 @@ module "vpc_cni_policy_attachment" {
 
 # VPC CNI Addon (deployed before compute resources)
 resource "aws_eks_addon" "vpc_cni" {
-  count = contains(keys(var.eks_addons), "vpc-cni") ? 1 : 0
+  count = local.use_vpc_cni && local.vpc_cni_addon_enabled ? 1 : 0
 
   cluster_name                = module.eks_cluster.name
   addon_name                  = "vpc-cni"
@@ -545,6 +669,34 @@ resource "aws_eks_addon" "vpc_cni" {
   tags = local.common_tags
 }
 
+# Cilium must exist before EKS managed node groups bootstrap in cilium-overlay
+# mode. Otherwise kubelets stay NotReady with "cni plugin not initialized", and
+# managed node group creation fails before the later networking layer can run.
+resource "helm_release" "cilium_bootstrap" {
+  count = local.use_cilium_overlay ? 1 : 0
+
+  name       = "cilium"
+  repository = "https://helm.cilium.io/"
+  chart      = "cilium"
+  version    = var.cilium_networking.chart_version
+  namespace  = "kube-system"
+
+  atomic                     = false
+  cleanup_on_fail            = true
+  disable_openapi_validation = true
+  timeout                    = 900
+  wait                       = false
+
+  values = [
+    yamlencode(local.cilium_helm_values)
+  ]
+
+  depends_on = [
+    time_sleep.cluster_api_ready,
+    terraform_data.disable_aws_node_daemonset
+  ]
+}
+
 # VPC Endpoints (optional)
 module "vpc_endpoints" {
   count  = var.create_vpc_endpoints ? 1 : 0
@@ -554,7 +706,7 @@ module "vpc_endpoints" {
   vpc_id                    = var.vpc_id
   subnet_ids                = var.subnet_ids
   route_table_ids           = data.aws_route_tables.private.ids
-  security_group_ids        = [module.fargate_security_group.id]
+  security_group_ids        = [module.cluster_security_group.id, module.fargate_security_group.id]
   endpoint_services         = var.vpc_endpoint_services
   exclude_endpoint_services = var.exclude_vpc_endpoint_services
 
@@ -627,7 +779,7 @@ module "ec2_nodes" {
   desired_size    = try(each.value.desired_size, 1)
   max_size        = try(each.value.max_size, 3)
   min_size        = try(each.value.min_size, 0)
-  taints          = try(each.value.taints, [])
+  taints          = local.effective_ec2_node_group_taints[each.key]
 
   # Cluster Autoscaler Configuration
   enable_cluster_autoscaler = var.enable_cluster_autoscaler
@@ -637,7 +789,7 @@ module "ec2_nodes" {
     },
     # Dynamically create taint labels from the actual taints configuration
     {
-      for taint in try(each.value.taints, []) :
+      for taint in local.effective_ec2_node_group_taints[each.key] :
       "k8s.io/cluster-autoscaler/node-template/taint/${taint.key}" => "${taint.value}:${taint.effect}"
     },
     # Dynamically create labels from the actual labels configuration
@@ -664,6 +816,7 @@ module "ec2_nodes" {
   depends_on = [
     module.eks_cluster,
     aws_eks_addon.vpc_cni,
+    helm_release.cilium_bootstrap,
     module.ec2_node_group_role
   ]
 }
@@ -696,7 +849,7 @@ module "ec2_node_group_policy_attachments" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source   = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
   version  = "~> 0.1"
-  for_each = length(var.ec2_node_group) > 0 ? toset(var.ec2_node_group_policies) : []
+  for_each = length(var.ec2_node_group) > 0 ? toset(local.effective_ec2_node_group_policies) : []
 
   role_name  = module.ec2_node_group_role[0].role_name
   policy_arn = each.value

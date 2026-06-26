@@ -270,7 +270,7 @@ terragrunt run-all apply --terragrunt-non-interactive
 ./deploy.sh deploy --layer config
 ```
 
-**Important**: The `run-all` command deploys only Terraform-managed layers (base, middleware, application). The **config layer** is kubectl-based and must be run separately. See [CONFIG_LAYER_IN_TERRAGRUNT.md](./CONFIG_LAYER_IN_TERRAGRUNT.md) for details.
+**Important**: The `run-all` command deploys only Terraform-managed layers (base, networking, middleware, application). The **config layer** is kubectl-based and must be run separately. See [CONFIG_LAYER_IN_TERRAGRUNT.md](./CONFIG_LAYER_IN_TERRAGRUNT.md) for details.
 
 ### Deploy Single Layer
 

@@ -8,7 +8,7 @@ This document describes the directory layout of the repository.
 |-----------|---------|
 | `app/` | Application source code files |
 | `docs/` | User and developer documentation |
-| `infrastructure-layered/` | Layered EKS infrastructure (base, middleware, application) |
+| `infrastructure-layered/` | Layered EKS infrastructure (base, networking, middleware, application) |
 | `modules/` | Terraform modules (collections, primitives) |
 | `test-harness/` | Optional isolated AWS prerequisites for testing |
 

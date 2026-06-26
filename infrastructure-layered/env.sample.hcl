@@ -35,8 +35,9 @@ locals {
   # =============================================================================
 
   # EKS Cluster Configuration
-  cluster_name    = "poc-ado-agent-cluster"
-  cluster_version = "1.35"
+  cluster_name                    = "poc-ado-agent-cluster"
+  cluster_version                 = "1.35"
+  cluster_api_ready_wait_duration = "90s"
 
   # Networking Configuration
   vpc_id = "vpc-xxxxxxxx"
@@ -44,10 +45,19 @@ locals {
     "subnet-xxxxxxxx",
     "subnet-yyyyyyyy"
   ]
+  # Pod networking mode:
+  # - "vpc-cni": default Amazon VPC CNI mode; required when Fargate profiles are enabled
+  # - "cilium-overlay": EC2-only Cilium overlay mode that allocates pod IPs from Cilium CIDRs
+  pod_networking_mode = "vpc-cni"
 
   # Cluster Access Configuration
   endpoint_public_access = true
   public_access_cidrs    = ["203.0.113.0/24"]
+
+  # External IAM roles granted EKS cluster-admin (ECS IaC agents, jumpboxes, etc.)
+  cluster_admin_access_principal_arns = [
+    # "arn:aws:iam::375235800848:role/dmv-adoecsagent-shared-ecs_task-instance-role",
+  ]
 
   # IAM Configuration
   create_iam_roles = true
@@ -88,6 +98,19 @@ locals {
     }
   }
 
+  # Cilium CNI Configuration
+  # Used only when pod_networking_mode = "cilium-overlay".
+  # In cilium-overlay mode, set fargate_profiles = {}, configure at least one
+  # EC2 node group, and remove "vpc-cni" from eks_addons.
+  cilium_networking = {
+    chart_version                   = "1.19.5"
+    cluster_pool_ipv4_pod_cidr_list = ["100.64.0.0/10"]
+    cluster_pool_ipv4_mask_size     = 24
+    # Private clusters without NAT must mirror Cilium images to a reachable registry
+    # and override image.repository / operator.image.repository here.
+    helm_values_override = {}
+  }
+
   # VPC Endpoints Configuration
   create_vpc_endpoints = true
   vpc_endpoint_services = [
@@ -95,6 +118,7 @@ locals {
     "ecr_dkr",
     "ecr_api",
     "ec2",
+    "eks",
     "logs",
     "monitoring",
     "sts",
@@ -108,7 +132,7 @@ locals {
     "buildkit-nodes" = {
       instance_types = ["t3a.xlarge"]
       disk_size      = 100
-      ami_type       = "AL2_x86_64"
+      ami_type       = "AL2023_x86_64_STANDARD"
       capacity_type  = "ON_DEMAND"
       desired_size   = 1
       max_size       = 5
@@ -127,7 +151,7 @@ locals {
     "agent-nodes" = {
       instance_types = ["t3a.xlarge"]
       disk_size      = 100
-      ami_type       = "AL2_x86_64"
+      ami_type       = "AL2023_x86_64_STANDARD"
       capacity_type  = "ON_DEMAND"
       desired_size   = 1
       max_size       = 5
@@ -146,7 +170,7 @@ locals {
     "system-nodes" = {
       instance_types = ["t3a.medium"]
       disk_size      = 50
-      ami_type       = "AL2_x86_64"
+      ami_type       = "AL2023_x86_64_STANDARD"
       capacity_type  = "ON_DEMAND"
       desired_size   = 1
       max_size       = 3
@@ -304,6 +328,12 @@ locals {
   ado_org                 = "launch-dso"
   ado_url                 = "https://dev.azure.com/launch-dso"
   ado_pat_secret_name     = "ado-agent-pat"
+  ado_agent_auth_mode     = "pat"
+  ado_agent_spn_secret = {
+    aws_secret_name  = ""
+    k8s_secret_name  = "ado-agent-spn"
+    refresh_interval = ""
+  }
   secret_recovery_days    = 7
   secret_refresh_interval = "5m"
 
@@ -380,6 +410,8 @@ locals {
   agent_cleanup_timeout_seconds          = 300
   agent_termination_grace_period_seconds = 420
   agent_automount_service_account_token  = true
+  ado_agents_helm_atomic                 = false
+  ado_agents_helm_cleanup_on_fail        = false
 
   ado_agent_pools = {
     default = {

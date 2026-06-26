@@ -1,0 +1,141 @@
+# Container structure tests for the Azure DevOps agent image.
+# Run: container-structure-test test --image <tag> --config container-structure-test.yaml
+# Command tests use containerRunOptions.user so runtime matches the agent user (not only image USER).
+schemaVersion: "2.0.0"
+
+containerRunOptions:
+  user: "agent"
+
+metadataTest:
+  user: "agent"
+  workdir: "/azp/"
+  envVars:
+    - key: "HOME"
+      value: "/home/agent"
+    - key: "DEBIAN_FRONTEND"
+      value: "noninteractive"
+    - key: "MISE_DATA_DIR"
+      value: "/home/agent/.local/share/mise"
+    - key: "MISE_CONFIG_DIR"
+      value: "/home/agent/.config/mise"
+    - key: "MISE_CACHE_DIR"
+      value: "/home/agent/.cache/mise"
+    - key: "PATH"
+      value: ".*mise/shims.*"
+      isRegex: true
+  entrypoint: ["./start.sh"]
+
+commandTests:
+  - name: "runtime user is agent"
+    command: "id"
+    args: ["-un"]
+    expectedOutput: ["\\bagent\\b"]
+
+  # mise install in jobs needs network; not exercised here (CLI-only image).
+  - name: "mise version"
+    command: "mise"
+    args: ["--version"]
+    expectedOutput: ["[0-9]+\\.[0-9]+"]
+
+  - name: "mise resolves on PATH"
+    command: "bash"
+    args: ["-c", "command -v mise"]
+    expectedOutput: ["/usr/local/bin/mise"]
+
+  - name: "mise login shell"
+    command: "bash"
+    args: ["-lc", "mise --version"]
+    expectedOutput: ["[0-9]+\\.[0-9]+"]
+
+  - name: "azure cli"
+    command: "az"
+    args: ["version"]
+    expectedOutput: ["\"azure-cli\""]
+
+  - name: "aws cli"
+    command: "aws"
+    args: ["--version"]
+    expectedOutput: ["aws-cli/"]
+
+  - name: "go"
+    command: "go"
+    args: ["version"]
+    expectedOutput: ["go1\\.24\\."]
+
+  - name: "terraform"
+    command: "terraform"
+    args: ["version"]
+    expectedOutput: ["Terraform v1\\.13\\."]
+
+  - name: "terragrunt"
+    command: "terragrunt"
+    args: ["--version"]
+    expectedOutput: ["terragrunt version v0\\.93\\."]
+
+  - name: "jq"
+    command: "jq"
+    args: ["--version"]
+    expectedOutput: ["jq-"]
+
+  - name: "git"
+    command: "git"
+    args: ["--version"]
+    expectedOutput: ["git version"]
+
+  # - name: "python3"
+  #   command: "python3"
+  #   args: ["--version"]
+  #   expectedOutput: ["Python 3\\.13\\."]
+
+  # - name: "pip3"
+  #   command: "pip3"
+  #   args: ["--version"]
+  #   expectedOutput: ["pip [0-9]+\\.[0-9]+"]
+
+  - name: "psql client"
+    command: "psql"
+    args: ["--version"]
+    expectedOutput: ["psql \\(PostgreSQL\\)"]
+
+fileExistenceTests:
+  - name: "start script"
+    path: "/azp/start.sh"
+    shouldExist: true
+    isExecutableBy: "any"
+
+  - name: "mise binary"
+    path: "/usr/local/bin/mise"
+    shouldExist: true
+    isExecutableBy: "any"
+
+  - name: "mise shims directory"
+    path: "/home/agent/.local/share/mise/shims"
+    shouldExist: true
+
+  - name: "mise config directory"
+    path: "/home/agent/.config/mise"
+    shouldExist: true
+
+  - name: "go binary"
+    path: "/usr/local/go/bin/go"
+    shouldExist: true
+    isExecutableBy: "any"
+
+  - name: "terraform binary"
+    path: "/usr/local/bin/terraform"
+    shouldExist: true
+    isExecutableBy: "any"
+
+  - name: "terragrunt binary"
+    path: "/usr/local/bin/terragrunt"
+    shouldExist: true
+    isExecutableBy: "any"
+
+fileContentTests:
+  - name: "agent bashrc sets PATH with mise shims"
+    path: "/home/agent/.bashrc"
+    expectedContents: ["/home/agent/\\.local/share/mise/shims"]
+
+  - name: "agent profile sets PATH with mise shims"
+    path: "/home/agent/.profile"
+    expectedContents: ["/home/agent/\\.local/share/mise/shims"]

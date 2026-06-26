@@ -24,6 +24,12 @@ locals {
       subnet_ids         = var.subnet_ids
       security_group_ids = var.security_group_ids
     }
+    eks = {
+      service_name       = "com.amazonaws.${data.aws_region.current.name}.eks"
+      service_type       = "Interface"
+      subnet_ids         = var.subnet_ids
+      security_group_ids = var.security_group_ids
+    }
     logs = {
       service_name       = "com.amazonaws.${data.aws_region.current.name}.logs"
       service_type       = "Interface"

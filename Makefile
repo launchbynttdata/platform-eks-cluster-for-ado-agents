@@ -29,17 +29,26 @@ bats-test: ## Run BATS unit tests
 checkov: ## Run Checkov security scan on Terraform layers
 	cd $(LAYERED_DIR) && $(MAKE) checkov
 
+.PHONY: clean-tf
+clean-tf: ## Remove Terraform and Terragrunt cache, plans, local state, and generated files
+	@echo "Cleaning Terraform and Terragrunt artifacts..."
+	@find . -depth -type d \( -name ".terraform" -o -name ".terragrunt-cache" \) -exec rm -rf {} + 2>/dev/null || true
+	@find . -type f \( \
+		-name ".terraform.lock.hcl" -o \
+		-name ".terraform.tfstate.lock.info" -o \
+		-name "*.tfstate" -o \
+		-name "*.tfstate.backup" -o \
+		-name "backend_generated.tf" -o \
+		-name "provider_generated.tf" -o \
+		-name "k8s_provider_generated.tf" -o \
+		-name "crash.log" \
+	\) -exec rm -f {} + 2>/dev/null || true
+	@find . -type f -name "crash.*.log" -exec rm -f {} + 2>/dev/null || true
+	@find . -type f \( -name "*.tfstate.*" -o -name "*.tfplan" -o -name "*tfplan*" \) -exec rm -f {} + 2>/dev/null || true
+	@echo "Terraform/Terragrunt clean complete."
+
 .PHONY: clean
-clean: ## Remove Terraform and Terragrunt cache and ephemeral files
-	@echo "Cleaning Terraform and Terragrunt cache files..."
-	@find . -depth -type d -name ".terraform" -exec rm -rf {} + 2>/dev/null || true
-	@find . -depth -type d -name ".terragrunt-cache" -exec rm -rf {} + 2>/dev/null || true
-	@find . -type f -name ".terraform.lock.hcl" -exec rm -f {} + 2>/dev/null || true
-	@find . -type f -name "*.tfstate" -exec rm -f {} + 2>/dev/null || true
-	@find . -type f -name "*.tfstate.backup" -exec rm -f {} + 2>/dev/null || true
-	@find . -type f -name "*.tfplan" -exec rm -f {} + 2>/dev/null || true
-	@find . -type f -name "crash.log" -exec rm -f {} + 2>/dev/null || true
-	@echo "Clean complete!"
+clean: clean-tf ## Alias for clean-tf
 
 .PHONY: version
 version: ## Show Terraform version

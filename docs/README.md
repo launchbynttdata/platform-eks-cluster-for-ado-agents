@@ -18,6 +18,7 @@ Documentation for the EKS cluster platform with Azure DevOps self-hosted agents.
 
 - [OPERATIONS.md](./deployment/OPERATIONS.md) - Deployment workflow, PAT management, troubleshooting
 - [base-layer.md](./deployment/base-layer.md) - EKS cluster, VPC, IAM
+- [networking-layer.md](./deployment/networking-layer.md) - Optional CNI deployment layer
 - [middleware-layer.md](./deployment/middleware-layer.md) - KEDA, ESO, buildkitd, cluster autoscaler
 - [application-layer.md](./deployment/application-layer.md) - ECR, secrets, Helm agents
 - [ado-agent-cluster-helm.md](./deployment/ado-agent-cluster-helm.md) - ADO agent Helm chart
@@ -39,9 +40,11 @@ Documentation for the EKS cluster platform with Azure DevOps self-hosted agents.
 - [IAM_ADO_AGENTS.md](./reference/IAM_ADO_AGENTS.md) - IAM roles and policies for ADO agents
 - [FARGATE_CONFIGURATION.md](./reference/FARGATE_CONFIGURATION.md) - Fargate profile configuration
 - [ADO_SECRET_MANAGEMENT.md](./reference/ADO_SECRET_MANAGEMENT.md) - ADO PAT lifecycle and ESO sync
+- [CNI_MODES.md](./reference/CNI_MODES.md) - VPC CNI and optional Cilium overlay networking modes
 - [cluster-autoscaler-middleware.md](./reference/cluster-autoscaler-middleware.md) - Cluster autoscaler in layered infra
 - [ADDONS_AND_COMPUTE.md](./reference/ADDONS_AND_COMPUTE.md) - EKS addon ordering and compute dependencies
 - [reliability-improvements.md](./reference/reliability-improvements.md) - ScaledJob isolation, BuildKit, ECR pull-through cache
+- [codebuild-image-build-requirements.md](./reference/codebuild-image-build-requirements.md) - Requirements for optional CodeBuild image build backend
 
 ---
 

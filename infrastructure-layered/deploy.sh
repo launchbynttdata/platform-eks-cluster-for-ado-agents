@@ -4,13 +4,14 @@
 # EKS ADO Agents Infrastructure Deployment Script (Terragrunt)
 # =============================================================================
 #
-# This script orchestrates the deployment of a three-layer infrastructure
+# This script orchestrates the deployment of a four-layer infrastructure
 # stack for Azure DevOps (ADO) agents running on Amazon EKS using Terragrunt.
 #
 # Layers:
 # 1. Base Layer: Core EKS cluster, networking, IAM, KMS
-# 2. Middleware Layer: KEDA, External Secrets Operator, buildkitd
-# 3. Application Layer: ECR repositories, secrets, ADO agent deployments
+# 2. Networking Layer: Optional CNI components
+# 3. Middleware Layer: KEDA, External Secrets Operator, buildkitd
+# 4. Application Layer: ECR repositories, secrets, ADO agent deployments
 #
 # Features:
 # - Terragrunt-based configuration management
@@ -32,7 +33,7 @@
 #   status        Show status of all layers
 #
 # Options:
-#   --layer LAYER          Deploy specific layer only (base|middleware|application|config|all)
+#   --layer LAYER          Deploy specific layer only (base|networking|middleware|application|config|all)
 #   --auto-approve         Non-interactive mode (no prompts; fail fast on missing input)
 #   --dry-run             Show what would be done without making changes
 #   --region REGION       AWS region (overrides env.hcl)
@@ -56,6 +57,7 @@ readonly LAYERS_DIR
 readonly SCRIPT_NAME="${0##*/}"
 
 readonly BASE_LAYER_DIR="${LAYERS_DIR}/base"
+readonly NETWORKING_LAYER_DIR="${LAYERS_DIR}/networking"
 readonly MIDDLEWARE_LAYER_DIR="${LAYERS_DIR}/middleware"
 readonly APPLICATION_LAYER_DIR="${LAYERS_DIR}/application"
 
@@ -142,7 +144,7 @@ Commands:
   status        Show status of all layers
   
 Options:
-  --layer LAYER          Deploy specific layer only (base|middleware|application|config|all)
+  --layer LAYER          Deploy specific layer only (base|networking|middleware|application|config|all)
   --auto-approve         Non-interactive mode (no prompts; fail fast on missing input)
   --dry-run             Show what would be done without making changes
   --region REGION       Override AWS region from env.hcl
@@ -158,7 +160,8 @@ Environment Variables:
   TF_STATE_REGION         Region for state bucket (optional, uses AWS_REGION)
   TF_VAR_ado_pat_value    ADO Personal Access Token (optional; use ADO_PAT with --update-ado-secret)
   ADO_PAT                 Azure DevOps PAT (required with --update-ado-secret and --auto-approve)
-  ADO_ORG_URL             Azure DevOps org URL (required with --update-ado-secret and --auto-approve)
+  ADO_ORG_URL             Azure DevOps org URL (required with --update-ado-secret and --auto-approve; overrides env.hcl for application deploys)
+  ADO_ORG                 Azure DevOps org name override (optional; ADO_ORG_URL takes precedence)
   AWS_REGION              AWS region (optional, can be set in env.hcl)
   AWS_PROFILE             AWS profile to use (optional)
   NO_COLOR                Disable ANSI color in log output
@@ -200,6 +203,22 @@ EOF
 is_non_empty() {
     local value="${1:-}"
     [[ -n "${value// }" ]]
+}
+
+ado_org_from_url() {
+    local org_url="${1%/}"
+
+    case "${org_url}" in
+        https://dev.azure.com/*)
+            local org="${org_url#https://dev.azure.com/}"
+            if [[ -n "${org}" && "${org}" != */* ]]; then
+                echo "${org}"
+                return 0
+            fi
+            ;;
+    esac
+
+    return 1
 }
 
 is_stdin_interactive() {
@@ -254,9 +273,18 @@ require_ado_credentials() {
     local org_url="${ADO_ORG_URL:-}"
 
     if is_non_empty "${pat}" && is_non_empty "${org_url}"; then
+        local org_name
+        if ! org_name="$(ado_org_from_url "${org_url}")"; then
+            log_error "ADO_ORG_URL must use the form https://dev.azure.com/<org>"
+            return 1
+        fi
+
         export ADO_PAT="${pat}"
         export ADO_ORG_URL="${org_url}"
         export TF_VAR_ado_pat_value="${pat}"
+        export TF_VAR_ado_url="${org_url%/}"
+        TF_VAR_ado_org="${org_name}"
+        export TF_VAR_ado_org
         return 0
     fi
 
@@ -362,6 +390,12 @@ show_recovery_guidance() {
             echo "  - VPC or subnet configuration issues"
             echo "  - S3 bucket does not exist or is not accessible"
             ;;
+        networking)
+            echo "Common networking layer issues:"
+            echo "  - Base layer not fully deployed"
+            echo "  - Kubernetes or Helm authentication issues"
+            echo "  - CNI mode configuration conflicts"
+            ;;
         middleware)
             echo "Common middleware layer issues:"
             echo "  - Base layer not fully deployed"
@@ -373,6 +407,12 @@ show_recovery_guidance() {
             echo "  - Base or middleware layers not fully deployed"
             echo "  - ADO PAT secret value not set"
             echo "  - ECR repository name conflicts"
+            echo "  - Placeholder hook jobs failing"
+            echo
+            echo "Inspect failed application hook jobs:"
+            echo "  kubectl get jobs,pods -n ado-agents"
+            echo "  kubectl describe job -n ado-agents <failed-placeholder-job>"
+            echo "  kubectl logs -n ado-agents job/<failed-placeholder-job> --all-containers=true"
             ;;
         config)
             echo "Common config layer issues:"
@@ -493,11 +533,12 @@ get_layer_dir() {
     
     case "${layer}" in
         base)        echo "${BASE_LAYER_DIR}" ;;
+        networking)  echo "${NETWORKING_LAYER_DIR}" ;;
         middleware)  echo "${MIDDLEWARE_LAYER_DIR}" ;;
         application) echo "${APPLICATION_LAYER_DIR}" ;;
         config)      echo "${BASE_LAYER_DIR}" ;;  # Config uses base dir for outputs
         *)
-            log_error "Unknown layer: ${layer}. Valid layers: base, middleware, application, config"
+            log_error "Unknown layer: ${layer}. Valid layers: base, networking, middleware, application, config"
             return 1
             ;;
     esac
@@ -513,10 +554,10 @@ validate_target_layer() {
             TARGET_LAYER=""
             return 0
             ;;
-        base|middleware|application|config) return 0 ;;
+        base|networking|middleware|application|config) return 0 ;;
         *)
             log_error "Invalid --layer value: ${TARGET_LAYER}"
-            log_error "Valid values: base, middleware, application, config, all"
+            log_error "Valid values: base, networking, middleware, application, config, all"
             return 1
             ;;
     esac
@@ -805,7 +846,7 @@ deploy_all_layers() {
         log_success "ADO credentials ready for application layer deploy"
     fi
 
-    local layers=("base" "middleware" "application")
+    local layers=("base" "networking" "middleware" "application")
     local successful_layers=()
 
     for layer in "${layers[@]}"; do
@@ -841,7 +882,7 @@ deploy_all_layers() {
 init_all_layers() {
     log "Initializing all layers..."
     
-    local layers=("base" "middleware" "application")
+    local layers=("base" "networking" "middleware" "application")
     
     for layer in "${layers[@]}"; do
         local layer_dir
@@ -861,7 +902,7 @@ init_all_layers() {
 plan_all_layers() {
     log "Planning all layers..."
     
-    local layers=("base" "middleware" "application")
+    local layers=("base" "networking" "middleware" "application")
     
     for layer in "${layers[@]}"; do
         local layer_dir
@@ -881,7 +922,7 @@ plan_all_layers() {
 validate_all_layers() {
     log "Validating all layers..."
     
-    local layers=("base" "middleware" "application")
+    local layers=("base" "networking" "middleware" "application")
     
     for layer in "${layers[@]}"; do
         local layer_dir
@@ -913,7 +954,7 @@ destroy_all_layers() {
     fi
     
     # Destroy in reverse order
-    local layers=("application" "middleware" "base")
+    local layers=("application" "middleware" "networking" "base")
     
     for layer in "${layers[@]}"; do
         local layer_dir
@@ -933,7 +974,7 @@ show_all_status() {
     log_info "Infrastructure Status:"
     echo
     
-    local layers=("base" "middleware" "application")
+    local layers=("base" "networking" "middleware" "application")
     
     for layer in "${layers[@]}"; do
         local layer_dir
@@ -1033,10 +1074,19 @@ prompt_for_ado_credentials() {
         log_error "Set via environment variables: ADO_PAT and ADO_ORG_URL"
         return 1
     fi
+
+    local org_name
+    if ! org_name="$(ado_org_from_url "${ADO_ORG_URL}")"; then
+        log_error "ADO_ORG_URL must use the form https://dev.azure.com/<org>"
+        return 1
+    fi
     
     export ADO_ORG_URL
     export ADO_PAT
     export TF_VAR_ado_pat_value="${ADO_PAT}"
+    export TF_VAR_ado_url="${ADO_ORG_URL%/}"
+    TF_VAR_ado_org="${org_name}"
+    export TF_VAR_ado_org
     log_success "Credentials received"
     return 0
 }
@@ -1044,6 +1094,14 @@ prompt_for_ado_credentials() {
 prepare_ado_pat_for_terraform() {
     if [[ -n "${ADO_PAT:-}" ]]; then
         export TF_VAR_ado_pat_value="${ADO_PAT}"
+    fi
+    if [[ -n "${ADO_ORG_URL:-}" ]]; then
+        export TF_VAR_ado_url="${ADO_ORG_URL%/}"
+        if TF_VAR_ado_org="$(ado_org_from_url "${ADO_ORG_URL}")"; then
+            export TF_VAR_ado_org
+        else
+            unset TF_VAR_ado_org
+        fi
     fi
 }
 
@@ -1169,9 +1227,11 @@ inject_ado_secret() {
     
     log_debug "Using secret name: ${secret_name}"
     
-    # Extract organization name from URL (remove https://dev.azure.com/ prefix and trailing slash)
     local org_name
-    org_name=$(echo "${ADO_ORG_URL}" | sed 's|https://dev.azure.com/||' | sed 's|/$||')
+    if ! org_name="$(ado_org_from_url "${ADO_ORG_URL}")"; then
+        log_error "ADO_ORG_URL must use the form https://dev.azure.com/<org>"
+        return 1
+    fi
     
     # Check if secret exists
     if aws secretsmanager describe-secret --secret-id "${secret_name}" --region "${region}" &>/dev/null; then
@@ -1440,7 +1500,7 @@ main() {
                 ;;
             --layer)
                 if [[ $# -lt 2 || -z "${2:-}" || "${2:-}" == --* ]]; then
-                    log_error "Option --layer requires a value (base|middleware|application|config)"
+                    log_error "Option --layer requires a value (base|networking|middleware|application|config)"
                     show_usage
                     exit 1
                 fi
@@ -1513,6 +1573,7 @@ main() {
     if ! validate_update_ado_secret_prerequisites; then
         exit 1
     fi
+    prepare_ado_pat_for_terraform
 
     # Display configuration
     log_info "Configuration:"

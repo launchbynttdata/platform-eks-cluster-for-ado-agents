@@ -7,7 +7,7 @@
 # - Buildkitd (container image builder)
 # - Namespaces and RBAC configuration
 #
-# Dependencies: Base Layer (requires EKS cluster and KMS key)
+# Dependencies: Base Layer (requires EKS cluster and KMS key) + Networking Layer ordering
 
 # Include root configuration
 include "root" {
@@ -23,10 +23,10 @@ include "common" {
 terraform {
   source = "."
 
-  # Ensure base layer is applied before middleware
+  # Ensure base and networking layers are applied before middleware
   before_hook "check_base_dependency" {
     commands = ["apply", "plan"]
-    execute  = ["echo", "⏳ Middleware layer depends on base layer outputs..."]
+    execute  = ["echo", "Middleware layer depends on base and networking layers..."]
   }
 
   after_hook "middleware_deployed" {
@@ -35,7 +35,8 @@ terraform {
     run_on_error = false
   }
 
-  # Validate kubectl access before applying
+  # Validate kubectl access before apply (requires EKS access entry for caller IAM role).
+  # Keep plan cluster-access-free for PR validation and pre-cluster workflows.
   before_hook "validate_kubectl" {
     commands = ["apply"]
     execute  = ["bash", "-c", "kubectl cluster-info --context ${dependency.base.outputs.cluster_name} 2>/dev/null || (echo '⚠️  Warning: kubectl not configured.'; aws eks update-kubeconfig --alias ${dependency.base.outputs.cluster_name} --name ${dependency.base.outputs.cluster_name}; kubectl cluster-info --context ${dependency.base.outputs.cluster_name})"]
@@ -51,7 +52,12 @@ locals {
 # =============================================================================
 # Dependencies
 # =============================================================================
-# This layer depends on the base layer for cluster information
+# This layer depends on the base layer for cluster information and the
+# networking layer for CNI readiness ordering.
+
+dependencies {
+  paths = ["../networking"]
+}
 
 dependency "base" {
   config_path = "../base"

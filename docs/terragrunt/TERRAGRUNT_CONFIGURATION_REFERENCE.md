@@ -6,6 +6,7 @@ This document provides a complete reference for all configuration options availa
 
 - [Global Settings](#global-settings)
 - [Base Layer Configuration](#base-layer-configuration)
+- [Networking Layer Configuration](#networking-layer-configuration)
 - [Middleware Layer Configuration](#middleware-layer-configuration)
 - [Application Layer Configuration](#application-layer-configuration)
 - [Examples](#examples)
@@ -38,20 +39,23 @@ locals {
 ### EKS Cluster
 
 ```hcl
-cluster_name    = "ado-agent-cluster"
-cluster_version = "1.33"
+cluster_name                    = "ado-agent-cluster"
+cluster_version                 = "1.35"
+cluster_api_ready_wait_duration = "90s"
 ```
 
 | Variable | Type | Required | Description |
 |----------|------|----------|-------------|
 | `cluster_name` | string | Yes | Unique name for the EKS cluster |
-| `cluster_version` | string | Yes | Kubernetes version (1.31, 1.32, 1.33, 1.34) |
+| `cluster_version` | string | Yes | Kubernetes version |
+| `cluster_api_ready_wait_duration` | string | No | Time to wait after EKS cluster creation before using Kubernetes/Helm providers |
 
 ### Networking
 
 ```hcl
 vpc_id = "vpc-xxxxx"
 subnet_ids = ["subnet-xxxxx", "subnet-yyyyy"]
+pod_networking_mode = "vpc-cni"
 
 endpoint_public_access = true
 public_access_cidrs    = ["203.0.113.0/24"]
@@ -61,6 +65,7 @@ public_access_cidrs    = ["203.0.113.0/24"]
 |----------|------|----------|-------------|
 | `vpc_id` | string | Yes | Existing VPC ID where EKS will be created |
 | `subnet_ids` | list(string) | Yes | List of private subnet IDs (minimum 2) |
+| `pod_networking_mode` | string | No | Pod CNI mode: `vpc-cni` or `cilium-overlay` |
 | `endpoint_public_access` | bool | No | Enable public access to EKS API (default: false) |
 | `public_access_cidrs` | list(string) | No | CIDR blocks allowed to access EKS API |
 
@@ -68,11 +73,15 @@ public_access_cidrs    = ["203.0.113.0/24"]
 
 ```hcl
 create_iam_roles = true
+cluster_admin_access_principal_arns = [
+  "arn:aws:iam::123456789012:role/example-admin-role"
+]
 ```
 
 | Variable | Type | Required | Description |
 |----------|------|----------|-------------|
 | `create_iam_roles` | bool | No | Create IAM roles for EKS (default: true) |
+| `cluster_admin_access_principal_arns` | list(string) | No | IAM role ARNs granted `AmazonEKSClusterAdminPolicy` through EKS access entries. Use this for external operators or jump roles that need cluster-admin access. Do not include the role that creates the cluster, because EKS already grants it admin access when bootstrap creator permissions are enabled. |
 
 ### KMS Encryption
 
@@ -111,6 +120,8 @@ fargate_profiles = {
 
 Set to `{}` to disable Fargate entirely.
 
+Fargate requires `pod_networking_mode = "vpc-cni"` and the `vpc-cni` EKS add-on.
+
 ### EKS Add-ons
 
 ```hcl
@@ -139,6 +150,8 @@ eks_addons = {
 - `aws-ebs-csi-driver` - EBS volume support
 - `aws-efs-csi-driver` - EFS volume support
 
+When `pod_networking_mode = "cilium-overlay"`, remove `vpc-cni` from this map.
+
 ### VPC Endpoints
 
 ```hcl
@@ -147,6 +160,11 @@ vpc_endpoint_services = [
   "s3",
   "ecr_dkr",
   "ecr_api",
+  "ec2",
+  "eks",
+  "logs",
+  "monitoring",
+  "sts",
   "secretsmanager"
 ]
 exclude_vpc_endpoint_services = []
@@ -165,7 +183,7 @@ ec2_node_groups = {
   "buildkit-nodes" = {
     instance_types = ["t3.medium", "t3.large"]
     disk_size      = 100
-    ami_type       = "AL2_x86_64"
+    ami_type       = "AL2023_x86_64_STANDARD"
     capacity_type  = "ON_DEMAND"
     desired_size   = 1
     max_size       = 5
@@ -189,6 +207,49 @@ ec2_node_groups = {
 | `ec2_node_groups` | map(object) | No | EC2 node groups for non-Fargate workloads |
 
 Set to `{}` to use Fargate only.
+
+Use `AL2023_x86_64_STANDARD` for Kubernetes 1.33 and newer node groups. `AL2_x86_64` is only valid for Kubernetes 1.32 and earlier.
+
+## Networking Layer Configuration
+
+The networking layer is a no-op when `pod_networking_mode = "vpc-cni"`. When `pod_networking_mode = "cilium-overlay"`, Cilium is bootstrapped by the base layer before EC2 managed node groups so kubelets have a CNI during startup. The networking layer validates that the configured mode matches the base layer output.
+
+```hcl
+pod_networking_mode = "cilium-overlay"
+
+fargate_profiles = {}
+
+eks_addons = {
+  "coredns" = {
+    version = "v1.14.2-eksbuild.4"
+  }
+  "kube-proxy" = {
+    version = "v1.35.3-eksbuild.2"
+  }
+}
+
+cilium_networking = {
+  chart_version                   = "1.19.5"
+  cluster_pool_ipv4_pod_cidr_list = ["100.64.0.0/10"]
+  cluster_pool_ipv4_mask_size     = 24
+  helm_values_override            = {}
+}
+```
+
+| Variable | Type | Required | Description |
+|----------|------|----------|-------------|
+| `cilium_networking.chart_version` | string | No | Cilium Helm chart version |
+| `cilium_networking.cluster_pool_ipv4_pod_cidr_list` | list(string) | No | Non-overlapping CIDR blocks Cilium uses for pod IPs |
+| `cilium_networking.cluster_pool_ipv4_mask_size` | number | No | Per-node Cilium pod CIDR mask size |
+| `cilium_networking.helm_values_override` | map/object | No | Advanced Helm values merged into the default Cilium overlay values |
+
+`helm_values_override` is merged at the top level. Nested override objects replace
+the corresponding default object wholesale. For example, overriding `ipam` must
+include the full desired `ipam` structure, including the cluster-pool CIDR and
+mask settings. Distinct top-level overrides such as `image` and `operator` are
+safe for private-registry image configuration.
+
+`cilium-overlay` is EC2-only. It requires at least one EC2 node group and does not support Fargate profiles.
 
 ## Middleware Layer Configuration
 
@@ -295,6 +356,12 @@ buildkitd_storage_size = "50Gi"
 ado_org             = "your-org"
 ado_url             = "https://dev.azure.com/your-org"
 ado_pat_secret_name = "ado-agent-pat"
+ado_agent_auth_mode = "pat"
+ado_agent_spn_secret = {
+  aws_secret_name  = ""
+  k8s_secret_name  = "ado-agent-spn"
+  refresh_interval = ""
+}
 secret_recovery_days = 7
 secret_refresh_interval = "5m"
 ```
@@ -304,6 +371,10 @@ secret_refresh_interval = "5m"
 | `ado_org` | string | Yes | Azure DevOps organization name |
 | `ado_url` | string | Yes | Azure DevOps organization URL |
 | `ado_pat_secret_name` | string | No | AWS Secrets Manager secret name |
+| `ado_agent_auth_mode` | string | No | Agent pod auth mode: `pat` or `spn`. Defaults to `pat`. KEDA continues to use the PAT secret in both modes. |
+| `ado_agent_spn_secret.aws_secret_name` | string | Required for SPN mode | Existing AWS Secrets Manager secret name/path containing `ClientId`, `ClientSecret`, and `TenantId`. Terraform reads this secret metadata and grants ESO read access; it does not create the secret. |
+| `ado_agent_spn_secret.k8s_secret_name` | string | No | Kubernetes secret name for synced SPN credentials. Defaults to `ado-agent-spn`. |
+| `ado_agent_spn_secret.refresh_interval` | string | No | ESO refresh interval for the SPN secret. Empty uses `secret_refresh_interval`. |
 | `secret_recovery_days` | number | No | Days to recover deleted secret (7-30) |
 | `secret_refresh_interval` | string | No | How often ESO syncs secret |
 
@@ -312,6 +383,29 @@ secret_refresh_interval = "5m"
 ```bash
 export TF_VAR_ado_pat_value='your-personal-access-token'
 ```
+
+To run agent containers with SPN auth while keeping KEDA on the PAT path:
+
+```hcl
+ado_agent_auth_mode = "spn"
+ado_agent_spn_secret = {
+  aws_secret_name  = "/path/to/external/spn-secret"
+  k8s_secret_name  = "ado-agent-spn"
+  refresh_interval = ""
+}
+```
+
+The external SPN secret must already exist in AWS Secrets Manager and contain non-empty JSON string properties named `ClientId`, `ClientSecret`, and `TenantId`. This AWS secret is intentionally outside this Terraform state: it is expected to be created, rotated, and governed by a separate credential-management process. The application layer consumes the existing secret by looking up its metadata, checking that the deploy runner can read the secret value, and granting ESO read access to that existing secret ARN. It does not create, update, print, or store the SPN credential value.
+
+The application layer maps the AWS secret properties into the Kubernetes secret keys `AZP_CLIENTID`, `AZP_CLIENTSECRET`, and `AZP_TENANTID` that the agent containers expect.
+
+In SPN mode, the application layer idempotently applies the ESO
+`ClusterSecretStore`, creates or updates the SPN `ExternalSecret` bridge, and
+waits for ESO to sync the target Kubernetes secret before the ADO agents Helm
+release starts. This prevents placeholder hook jobs from starting before
+`ado-agent-spn` exists. The Kubernetes `ExternalSecret` bridge is applied by the
+application layer because the chart hook jobs must wait on the synced secret; the
+underlying AWS Secrets Manager credential remains externally managed.
 
 ### ECR Repositories
 
@@ -357,6 +451,15 @@ ado_execution_roles = {
 |----------|------|----------|-------------|
 | `ado_execution_roles` | map(object) | No | IAM roles for agent service accounts |
 
+### ADO Agent Helm Behavior
+
+```hcl
+ado_agents_helm_atomic          = false
+ado_agents_helm_cleanup_on_fail = false
+```
+
+Keep both values `false` while validating new environments so failed Helm hook jobs and pods remain available for `kubectl describe` and `kubectl logs`. Set them to `true` only when you prefer automatic rollback over preserving failure evidence.
+
 ### ADO Agent Pools
 
 ```hcl
@@ -364,7 +467,7 @@ ado_agent_pools = {
   default = {
     pool_name           = "EKS-ADO-Agents"
     service_account     = "ado-agent"
-    image_repository    = ""  # Empty = public image
+    image_repository    = "123456789012.dkr.ecr.us-west-2.amazonaws.com/ado-agent"
     image_tag           = "latest"
     min_replicas        = 1
     max_replicas        = 10
@@ -396,7 +499,7 @@ ado_agent_pools = {
 
 - `pool_name` - ADO agent pool name
 - `service_account` - Kubernetes service account
-- `image_repository` - ECR repository URL (empty = use public image)
+- `image_repository` - Container image repository URL. Required for enabled pools when `ecr_repositories` is empty; ignored in favor of the managed ECR repository output when `ecr_repositories` is configured.
 - `image_tag` - Container image tag
 - `min_replicas` - Minimum number of agents
 - `max_replicas` - Maximum number of agents

@@ -21,6 +21,12 @@ Environment:
   Docker Buildx must be available. Docker Desktop on Apple Silicon supports
   cross-building linux/amd64 and linux/arm64 images with Buildx.
 
+Structure tests:
+  When <context>/container-structure-test.yaml exists, the script builds once,
+  runs container-structure-test, then pushes (or loads) the requested image tag.
+  Multi-arch pushes test the first --platforms value locally, then build and push
+  the full multi-platform image to the requested tag.
+
 Examples:
   # Push one manifest tag that works on Linux x86_64 and arm64 cluster nodes.
   $(basename "$0") -r ado-agent -t v1.2.3 --context app/ado-agent
@@ -42,6 +48,11 @@ require_value() {
     usage
     exit 1
   fi
+}
+
+first_platform() {
+  local platforms="$1"
+  echo "${platforms%%,*}"
 }
 
 # --- args ---
@@ -130,9 +141,22 @@ if [[ "$LOAD" == true && "$PLATFORMS" == *,* ]]; then
   exit 1
 fi
 
+STRUCTURE_TEST_CONFIG="${CTX%/}/container-structure-test.yaml"
+RUN_STRUCTURE_TESTS=false
+if [[ -f "$STRUCTURE_TEST_CONFIG" ]]; then
+  RUN_STRUCTURE_TESTS=true
+fi
+
 # --- prerequisites ---
 command -v aws >/dev/null || { echo "aws CLI not found"; exit 1; }
 command -v docker >/dev/null || { echo "docker not found"; exit 1; }
+
+if [[ "$RUN_STRUCTURE_TESTS" == true ]]; then
+  command -v container-structure-test >/dev/null || {
+    echo "container-structure-test not found (install via mise: container-structure-test)" >&2
+    exit 1
+  }
+fi
 
 # Ensure buildx is available
 if ! docker buildx version >/dev/null 2>&1; then
@@ -153,44 +177,117 @@ ACCOUNT_ID="$(aws sts get-caller-identity --region "$REGION" --query Account --o
 ECR_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 IMAGE="${ECR_URI}/${REPO}:${TAG}"
 
-# --- ensure repo exists ---
+# --- verify repo exists ---
 if ! aws ecr describe-repositories --region "$REGION" --repository-names "$REPO" >/dev/null 2>&1; then
-  aws ecr create-repository --region "$REGION" --repository-name "$REPO" >/dev/null
+  echo "ECR repository not found in ${REGION}: ${REPO}" >&2
+  echo "Create the repository outside this build script, then rerun the push." >&2
+  exit 1
 fi
 
 # --- login to ECR ---
 aws ecr get-login-password --region "$REGION" \
   | docker login --username AWS --password-stdin "$ECR_URI"
 
-build_args=(
-  buildx build
-  --builder "$BUILDER"
-  --platform "$PLATFORMS"
-  --file "$DOCKERFILE"
-  -t "$IMAGE"
-)
+run_buildx() {
+  local platform="$1"
+  local output_mode="$2"
+  local image_tag="$3"
 
-if [[ "$NO_CACHE" == true ]]; then
-  build_args+=(--no-cache)
-fi
+  local args=(
+    buildx build
+    --builder "$BUILDER"
+    --platform "$platform"
+    --file "$DOCKERFILE"
+    -t "$image_tag"
+  )
 
-if [[ "$LOAD" == true ]]; then
-  build_args+=(--load)
+  if [[ "$NO_CACHE" == true ]]; then
+    args+=(--no-cache)
+  fi
+
+  args+=("$output_mode" "$CTX")
+  docker "${args[@]}"
+}
+
+# Single-platform build loaded into the local Docker daemon. container-structure-test
+# reads images from the default daemon, not the buildx docker-container builder cache.
+run_local_build() {
+  local platform="$1"
+  local image_tag="$2"
+
+  local args=(
+    build
+    --platform "$platform"
+    --file "$DOCKERFILE"
+    -t "$image_tag"
+  )
+
+  if [[ "$NO_CACHE" == true ]]; then
+    args+=(--no-cache)
+  fi
+
+  args+=("$CTX")
+  docker "${args[@]}"
+  ensure_local_image "$image_tag"
+}
+
+ensure_local_image() {
+  local image_tag="$1"
+
+  if ! docker image inspect "$image_tag" >/dev/null 2>&1; then
+    echo "Image not found in local Docker daemon after build: $image_tag" >&2
+    echo "container-structure-test requires the image in the default docker engine image store." >&2
+    exit 1
+  fi
+}
+
+run_structure_tests() {
+  local test_image="$1"
+  local test_platform="$2"
+
+  ensure_local_image "$test_image"
+
+  echo "Running container structure tests"
+  echo "Config: $STRUCTURE_TEST_CONFIG"
+  echo "Image: $test_image"
+  echo "Platform: $test_platform"
+  container-structure-test test \
+    --image "$test_image" \
+    --config "$STRUCTURE_TEST_CONFIG" \
+    --platform "$test_platform"
+}
+
+TEST_PLATFORM="$(first_platform "$PLATFORMS")"
+
+if [[ "$RUN_STRUCTURE_TESTS" == true ]]; then
+  BUILD_IMAGE="$IMAGE"
+  BUILD_PLATFORM="$TEST_PLATFORM"
+
+  echo "Building image: $BUILD_IMAGE"
+  echo "Context: $CTX"
+  echo "Dockerfile: $DOCKERFILE"
+  echo "Platforms: $BUILD_PLATFORM"
+  run_local_build "$BUILD_PLATFORM" "$BUILD_IMAGE"
+  run_structure_tests "$BUILD_IMAGE" "$BUILD_PLATFORM"
+
+  if [[ "$LOAD" == true ]]; then
+    echo "Loaded locally: $IMAGE ($BUILD_PLATFORM)"
+  else
+    echo "Pushing image: $IMAGE"
+    run_buildx "$PLATFORMS" --push "$IMAGE"
+    echo "Pushed: $IMAGE ($PLATFORMS)"
+  fi
 else
-  build_args+=(--push)
-fi
+  echo "Building image: $IMAGE"
+  echo "Context: $CTX"
+  echo "Dockerfile: $DOCKERFILE"
+  echo "Platforms: $PLATFORMS"
 
-build_args+=("$CTX")
-
-echo "Building image: $IMAGE"
-echo "Context: $CTX"
-echo "Dockerfile: $DOCKERFILE"
-echo "Platforms: $PLATFORMS"
-
-docker "${build_args[@]}"
-
-if [[ "$LOAD" == true ]]; then
-  echo "Loaded locally: $IMAGE ($PLATFORMS)"
-else
-  echo "Pushed: $IMAGE ($PLATFORMS)"
+  if [[ "$LOAD" == true ]]; then
+    run_buildx "$PLATFORMS" --load "$IMAGE"
+    echo "Loaded locally: $IMAGE ($PLATFORMS)"
+  else
+    run_buildx "$PLATFORMS" --push "$IMAGE"
+    echo "Pushed: $IMAGE ($PLATFORMS)"
+  fi
 fi

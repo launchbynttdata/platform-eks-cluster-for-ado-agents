@@ -4,11 +4,12 @@ This directory contains the canonical Terragrunt-based deployment for Azure DevO
 
 ## Architecture
 
-Three independent Terraform layers, orchestrated by `deploy.sh`:
+Four independent Terraform layers, orchestrated by `deploy.sh`:
 
 | Layer | Contents |
 |-------|----------|
 | **base** | EKS cluster, VPC endpoints, IAM, KMS, Fargate profiles, addons |
+| **networking** | Optional CNI components such as Cilium overlay |
 | **middleware** | KEDA, External Secrets Operator, cluster autoscaler, buildkitd |
 | **application** | ECR repositories, Secrets Manager, Helm ADO agent deployment |
 
@@ -47,6 +48,7 @@ export ADO_ORG_URL='https://dev.azure.com/your-org'
 
 ```bash
 ./deploy.sh deploy --layer base
+./deploy.sh deploy --layer networking
 ./deploy.sh deploy --layer middleware
 ./deploy.sh deploy --layer application
 ./deploy.sh deploy --layer config
@@ -104,6 +106,7 @@ infrastructure-layered/
 ├── root.hcl           # Terragrunt root config
 ├── common.hcl         # Shared locals and mocks
 ├── base/              # Base layer Terraform
+├── networking/        # Optional CNI layer Terraform
 ├── middleware/        # Middleware layer Terraform
 ├── application/       # Application layer Terraform
 ├── helm/              # ADO agent Helm chart

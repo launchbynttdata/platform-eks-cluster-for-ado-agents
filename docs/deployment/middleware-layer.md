@@ -1,6 +1,6 @@
 # Middleware Layer
 
-This layer deploys cluster operators and middleware services on the EKS cluster. It depends on the base infrastructure layer and provides services needed by the application layer.
+This layer deploys cluster operators and middleware services on the EKS cluster. It depends on the base infrastructure layer and runs after the networking layer so CNI components are ready before middleware workloads.
 
 ## Components
 
@@ -93,7 +93,7 @@ The deploying user/role needs permissions for:
 
 > **Note**: Post-deployment configuration is handled by the config layer in `deploy.sh`, run AFTER all Terraform layers are deployed.
 
-After deploying all layers (base + middleware + application), run the config layer:
+After deploying all layers (base + networking + middleware + application), run the config layer:
 
 ```bash
 cd infrastructure-layered
