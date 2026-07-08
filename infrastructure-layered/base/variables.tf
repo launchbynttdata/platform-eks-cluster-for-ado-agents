@@ -80,6 +80,12 @@ variable "cluster_admin_access_principal_arns" {
   }
 }
 
+variable "bootstrap_cluster_creator_admin_permissions" {
+  description = "Whether EKS grants the cluster creator principal bootstrap cluster-admin permissions. Defaults to true to preserve EKS bootstrap access behavior."
+  type        = bool
+  default     = true
+}
+
 variable "enabled_cluster_log_types" {
   description = "List of control plane log types to enable"
   type        = list(string)

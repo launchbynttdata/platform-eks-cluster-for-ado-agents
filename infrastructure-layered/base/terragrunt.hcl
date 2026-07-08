@@ -93,9 +93,10 @@ inputs = {
   cilium_networking   = try(local.env.locals.cilium_networking, {})
 
   # Security Configuration
-  endpoint_public_access = local.env.locals.endpoint_public_access
-  public_access_cidrs    = local.env.locals.public_access_cidrs
-  cluster_admin_access_principal_arns = try(local.env.locals.cluster_admin_access_principal_arns, [])
+  endpoint_public_access                         = local.env.locals.endpoint_public_access
+  public_access_cidrs                            = local.env.locals.public_access_cidrs
+  cluster_admin_access_principal_arns            = try(local.env.locals.cluster_admin_access_principal_arns, [])
+  bootstrap_cluster_creator_admin_permissions    = try(local.env.locals.bootstrap_cluster_creator_admin_permissions, true)
 
   # IAM Configuration
   create_iam_roles = local.env.locals.create_iam_roles
