@@ -284,6 +284,47 @@ ado_agents_namespace = "ado-agents"
 | `ado_agents_namespace` | string | No | Namespace for ADO agents (default: ado-agents) |
 | `ado_secret_name` | string | No | Name of ADO PAT Kubernetes secret (defaults to `ado_pat_secret_name` when omitted) |
 
+### CloudWatch Logging / Observability
+
+```hcl
+enable_cloudwatch_observability        = true
+enable_cloudwatch_observability_addon  = true
+cloudwatch_observability_addon_version = null
+enable_cloudwatch_application_signals_auto_monitor              = true
+cloudwatch_application_signals_auto_monitor_excluded_namespaces = []
+cloudwatch_log_retention_days                                  = 30
+enable_fargate_cloudwatch_logging                              = true
+fargate_fluentbit_log_level                                    = "info"
+fargate_fluentbit_include_process_logs                         = false
+enable_ado_agent_cloudwatch_log_groups                         = true
+application_crd_ready_wait_seconds                             = 60
+platform_log_groups = [
+  "application",
+  "dataplane",
+  "host",
+  "performance",
+  "ado-agents",
+  "buildkit",
+  "keda",
+  "cluster-autoscaler"
+]
+```
+
+| Variable | Type | Required | Description |
+|----------|------|----------|-------------|
+| `enable_cloudwatch_observability` | bool | No | Create CloudWatch log resources and EKS logging integrations for platform pod logs. Defaults to `true`. |
+| `enable_cloudwatch_observability_addon` | bool | No | Install the Amazon CloudWatch Observability EKS add-on for EC2 node log collection. Defaults to `true`. |
+| `cloudwatch_observability_addon_version` | string | No | CloudWatch Observability add-on version. Null uses the EKS default. |
+| `enable_cloudwatch_application_signals_auto_monitor` | bool | No | Auto-instrument service workloads with Application Signals. Defaults to `true`. |
+| `cloudwatch_application_signals_auto_monitor_excluded_namespaces` | list(string) | No | Additional namespaces to exclude from Application Signals auto-instrumentation. |
+| `cloudwatch_log_retention_days` | number | No | Retention in days for platform CloudWatch log groups. Defaults to `30`. |
+| `enable_fargate_cloudwatch_logging` | bool | No | Create the `aws-observability/aws-logging` ConfigMap for Fargate pod log shipping. Defaults to `true`. |
+| `fargate_fluentbit_log_level` | string | No | Log level for the Fargate Fluent Bit log router. Defaults to `info`. |
+| `fargate_fluentbit_include_process_logs` | bool | No | Send Fargate Fluent Bit process logs to CloudWatch. Defaults to `false`. |
+| `enable_ado_agent_cloudwatch_log_groups` | bool | No | Pre-create the ADO agent Container Insights CloudWatch log group. Defaults to `true`. Set to `false` when the deploy role cannot create the ADO agent log group. |
+| `application_crd_ready_wait_seconds` | number | No | Seconds to wait after middleware CRD-owning Helm releases before application custom resources install. Defaults to `60`. |
+| `platform_log_groups` | list(string) | No | Logical platform log groups to pre-create under `/aws/containerinsights/<cluster_name>/`. |
+
 ### External Secrets Operator
 
 ```hcl
@@ -337,6 +378,10 @@ buildkitd_resources = {
 }
 
 buildkitd_storage_size = "50Gi"
+
+enable_ecr_pull_through_cache                      = true
+create_ecr_pull_through_cache_repository_templates = true
+create_ecr_pull_through_cache_repository_policies  = true
 ```
 
 | Variable | Type | Required | Description |
@@ -349,6 +394,9 @@ buildkitd_storage_size = "50Gi"
 | `buildkitd_tolerations` | list(object) | No | Tolerations for pod scheduling |
 | `buildkitd_resources` | object | No | Resource requests and limits |
 | `buildkitd_storage_size` | string | No | Persistent volume size |
+| `enable_ecr_pull_through_cache` | bool | No | Create ECR pull-through cache rules for configured upstream registries. Defaults to `true`. |
+| `create_ecr_pull_through_cache_repository_templates` | bool | No | Create ECR repository creation templates for pull-through cache-created repositories. Defaults to `true`. |
+| `create_ecr_pull_through_cache_repository_policies` | bool | No | Include repository policies in ECR pull-through cache repository creation templates. Defaults to `true`. Set to `false` when the deploy role can manage cache rules/templates but cannot attach repository policies. |
 
 ## Application Layer Configuration
 
@@ -412,6 +460,7 @@ underlying AWS Secrets Manager credential remains externally managed.
 ### ECR Repositories
 
 ```hcl
+create_ecr_iam_policies = true
 ecr_repositories = {
   ado-agent = {
     image_tag_mutability = "IMMUTABLE"
@@ -429,6 +478,7 @@ ecr_repositories = {
 
 | Variable | Type | Required | Description |
 |----------|------|----------|-------------|
+| `create_ecr_iam_policies` | bool | No | Create IAM policies and attachments for managed ECR repository access. Defaults to `true`. Set to `false` when repository creation is allowed but IAM policy creation is handled outside this stack. |
 | `ecr_repositories` | map(object) | No | ECR repositories for custom images |
 
 ### IAM Execution Roles

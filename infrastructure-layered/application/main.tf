@@ -101,7 +101,7 @@ module "ecr" {
 
   ecr_repositories       = local.ecr_repositories_with_defaults
   cluster_name           = local.cluster_name
-  create_iam_policies    = true
+  create_iam_policies    = var.create_ecr_iam_policies
   attach_pull_to_fargate = true
   fargate_role_name      = data.terraform_remote_state.base.outputs.fargate_role_name
   attach_bastion_policy  = false # No bastion in this architecture

@@ -613,6 +613,10 @@ init_layer() {
     
     if [[ "${force}" == "true" ]]; then
         log_debug "Force initialization requested"
+        if [[ -d "${layer_dir}/.terragrunt-cache" ]]; then
+            log_info "Removing stale Terragrunt cache for ${layer} layer..."
+            rm -rf -- "${layer_dir}/.terragrunt-cache"
+        fi
         needs_init=true
     elif [[ ! -d "${layer_dir}/.terragrunt-cache" ]]; then
         log_debug "Terragrunt cache not found - initialization needed"

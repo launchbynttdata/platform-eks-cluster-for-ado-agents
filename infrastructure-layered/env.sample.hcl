@@ -232,6 +232,7 @@ locals {
   enable_fargate_cloudwatch_logging                              = true
   fargate_fluentbit_log_level                                    = "info"
   fargate_fluentbit_include_process_logs = false
+  enable_ado_agent_cloudwatch_log_groups = true
   application_crd_ready_wait_seconds     = 60
   platform_log_groups = [
     "application",
@@ -306,6 +307,7 @@ locals {
   # buildkitd_kms_key_arn_patterns     = ["arn:aws:kms:us-west-2:222222222222:key/*"]
   enable_ecr_pull_through_cache                      = true
   create_ecr_pull_through_cache_repository_templates = true
+  create_ecr_pull_through_cache_repository_policies  = true
   ecr_pull_through_cache_rules = {
     ecr-public = {
       upstream_registry_url = "public.ecr.aws"
@@ -340,6 +342,7 @@ locals {
   secret_refresh_interval = "5m"
 
   # ECR Repositories Configuration
+  create_ecr_iam_policies = true
   ecr_repositories = {
     ado-agent = {
       image_tag_mutability = "IMMUTABLE"

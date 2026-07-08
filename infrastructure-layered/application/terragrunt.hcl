@@ -103,7 +103,8 @@ inputs = {
   # This prevents secrets from being stored in configuration files
 
   # ECR Repositories Configuration
-  ecr_repositories = local.env.locals.ecr_repositories
+  ecr_repositories        = local.env.locals.ecr_repositories
+  create_ecr_iam_policies = try(local.env.locals.create_ecr_iam_policies, true)
 
   # IAM Execution Roles Configuration
   ado_execution_roles = local.env.locals.ado_execution_roles

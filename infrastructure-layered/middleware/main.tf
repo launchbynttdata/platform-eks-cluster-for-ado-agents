@@ -150,6 +150,14 @@ locals {
     [var.eso_namespace],
     var.cloudwatch_application_signals_auto_monitor_excluded_namespaces
   ))
+  ado_agent_platform_log_group_names = toset([
+    var.ado_agents_namespace,
+    "ado-agents",
+  ])
+  platform_log_groups_effective = [
+    for group in var.platform_log_groups : group
+    if var.enable_ado_agent_cloudwatch_log_groups || !contains(local.ado_agent_platform_log_group_names, group)
+  ]
 
   # kubernetes_manifest uses Kubernetes API field names (camelCase).
   buildkitd_tolerations_for_manifest = [
@@ -165,7 +173,7 @@ locals {
 }
 
 resource "aws_cloudwatch_log_group" "platform" {
-  for_each = var.enable_cloudwatch_observability ? toset(var.platform_log_groups) : []
+  for_each = var.enable_cloudwatch_observability ? toset(local.platform_log_groups_effective) : []
 
   name              = "/aws/containerinsights/${local.cluster_name}/${each.value}"
   retention_in_days = var.cloudwatch_log_retention_days
@@ -304,7 +312,7 @@ resource "aws_ecr_repository_creation_template" "pull_through_cache" {
   description          = "Managed pull-through cache repositories for ${each.value.upstream_registry_url}"
   applied_for          = ["PULL_THROUGH_CACHE"]
   image_tag_mutability = "MUTABLE"
-  repository_policy    = local.ecr_pull_through_cache_repository_policy
+  repository_policy    = var.create_ecr_pull_through_cache_repository_policies ? local.ecr_pull_through_cache_repository_policy : null
   lifecycle_policy     = local.ecr_pull_through_cache_lifecycle_policy
 
   encryption_configuration {

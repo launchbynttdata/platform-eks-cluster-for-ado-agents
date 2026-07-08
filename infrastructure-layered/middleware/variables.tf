@@ -94,6 +94,12 @@ variable "platform_log_groups" {
   default     = ["application", "dataplane", "host", "performance", "ado-agents", "buildkit", "keda", "cluster-autoscaler"]
 }
 
+variable "enable_ado_agent_cloudwatch_log_groups" {
+  description = "Whether to pre-create the ADO agent Container Insights CloudWatch log group. Set to false when the deploy role lacks CloudWatch Logs permissions or KMS key policy blocks log group creation."
+  type        = bool
+  default     = true
+}
+
 variable "application_crd_ready_wait_seconds" {
   description = "Seconds to wait after middleware CRD-owning Helm releases before application-layer custom resources are installed."
   type        = number
@@ -444,6 +450,12 @@ variable "ecr_pull_through_cache_rules" {
 
 variable "create_ecr_pull_through_cache_repository_templates" {
   description = "Whether to create ECR repository creation templates so pull-through cache repositories are auto-created with a lifecycle policy and repository policy."
+  type        = bool
+  default     = true
+}
+
+variable "create_ecr_pull_through_cache_repository_policies" {
+  description = "Whether ECR pull-through cache repository creation templates should apply repository policies to repositories created on first pull."
   type        = bool
   default     = true
 }

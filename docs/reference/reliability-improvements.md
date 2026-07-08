@@ -18,6 +18,8 @@ This avoids the Deployment downscale failure mode where Kubernetes can delete an
 
 The middleware layer creates CloudWatch log groups under `/aws/containerinsights/<cluster-name>/...` and can install the Amazon CloudWatch Observability EKS add-on for EC2-backed pods. For Fargate-backed pods, it creates the required `aws-observability/aws-logging` ConfigMap.
 
+Set `enable_ado_agent_cloudwatch_log_groups = false` in `env.hcl` to skip Terraform creation of the ADO agent log group when the deploy role lacks CloudWatch Logs permissions or KMS key policy blocks log group creation.
+
 Dashboards and alarms are intentionally separate follow-up work. This phase only makes logs available.
 
 ## BuildKit Reliability
@@ -38,7 +40,7 @@ The middleware layer creates anonymous-compatible ECR pull-through cache rules f
 - `registry.k8s.io`
 - `quay.io`
 
-For each enabled pull-through cache rule, the middleware layer also creates an ECR repository creation template. Repositories that ECR creates on first pull receive a pull policy for the cluster account and a lifecycle policy for untagged cache images. The BuildKit role receives first-pull cache population permissions for the managed prefixes. BuildKit registry mirrors are derived automatically from the cache rules as `<account>.dkr.ecr.<region>.amazonaws.com/<prefix>`, so build users can keep normal `FROM public.ecr.aws/...`, `FROM registry.k8s.io/...`, and `FROM quay.io/...` references.
+For each enabled pull-through cache rule, the middleware layer also creates an ECR repository creation template. Repositories that ECR creates on first pull receive a lifecycle policy for untagged cache images and, by default, a pull policy for the cluster account. Set `create_ecr_pull_through_cache_repository_policies = false` to omit the repository policy from those templates when policy management is handled outside this stack or temporarily unavailable to the deploy role. The BuildKit role receives first-pull cache population permissions for the managed prefixes. BuildKit registry mirrors are derived automatically from the cache rules as `<account>.dkr.ecr.<region>.amazonaws.com/<prefix>`, so build users can keep normal `FROM public.ecr.aws/...`, `FROM registry.k8s.io/...`, and `FROM quay.io/...` references.
 
 Docker Hub pull-through cache is intentionally not created in phase 1 because ECR requires Docker Hub credentials in Secrets Manager for that upstream. Docker Hub references remain anonymous fallback unless Dockerfiles or pipeline templates are rewritten to a cached public upstream.
 

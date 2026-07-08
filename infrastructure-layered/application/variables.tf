@@ -67,6 +67,12 @@ variable "ecr_repositories" {
   }
 }
 
+variable "create_ecr_iam_policies" {
+  description = "Whether to create IAM policies and attachments for access to managed ECR repositories."
+  type        = bool
+  default     = true
+}
+
 # =============================================================================
 # ADO Secrets Configuration
 # =============================================================================

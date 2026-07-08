@@ -103,10 +103,10 @@ output "pod_networking_mode" {
 output "cilium_release" {
   description = "Cilium Helm release metadata when cilium-overlay mode is enabled."
   value = var.pod_networking_mode == "cilium-overlay" ? {
-    name      = helm_release.cilium_bootstrap[0].name
-    namespace = helm_release.cilium_bootstrap[0].namespace
-    version   = helm_release.cilium_bootstrap[0].version
-    status    = helm_release.cilium_bootstrap[0].status
+    name      = "cilium"
+    namespace = "kube-system"
+    version   = var.cilium_networking.chart_version
+    status    = "bootstrapped"
   } : null
 }
 

@@ -92,6 +92,7 @@ inputs = {
   fargate_fluentbit_log_level                                    = try(local.env.locals.fargate_fluentbit_log_level, "info")
   fargate_fluentbit_include_process_logs = try(local.env.locals.fargate_fluentbit_include_process_logs, false)
   platform_log_groups                    = try(local.env.locals.platform_log_groups, ["application", "dataplane", "host", "performance", "ado-agents", "buildkit", "keda", "cluster-autoscaler"])
+  enable_ado_agent_cloudwatch_log_groups = try(local.env.locals.enable_ado_agent_cloudwatch_log_groups, true)
   application_crd_ready_wait_seconds     = try(local.env.locals.application_crd_ready_wait_seconds, 60)
 
   # KEDA Configuration
@@ -156,6 +157,7 @@ inputs = {
     }
   })
   create_ecr_pull_through_cache_repository_templates = try(local.env.locals.create_ecr_pull_through_cache_repository_templates, true)
+  create_ecr_pull_through_cache_repository_policies  = try(local.env.locals.create_ecr_pull_through_cache_repository_policies, true)
 
   # Node auto-heal / AWS Node Termination Handler configuration
   node_auto_heal_chart_version           = try(local.env.locals.node_auto_heal_chart_version, "0.27.6")
