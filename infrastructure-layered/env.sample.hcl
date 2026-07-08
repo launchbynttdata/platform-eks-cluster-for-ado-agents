@@ -232,6 +232,7 @@ locals {
   enable_fargate_cloudwatch_logging                              = true
   fargate_fluentbit_log_level                                    = "info"
   fargate_fluentbit_include_process_logs = false
+  enable_ado_agent_cloudwatch_log_groups = true
   application_crd_ready_wait_seconds     = 60
   platform_log_groups = [
     "application",

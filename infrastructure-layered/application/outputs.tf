@@ -139,14 +139,10 @@ output "operational_info" {
 
     # Monitoring and observability
     monitoring = {
-      cloudwatch_log_groups = [
-        "/aws/eks/${local.cluster_name}/cluster",
-        "/aws/containerinsights/${local.cluster_name}/application",
-        "/aws/containerinsights/${local.cluster_name}/ado-agents",
-        "/aws/containerinsights/${local.cluster_name}/buildkit",
-        "/aws/containerinsights/${local.cluster_name}/keda",
-        "/aws/containerinsights/${local.cluster_name}/cluster-autoscaler"
-      ]
+      cloudwatch_log_groups = distinct(concat(
+        ["/aws/eks/${local.cluster_name}/cluster"],
+        data.terraform_remote_state.middleware.outputs.cloudwatch_log_groups
+      ))
       keda_metrics_namespace = "keda-operator-metrics"
       prometheus_metrics     = "http://keda-operator-metrics.keda-system.svc.cluster.local:8080/metrics"
     }

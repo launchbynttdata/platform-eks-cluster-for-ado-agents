@@ -18,6 +18,8 @@ This avoids the Deployment downscale failure mode where Kubernetes can delete an
 
 The middleware layer creates CloudWatch log groups under `/aws/containerinsights/<cluster-name>/...` and can install the Amazon CloudWatch Observability EKS add-on for EC2-backed pods. For Fargate-backed pods, it creates the required `aws-observability/aws-logging` ConfigMap.
 
+Set `enable_ado_agent_cloudwatch_log_groups = false` in `env.hcl` to skip Terraform creation of the ADO agent log group when the deploy role lacks CloudWatch Logs permissions or KMS key policy blocks log group creation.
+
 Dashboards and alarms are intentionally separate follow-up work. This phase only makes logs available.
 
 ## BuildKit Reliability
