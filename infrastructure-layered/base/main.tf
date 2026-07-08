@@ -674,6 +674,14 @@ resource "aws_eks_addon" "vpc_cni" {
 # managed node group creation fails before the later networking layer can run.
 # Keep install and cleanup split: chart version/value changes should run
 # helm upgrade --install without uninstalling the live CNI first.
+removed {
+  from = helm_release.cilium_bootstrap
+
+  lifecycle {
+    destroy = false
+  }
+}
+
 resource "terraform_data" "cilium_bootstrap" {
   count = local.use_cilium_overlay ? 1 : 0
 

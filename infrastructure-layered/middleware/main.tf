@@ -304,7 +304,7 @@ resource "aws_ecr_repository_creation_template" "pull_through_cache" {
   description          = "Managed pull-through cache repositories for ${each.value.upstream_registry_url}"
   applied_for          = ["PULL_THROUGH_CACHE"]
   image_tag_mutability = "MUTABLE"
-  repository_policy    = local.ecr_pull_through_cache_repository_policy
+  repository_policy    = var.create_ecr_pull_through_cache_repository_policies ? local.ecr_pull_through_cache_repository_policy : null
   lifecycle_policy     = local.ecr_pull_through_cache_lifecycle_policy
 
   encryption_configuration {

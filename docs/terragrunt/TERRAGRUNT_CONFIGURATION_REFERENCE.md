@@ -337,6 +337,10 @@ buildkitd_resources = {
 }
 
 buildkitd_storage_size = "50Gi"
+
+enable_ecr_pull_through_cache                      = true
+create_ecr_pull_through_cache_repository_templates = true
+create_ecr_pull_through_cache_repository_policies  = true
 ```
 
 | Variable | Type | Required | Description |
@@ -349,6 +353,9 @@ buildkitd_storage_size = "50Gi"
 | `buildkitd_tolerations` | list(object) | No | Tolerations for pod scheduling |
 | `buildkitd_resources` | object | No | Resource requests and limits |
 | `buildkitd_storage_size` | string | No | Persistent volume size |
+| `enable_ecr_pull_through_cache` | bool | No | Create ECR pull-through cache rules for configured upstream registries. Defaults to `true`. |
+| `create_ecr_pull_through_cache_repository_templates` | bool | No | Create ECR repository creation templates for pull-through cache-created repositories. Defaults to `true`. |
+| `create_ecr_pull_through_cache_repository_policies` | bool | No | Include repository policies in ECR pull-through cache repository creation templates. Defaults to `true`. Set to `false` when the deploy role can manage cache rules/templates but cannot attach repository policies. |
 
 ## Application Layer Configuration
 
@@ -412,6 +419,7 @@ underlying AWS Secrets Manager credential remains externally managed.
 ### ECR Repositories
 
 ```hcl
+create_ecr_iam_policies = true
 ecr_repositories = {
   ado-agent = {
     image_tag_mutability = "IMMUTABLE"
@@ -429,6 +437,7 @@ ecr_repositories = {
 
 | Variable | Type | Required | Description |
 |----------|------|----------|-------------|
+| `create_ecr_iam_policies` | bool | No | Create IAM policies and attachments for managed ECR repository access. Defaults to `true`. Set to `false` when repository creation is allowed but IAM policy creation is handled outside this stack. |
 | `ecr_repositories` | map(object) | No | ECR repositories for custom images |
 
 ### IAM Execution Roles

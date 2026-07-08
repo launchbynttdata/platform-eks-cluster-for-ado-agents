@@ -448,6 +448,12 @@ variable "create_ecr_pull_through_cache_repository_templates" {
   default     = true
 }
 
+variable "create_ecr_pull_through_cache_repository_policies" {
+  description = "Whether ECR pull-through cache repository creation templates should apply repository policies to repositories created on first pull."
+  type        = bool
+  default     = true
+}
+
 # Additional Tags
 variable "additional_tags" {
   description = "Additional tags to apply to resources (merged with base layer tags)"

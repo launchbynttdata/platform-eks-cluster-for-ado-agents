@@ -95,6 +95,32 @@ teardown() {
     [[ "$output" =~ "Force initialization" ]] || [[ "$output" =~ "Would initialize" ]]
 }
 
+@test "init_layer: force flag removes stale terragrunt cache before init" {
+    local bin_dir="${BATS_TMPDIR}/bin"
+    mkdir -p "${bin_dir}" "${TEST_LAYER_DIR}/.terragrunt-cache/stale" "${TEST_LAYER_DIR}/.terraform/modules"
+    echo "old source" > "${TEST_LAYER_DIR}/.terragrunt-cache/stale/main.tf"
+    echo "test" > "${TEST_LAYER_DIR}/.terraform/modules/test.tf"
+    cat > "${bin_dir}/terragrunt" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "init" ]]; then
+  mkdir -p .terragrunt-cache/fresh
+  echo "fresh source" > .terragrunt-cache/fresh/main.tf
+  exit 0
+fi
+exit 1
+EOF
+    chmod +x "${bin_dir}/terragrunt"
+    export PATH="${bin_dir}:${PATH}"
+    export DRY_RUN="false"
+
+    run init_layer "test" "${TEST_LAYER_DIR}" "true"
+    [ "$status" -eq 0 ]
+    [ ! -e "${TEST_LAYER_DIR}/.terragrunt-cache/stale/main.tf" ]
+    [ -e "${TEST_LAYER_DIR}/.terragrunt-cache/fresh/main.tf" ]
+    [[ "$output" =~ "Removing stale Terragrunt cache" ]]
+}
+
 @test "init_layer: verbose mode shows debug output" {
     export DRY_RUN="true"
     export VERBOSE="true"
