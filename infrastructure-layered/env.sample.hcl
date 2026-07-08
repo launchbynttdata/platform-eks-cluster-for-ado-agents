@@ -55,6 +55,8 @@ locals {
   public_access_cidrs    = ["203.0.113.0/24"]
 
   # External IAM roles granted EKS cluster-admin (ECS IaC agents, jumpboxes, etc.)
+  # Set to false only when another explicit access entry grants the creator role the required access.
+  bootstrap_cluster_creator_admin_permissions = true
   cluster_admin_access_principal_arns = [
     # "arn:aws:iam::375235800848:role/dmv-adoecsagent-shared-ecs_task-instance-role",
   ]

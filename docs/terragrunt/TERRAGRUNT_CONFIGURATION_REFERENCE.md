@@ -73,6 +73,7 @@ public_access_cidrs    = ["203.0.113.0/24"]
 
 ```hcl
 create_iam_roles = true
+bootstrap_cluster_creator_admin_permissions = true
 cluster_admin_access_principal_arns = [
   "arn:aws:iam::123456789012:role/example-admin-role"
 ]
@@ -81,6 +82,7 @@ cluster_admin_access_principal_arns = [
 | Variable | Type | Required | Description |
 |----------|------|----------|-------------|
 | `create_iam_roles` | bool | No | Create IAM roles for EKS (default: true) |
+| `bootstrap_cluster_creator_admin_permissions` | bool | No | Whether EKS grants the cluster creator principal bootstrap cluster-admin permissions. Defaults to `true`. Set to `false` only when the creator principal has another explicit access path, such as a managed access entry in `cluster_admin_access_principal_arns`. |
 | `cluster_admin_access_principal_arns` | list(string) | No | IAM role ARNs granted `AmazonEKSClusterAdminPolicy` through EKS access entries. Use this for external operators or jump roles that need cluster-admin access. Do not include the role that creates the cluster, because EKS already grants it admin access when bootstrap creator permissions are enabled. |
 
 ### KMS Encryption
