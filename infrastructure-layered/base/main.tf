@@ -672,28 +672,78 @@ resource "aws_eks_addon" "vpc_cni" {
 # Cilium must exist before EKS managed node groups bootstrap in cilium-overlay
 # mode. Otherwise kubelets stay NotReady with "cni plugin not initialized", and
 # managed node group creation fails before the later networking layer can run.
-resource "helm_release" "cilium_bootstrap" {
+# Keep install and cleanup split: chart version/value changes should run
+# helm upgrade --install without uninstalling the live CNI first.
+resource "terraform_data" "cilium_bootstrap" {
   count = local.use_cilium_overlay ? 1 : 0
 
-  name       = "cilium"
-  repository = "https://helm.cilium.io/"
-  chart      = "cilium"
-  version    = var.cilium_networking.chart_version
-  namespace  = "kube-system"
+  triggers_replace = {
+    cluster_name = module.eks_cluster.name
+    region       = data.aws_region.current.name
+    version      = var.cilium_networking.chart_version
+    values_sha   = sha256(yamlencode(local.cilium_helm_values))
+  }
 
-  atomic                     = false
-  cleanup_on_fail            = true
-  disable_openapi_validation = true
-  timeout                    = 900
-  wait                       = false
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
 
-  values = [
-    yamlencode(local.cilium_helm_values)
-  ]
+      aws eks update-kubeconfig \
+        --alias '${module.eks_cluster.name}' \
+        --name '${module.eks_cluster.name}' \
+        --region '${data.aws_region.current.name}' >/dev/null
+
+      values_file="$(mktemp)"
+      trap 'rm -f "$values_file"' EXIT
+      cat > "$values_file" <<'YAML'
+      ${yamlencode(local.cilium_helm_values)}
+      YAML
+
+      helm upgrade --install cilium cilium \
+        --repo https://helm.cilium.io/ \
+        --version '${var.cilium_networking.chart_version}' \
+        --namespace kube-system \
+        --values "$values_file" \
+        --wait=false \
+        --timeout 15m
+    EOT
+  }
 
   depends_on = [
     time_sleep.cluster_api_ready,
     terraform_data.disable_aws_node_daemonset
+  ]
+}
+
+resource "terraform_data" "cilium_bootstrap_cleanup" {
+  count = local.use_cilium_overlay ? 1 : 0
+
+  triggers_replace = {
+    cluster_name = module.eks_cluster.name
+    region       = data.aws_region.current.name
+  }
+
+  provisioner "local-exec" {
+    when        = destroy
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+
+      aws eks update-kubeconfig \
+        --alias '${self.triggers_replace.cluster_name}' \
+        --name '${self.triggers_replace.cluster_name}' \
+        --region '${self.triggers_replace.region}' >/dev/null || exit 0
+
+      helm uninstall cilium \
+        --namespace kube-system \
+        --wait=false \
+        --ignore-not-found || true
+    EOT
+  }
+
+  depends_on = [
+    terraform_data.cilium_bootstrap
   ]
 }
 
@@ -816,7 +866,8 @@ module "ec2_nodes" {
   depends_on = [
     module.eks_cluster,
     aws_eks_addon.vpc_cni,
-    helm_release.cilium_bootstrap,
+    terraform_data.cilium_bootstrap,
+    terraform_data.cilium_bootstrap_cleanup,
     module.ec2_node_group_role
   ]
 }
