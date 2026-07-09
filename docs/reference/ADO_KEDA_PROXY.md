@@ -71,6 +71,8 @@ request. Enable `adoKedaProxy.networkPolicy.enabled` and set selectors matching
 the installed KEDA operator to restrict ingress where the cluster CNI enforces
 NetworkPolicy.
 
-The dummy `personalAccessToken` Secret rendered in SPN mode is not a credential.
-It exists only because official KEDA requires that auth parameter when it is not
-using Azure Workload Identity.
+The dummy auth Secret rendered in SPN mode is not a real credential. It carries
+the inert `personalAccessToken` value required by official KEDA when it is not
+using Azure Workload Identity, plus `organizationURL` pointing at the in-cluster
+proxy Service. KEDA 2.17 reads Azure Pipelines `organizationURL` from auth params
+or resolved environment, not trigger metadata.

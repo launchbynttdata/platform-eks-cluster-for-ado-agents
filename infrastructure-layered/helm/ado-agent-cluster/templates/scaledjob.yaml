@@ -144,9 +144,7 @@ spec:
   triggers:
   - type: azure-pipelines
     metadata:
-      {{- if eq ($.Values.auth.mode | default "pat") "spn" }}
-      organizationURL: {{ include "ado-agent-cluster.kedaProxyURL" $ | quote }}
-      {{- else }}
+      {{- if ne ($.Values.auth.mode | default "pat") "spn" }}
       organizationURLFromEnv: "AZP_URL"
       personalAccessTokenFromEnv: "AZP_TOKEN"
       {{- end }}

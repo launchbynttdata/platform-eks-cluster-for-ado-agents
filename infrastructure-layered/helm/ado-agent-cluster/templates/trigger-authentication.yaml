@@ -15,6 +15,9 @@ spec:
     {{- if eq ($.Values.auth.mode | default "pat") "spn" }}
     name: {{ $.Values.auth.dummyKedaPATSecretName }}
     key: personalAccessToken
+  - parameter: organizationURL
+    name: {{ $.Values.auth.dummyKedaPATSecretName }}
+    key: organizationURL
     {{- else }}
     name: {{ $poolConfig.ado.secretName }}
     key: personalAccessToken

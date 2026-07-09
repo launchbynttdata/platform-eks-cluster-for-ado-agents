@@ -11,6 +11,7 @@ metadata:
 type: Opaque
 stringData:
   personalAccessToken: {{ .Values.auth.dummyKedaPATValue | quote }}
+  organizationURL: {{ include "ado-agent-cluster.kedaProxyURL" . | quote }}
 ---
 apiVersion: v1
 kind: Service
