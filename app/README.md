@@ -27,7 +27,7 @@ When a build context includes `container-structure-test.yaml` at its root (for e
 
 Single-platform pushes build once with Buildx, load that image locally, test it, then push that same image with `docker push`.
 
-For multi-arch pushes, the script builds once to a temporary ECR tag, pulls and tests the first `--platforms` value locally, then promotes the tested manifest to the requested tag with `docker buildx imagetools create`. The requested tag is not published until tests pass, and the temporary ECR tag is deleted after the run. CST is invoked with `--platform` matching the tested image (required on Apple Silicon when testing non-arm64 images).
+For multi-arch pushes, the script builds and tests each requested platform locally before writing anything to ECR. After every structure test passes, it pushes temporary per-platform ECR tags, promotes those tested images to the requested manifest tag with `docker buildx imagetools create`, and deletes the temporary tags after the run. CST is invoked with `--platform` matching each tested image (required on Apple Silicon when testing non-arm64 images).
 
 Agent deployments are managed by Helm via the [application layer](../docs/deployment/application-layer.md), not raw Kubernetes manifests in this directory.
 

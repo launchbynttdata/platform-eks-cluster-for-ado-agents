@@ -24,9 +24,9 @@ Environment:
 Structure tests:
   When <context>/container-structure-test.yaml exists, the script builds once.
   Single-platform builds are loaded, tested, then pushed with docker push.
-  Multi-platform builds are pushed to a temporary ECR tag, the first --platforms
-  value is pulled and tested locally, then the tested manifest is promoted to the
-  requested image tag without rebuilding.
+  Multi-platform builds are built and tested locally once per platform. Only
+  after every structure test passes does the script push temporary platform tags
+  and promote them to the requested multi-platform image tag.
 
 Examples:
   # Push one manifest tag that works on Linux x86_64 and arm64 cluster nodes.
@@ -216,19 +216,18 @@ run_docker_push() {
   docker push "$image_tag"
 }
 
-pull_platform_image() {
-  local platform="$1"
-  local image_tag="$2"
-
-  docker pull --platform "$platform" "$image_tag"
-  ensure_local_image "$image_tag"
-}
-
-promote_manifest() {
+tag_image() {
   local source_image="$1"
   local target_image="$2"
 
-  docker buildx imagetools create -t "$target_image" "$source_image"
+  docker tag "$source_image" "$target_image"
+}
+
+create_manifest_from_images() {
+  local target_image="$1"
+  shift
+
+  docker buildx imagetools create -t "$target_image" "$@"
 }
 
 delete_ecr_image_tag() {
@@ -241,20 +240,39 @@ delete_ecr_image_tag() {
 }
 
 cleanup_temp_image() {
-  if [[ -n "${TEMP_TAG:-}" ]]; then
-    delete_ecr_image_tag "$TEMP_TAG"
-  fi
+  local tag
+
+  for tag in "${TEMP_TAGS[@]:-}"; do
+    delete_ecr_image_tag "$tag"
+  done
 }
 
 temporary_tag() {
+  local suffix="$1"
   local now
 
   now="$(date +%Y%m%d%H%M%S)"
-  echo "${TAG}-buildtest-${now}-$$"
+  echo "${TAG}-buildtest-${suffix}-${now}-$$"
 }
 
 is_multi_platform() {
   [[ "$PLATFORMS" == *,* ]]
+}
+
+safe_platform_name() {
+  local platform="$1"
+
+  platform="${platform//\//-}"
+  platform="${platform//./-}"
+  echo "$platform"
+}
+
+local_platform_image() {
+  local platform="$1"
+  local safe_platform
+
+  safe_platform="$(safe_platform_name "$platform")"
+  echo "ado-build-local/${REPO}:${TAG}-${safe_platform}"
 }
 
 run_local_buildx_load() {
@@ -317,19 +335,40 @@ if [[ "$RUN_STRUCTURE_TESTS" == true ]]; then
     run_structure_tests "$IMAGE" "$TEST_PLATFORM"
     echo "Loaded locally: $IMAGE ($TEST_PLATFORM)"
   elif is_multi_platform; then
-    TEMP_TAG="$(temporary_tag)"
-    TEMP_IMAGE="${ECR_URI}/${REPO}:${TEMP_TAG}"
+    IFS=',' read -r -a REQUESTED_PLATFORMS <<< "$PLATFORMS"
+    TEMP_TAGS=()
+    TEMP_IMAGES=()
     trap cleanup_temp_image EXIT
 
-    echo "Pushing temporary image for testing: $TEMP_IMAGE"
-    run_buildx "$PLATFORMS" --push "$TEMP_IMAGE"
-    pull_platform_image "$TEST_PLATFORM" "$TEMP_IMAGE"
-    run_structure_tests "$TEMP_IMAGE" "$TEST_PLATFORM"
+    for platform in "${REQUESTED_PLATFORMS[@]}"; do
+      platform="${platform#"${platform%%[![:space:]]*}"}"
+      platform="${platform%"${platform##*[![:space:]]}"}"
 
-    echo "Promoting tested manifest: $TEMP_IMAGE -> $IMAGE"
-    promote_manifest "$TEMP_IMAGE" "$IMAGE"
+      LOCAL_IMAGE="$(local_platform_image "$platform")"
+      echo "Building local test image: $LOCAL_IMAGE ($platform)"
+      run_local_buildx_load "$platform" "$LOCAL_IMAGE"
+      run_structure_tests "$LOCAL_IMAGE" "$platform"
+    done
+
+    for platform in "${REQUESTED_PLATFORMS[@]}"; do
+      platform="${platform#"${platform%%[![:space:]]*}"}"
+      platform="${platform%"${platform##*[![:space:]]}"}"
+
+      LOCAL_IMAGE="$(local_platform_image "$platform")"
+      TEMP_TAG="$(temporary_tag "$(safe_platform_name "$platform")")"
+      TEMP_IMAGE="${ECR_URI}/${REPO}:${TEMP_TAG}"
+      TEMP_TAGS+=("$TEMP_TAG")
+      TEMP_IMAGES+=("$TEMP_IMAGE")
+
+      echo "Pushing tested platform image: $TEMP_IMAGE ($platform)"
+      tag_image "$LOCAL_IMAGE" "$TEMP_IMAGE"
+      run_docker_push "$TEMP_IMAGE"
+    done
+
+    echo "Promoting tested platform images to manifest: $IMAGE"
+    create_manifest_from_images "$IMAGE" "${TEMP_IMAGES[@]}"
     cleanup_temp_image
-    TEMP_TAG=""
+    TEMP_TAGS=()
     trap - EXIT
     echo "Pushed: $IMAGE ($PLATFORMS)"
   else
