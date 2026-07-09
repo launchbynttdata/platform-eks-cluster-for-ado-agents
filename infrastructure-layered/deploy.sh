@@ -650,51 +650,14 @@ init_layer() {
         log_info "[DRY-RUN] Would initialize ${layer} layer"
         return 0
     fi
-    
-    # Check if initialization is needed
-    local needs_init=false
-    
+
     if [[ "${force}" == "true" ]]; then
         log_debug "Force initialization requested"
-        if [[ -d "${layer_dir}/.terragrunt-cache" ]]; then
-            log_info "Removing stale Terragrunt cache for ${layer} layer..."
-            rm -rf -- "${layer_dir}/.terragrunt-cache"
-        fi
-        needs_init=true
-    elif [[ ! -d "${layer_dir}/.terragrunt-cache" ]]; then
-        log_debug "Terragrunt cache not found - initialization needed"
-        needs_init=true
-    elif [[ ! -d "${layer_dir}/.terraform" ]]; then
-        log_debug "Terraform directory not found - initialization needed"
-        needs_init=true
-    else
-        # Check if .terraform/modules exists and has content (for external modules)
-        if [[ -d "${layer_dir}/.terraform/modules" ]]; then
-            local module_count
-            module_count=$(find "${layer_dir}/.terraform/modules" -type f -name "*.tf" 2>/dev/null | wc -l | tr -d ' ')
-            if [[ "${module_count}" -eq 0 ]]; then
-                log_debug "Terraform modules directory is empty - initialization needed"
-                needs_init=true
-            fi
-        fi
-        
-        # Check if .terragrunt-cache contains proper Terraform modules
-        if [[ -d "${layer_dir}/.terragrunt-cache" ]]; then
-            # Look for module manifests in terragrunt cache
-            local cache_modules
-            cache_modules=$(find "${layer_dir}/.terragrunt-cache" -type f -name "modules.json" 2>/dev/null | wc -l | tr -d ' ')
-            if [[ "${cache_modules}" -eq 0 ]]; then
-                log_debug "Terragrunt cache exists but no module manifests found - initialization needed"
-                needs_init=true
-            fi
-        fi
     fi
-    
-    if [[ "${needs_init}" == "false" ]]; then
-        log_info "Layer ${layer} already initialized, skipping init"
-        return 0
-    fi
-    
+
+    log_info "Clearing local Terragrunt and Terraform caches for ${layer} layer..."
+    rm -rf -- "${layer_dir}/.terragrunt-cache" "${layer_dir}/.terraform"
+
     log_info "Running terragrunt init for ${layer} layer..."
     
     local init_args=("--non-interactive")

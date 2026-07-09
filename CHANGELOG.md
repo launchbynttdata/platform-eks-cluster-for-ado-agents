@@ -12,6 +12,7 @@ This document tracks significant changes, fixes, and improvements. Entries are o
 - **ScaledJob worker model**: ADO agent autoscaling uses KEDA `ScaledJob` workers with placeholder registration Jobs and offline template agents for queue matching. The deploy script refresh path now restarts KEDA after secret updates and notes that ScaledJob workers consume refreshed secrets on the next queued job.
 - **CloudWatch observability**: Added middleware-layer CloudWatch log group management, optional Amazon CloudWatch Observability EKS add-on support, Fargate Fluent Bit logging ConfigMap support, Application Signals namespace exclusions, and an `enable_ado_agent_cloudwatch_log_groups` escape hatch for accounts where deploy roles or KMS policies cannot create the ADO agent log group.
 - **Deploy script hardening**: ADO auth-mode detection is bash 3.2-compatible and fails closed when the mode cannot be determined. `--update-ado-secret` is rejected in SPN mode because SPN credential rotation is owned externally.
+- **Layer initialization reliability**: Deploy, plan, and apply paths now clear local `.terragrunt-cache` and `.terraform` directories before each layer initialization so deployments do not trust stale local provider plugins, generated modules, or Terragrunt cache contents.
 - **Documentation and tests**: Added the ADO KEDA proxy reference, expanded Terragrunt configuration docs, pinned Go with `mise`, and added Go, Helm render, Terragrunt HCL, and BATS coverage for the SPN/KEDA migration paths.
 
 ## 2026-03-05
