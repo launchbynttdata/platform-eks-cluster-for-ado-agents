@@ -3,7 +3,7 @@
 # =============================================================================
 # This layer creates application-specific resources:
 # - ECR repositories for custom ADO agent images
-# - AWS Secrets Manager secrets for ADO PAT
+# - AWS Secrets Manager / External Secrets integration for ADO credentials
 # - IAM execution roles for ADO agents
 # - Helm deployment of ADO agents
 # - KEDA ScaledJobs for per-job workers
@@ -30,10 +30,10 @@ terraform {
     execute  = ["echo", "⏳ Application layer depends on base and middleware layers..."]
   }
 
-  # Check for ADO PAT environment variable
+  # Check for ADO PAT environment variable when PAT auth is enabled
   before_hook "check_ado_pat" {
     commands = ["apply", "plan"]
-    execute  = ["bash", "-c", "if [ -z \"$TF_VAR_ado_pat_value\" ]; then echo '⚠️  Warning: TF_VAR_ado_pat_value not set. ADO agents will not authenticate.'; fi"]
+    execute  = ["bash", "-c", "if [ \"${try(local.env.locals.ado_agent_auth_mode, "pat")}\" != \"spn\" ] && [ -z \"$TF_VAR_ado_pat_value\" ]; then echo '⚠️  Warning: TF_VAR_ado_pat_value not set. ADO agents will not authenticate.'; fi"]
   }
 
   after_hook "application_deployed" {
@@ -95,10 +95,11 @@ inputs = {
   ado_pat_secret_name     = local.env.locals.ado_pat_secret_name
   ado_agent_auth_mode     = try(local.env.locals.ado_agent_auth_mode, "pat")
   ado_agent_spn_secret    = try(local.env.locals.ado_agent_spn_secret, { aws_secret_name = "" })
+  ado_keda_proxy          = try(local.env.locals.ado_keda_proxy, {})
   secret_recovery_days    = local.env.locals.secret_recovery_days
   secret_refresh_interval = local.env.locals.secret_refresh_interval
 
-  # NOTE: ado_pat_value should be provided via environment variable:
+  # NOTE: ado_pat_value should be provided via environment variable in PAT mode:
   # export TF_VAR_ado_pat_value="your-pat-here"
   # This prevents secrets from being stored in configuration files
 

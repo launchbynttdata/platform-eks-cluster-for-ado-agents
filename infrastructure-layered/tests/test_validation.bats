@@ -11,6 +11,7 @@ setup() {
     export AUTO_APPROVE="false"
     export DRY_RUN="true"
     export VERBOSE="false"
+    export ADO_AGENT_AUTH_MODE="pat"
     
     # Store script directory for use in tests
     local SCRIPT_DIR_LOCAL="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
@@ -25,7 +26,7 @@ setup() {
 }
 
 teardown() {
-    unset TEST_SCRIPT_DIR DEPLOY_LAYERS_DIR
+    unset TEST_SCRIPT_DIR DEPLOY_LAYERS_DIR ADO_AGENT_AUTH_MODE
 }
 
 # Test: Layer directory structure

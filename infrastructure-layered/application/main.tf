@@ -50,6 +50,9 @@ locals {
   ado_agent_spn_external_secret_name = "${local.ado_agent_spn_secret_name}-secret"
   requires_ado_pat_secret = anytrue([
     for pool in values(var.agent_pools) : pool.enabled
+  ]) && !local.ado_agent_spn_enabled
+  ado_keda_proxy_enabled = local.ado_agent_spn_enabled && anytrue([
+    for pool in values(var.agent_pools) : pool.enabled && pool.autoscaling.enabled
   ])
 
   ado_execution_policy_statements = {
@@ -112,6 +115,8 @@ module "ecr" {
 
 # AWS Secrets Manager secret for ADO PAT
 resource "aws_secretsmanager_secret" "ado_pat" {
+  count = local.requires_ado_pat_secret ? 1 : 0
+
   # checkov:skip=CKV2_AWS_57:ADO Personal Access Token rotation is managed externally in Azure DevOps, not through AWS Secrets Manager rotation
   name                    = var.ado_pat_secret_name
   description             = "Personal Access Token for Azure DevOps integration"
@@ -129,7 +134,8 @@ resource "aws_secretsmanager_secret" "ado_pat" {
 }
 
 resource "aws_secretsmanager_secret_version" "ado_pat" {
-  secret_id = aws_secretsmanager_secret.ado_pat.id
+  count     = local.requires_ado_pat_secret ? 1 : 0
+  secret_id = aws_secretsmanager_secret.ado_pat[0].id
   secret_string = jsonencode({
     personalAccessToken = var.ado_pat_value
     organization        = var.ado_org
@@ -269,7 +275,7 @@ module "ado_agent_execution_policy_attachment" {
   policy_arn = module.ado_agent_execution_policy[each.key].policy_arn
 }
 
-# Grant ESO access to ADO PAT secret via managed policy
+# Grant ESO access to ADO auth secrets via managed policy
 module "eso_ado_secret_access_policy" {
   # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
@@ -285,7 +291,7 @@ module "eso_ado_secret_access_policy" {
         "secretsmanager:DescribeSecret"
       ]
       resources = concat(
-        [aws_secretsmanager_secret.ado_pat.arn],
+        local.requires_ado_pat_secret ? [aws_secretsmanager_secret.ado_pat[0].arn] : [],
         length(data.aws_secretsmanager_secret.ado_agent_spn) > 0 ? [data.aws_secretsmanager_secret.ado_agent_spn[0].arn] : []
       )
     }
@@ -574,17 +580,35 @@ locals {
     )
 
     auth = {
-      mode          = local.ado_agent_auth_mode
-      spnSecretName = local.ado_agent_spn_secret_name
+      mode                   = local.ado_agent_auth_mode
+      spnSecretName          = local.ado_agent_spn_secret_name
+      adoURL                 = var.ado_url
+      adoOrg                 = var.ado_org
+      dummyKedaPATSecretName = "ado-keda-dummy-auth"
+      dummyKedaPATValue      = "unused"
+    }
+
+    adoKedaProxy = {
+      enabled = local.ado_keda_proxy_enabled
+      image = {
+        repository = var.ado_keda_proxy.image_repository
+        tag        = var.ado_keda_proxy.image_tag
+        digest     = var.ado_keda_proxy.image_digest
+        pullPolicy = var.ado_keda_proxy.image_pull_policy
+      }
+      service = {
+        port = 8080
+      }
+      resources = var.ado_keda_proxy.resources
     }
 
     externalSecrets = {
       enabled                = true
       clusterSecretStoreName = data.terraform_remote_state.middleware.outputs.cluster_secret_store_name
-      secrets = {
+      secrets = local.requires_ado_pat_secret ? {
         "${local.ado_external_secret_name}" = {
           aws = {
-            secretName = aws_secretsmanager_secret.ado_pat.name
+            secretName = aws_secretsmanager_secret.ado_pat[0].name
             region     = data.aws_region.current.name
           }
           k8s = {
@@ -599,7 +623,7 @@ locals {
             adourl              = "adourl"
           }
         }
-      }
+      } : {}
     }
 
     buildkit = {

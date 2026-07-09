@@ -4,6 +4,7 @@
 setup_file() {
     SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
     export SCRIPT_DIR
+    export ADO_AGENT_AUTH_MODE="pat"
     if [[ ! -f "${SCRIPT_DIR}/env.hcl" ]]; then
         cp "${SCRIPT_DIR}/env.sample.hcl" "${SCRIPT_DIR}/env.hcl"
         export CREATED_ENV_HCL=1
@@ -14,6 +15,7 @@ teardown_file() {
     if [[ "${CREATED_ENV_HCL:-}" == "1" ]]; then
         rm -f "${SCRIPT_DIR}/env.hcl"
     fi
+    unset ADO_AGENT_AUTH_MODE
 }
 
 run_deploy_timeout() {

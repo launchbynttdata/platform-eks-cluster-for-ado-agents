@@ -8,6 +8,7 @@ Docker build contexts for Azure DevOps agent container images deployed by the pl
 |-----------|---------|
 | `ado-agent/` | General-purpose build agent image |
 | `ado-agent-iac/` | Infrastructure-as-code focused agent image |
+| `ado-keda-proxy/` | Go proxy that lets official KEDA poll Azure DevOps with SPN-backed bearer auth |
 
 ## Build and push
 
@@ -27,3 +28,17 @@ When a build context includes `container-structure-test.yaml` at its root (for e
 For multi-arch pushes, structure tests run against the first `--platforms` value using a locally built image. After the test passes, the script pushes the full multi-platform image to the requested tag only. CST is invoked with `--platform` matching the tested image (required on Apple Silicon when testing non-arm64 images).
 
 Agent deployments are managed by Helm via the [application layer](../docs/deployment/application-layer.md), not raw Kubernetes manifests in this directory.
+
+## ADO KEDA proxy releases
+
+The `ado-keda-proxy` image is published by GitHub Actions when a tag matching
+`ado-keda-proxy/vX.Y.Z` is pushed. Images are published to:
+
+```text
+ghcr.io/launchbynttdata/platform-eks-cluster-for-ado-agents/ado-keda-proxy
+```
+
+After the first publish, confirm the GHCR package is public if the organization
+default did not make linked packages public automatically. See
+[ADO_KEDA_PROXY.md](../docs/reference/ADO_KEDA_PROXY.md) for runtime and
+security details.

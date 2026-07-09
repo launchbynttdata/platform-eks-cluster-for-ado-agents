@@ -1,0 +1,133 @@
+{{- if and (eq (.Values.auth.mode | default "pat") "spn") .Values.adoKedaProxy.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.auth.dummyKedaPATSecretName }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "ado-agent-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ado-keda-proxy
+type: Opaque
+stringData:
+  personalAccessToken: {{ .Values.auth.dummyKedaPATValue | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ado-agent-cluster.kedaProxyName" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "ado-agent-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ado-keda-proxy
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: {{ .Values.adoKedaProxy.service.port }}
+    targetPort: http
+  selector:
+    {{- include "ado-agent-cluster.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: ado-keda-proxy
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ado-agent-cluster.kedaProxyName" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "ado-agent-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ado-keda-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ado-agent-cluster.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ado-keda-proxy
+  template:
+    metadata:
+      labels:
+        {{- include "ado-agent-cluster.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ado-keda-proxy
+        {{- with .Values.adoKedaProxy.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.adoKedaProxy.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      {{- with .Values.adoKedaProxy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.adoKedaProxy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.adoKedaProxy.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.adoKedaProxy.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: ado-keda-proxy
+        image: {{ include "ado-agent-cluster.kedaProxyImage" . | quote }}
+        imagePullPolicy: {{ .Values.adoKedaProxy.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.adoKedaProxy.service.port }}
+        env:
+        - name: ADO_ORG_URL
+          value: {{ .Values.auth.adoURL | quote }}
+        - name: AZP_CLIENTID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.auth.spnSecretName }}
+              key: AZP_CLIENTID
+        - name: AZP_CLIENTSECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.auth.spnSecretName }}
+              key: AZP_CLIENTSECRET
+        - name: AZP_TENANTID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.auth.spnSecretName }}
+              key: AZP_TENANTID
+        {{- range $name, $value := .Values.adoKedaProxy.env }}
+        - name: {{ $name }}
+          value: {{ $value | quote }}
+        {{- end }}
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        {{- with .Values.adoKedaProxy.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.adoKedaProxy.securityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+{{- end }}

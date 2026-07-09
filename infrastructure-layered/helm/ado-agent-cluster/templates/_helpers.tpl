@@ -109,3 +109,22 @@ Generate placeholder ADO agent name for agent pool
 {{- printf "%s-keda-template" .name }}
 {{- end }}
 {{- end }}
+
+{{/*
+ADO KEDA proxy names and image reference
+*/}}
+{{- define "ado-agent-cluster.kedaProxyName" -}}
+{{- default "ado-keda-proxy" .Values.adoKedaProxy.name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "ado-agent-cluster.kedaProxyImage" -}}
+{{- if .Values.adoKedaProxy.image.digest }}
+{{- printf "%s@%s" .Values.adoKedaProxy.image.repository .Values.adoKedaProxy.image.digest }}
+{{- else }}
+{{- printf "%s:%s" .Values.adoKedaProxy.image.repository .Values.adoKedaProxy.image.tag }}
+{{- end }}
+{{- end }}
+
+{{- define "ado-agent-cluster.kedaProxyURL" -}}
+{{- printf "http://%s.%s.svc.cluster.local:%v/%s" (include "ado-agent-cluster.kedaProxyName" .) .Values.global.namespace .Values.adoKedaProxy.service.port .Values.auth.adoOrg }}
+{{- end }}

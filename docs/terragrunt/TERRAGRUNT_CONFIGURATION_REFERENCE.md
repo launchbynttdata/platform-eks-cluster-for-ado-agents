@@ -412,6 +412,12 @@ ado_agent_spn_secret = {
   k8s_secret_name  = "ado-agent-spn"
   refresh_interval = ""
 }
+ado_keda_proxy = {
+  image_repository  = "ghcr.io/launchbynttdata/platform-eks-cluster-for-ado-agents/ado-keda-proxy"
+  image_tag         = "v0.1.0"
+  image_digest      = "" # Prefer sha256:<digest> in production.
+  image_pull_policy = "IfNotPresent"
+}
 secret_recovery_days = 7
 secret_refresh_interval = "5m"
 ```
@@ -421,10 +427,14 @@ secret_refresh_interval = "5m"
 | `ado_org` | string | Yes | Azure DevOps organization name |
 | `ado_url` | string | Yes | Azure DevOps organization URL |
 | `ado_pat_secret_name` | string | No | AWS Secrets Manager secret name |
-| `ado_agent_auth_mode` | string | No | Agent pod auth mode: `pat` or `spn`. Defaults to `pat`. KEDA continues to use the PAT secret in both modes. |
+| `ado_agent_auth_mode` | string | No | Agent and KEDA auth mode: `pat` or `spn`. Defaults to `pat`. In `spn` mode, KEDA uses the ADO KEDA proxy and the real PAT secret is removed from desired state. |
 | `ado_agent_spn_secret.aws_secret_name` | string | Required for SPN mode | Existing AWS Secrets Manager secret name/path containing `ClientId`, `ClientSecret`, and `TenantId`. Terraform reads this secret metadata and grants ESO read access; it does not create the secret. |
 | `ado_agent_spn_secret.k8s_secret_name` | string | No | Kubernetes secret name for synced SPN credentials. Defaults to `ado-agent-spn`. |
 | `ado_agent_spn_secret.refresh_interval` | string | No | ESO refresh interval for the SPN secret. Empty uses `secret_refresh_interval`. |
+| `ado_keda_proxy.image_repository` | string | Required for SPN mode | Public OCI image repository for the ADO KEDA proxy. Defaults to this repo's GHCR package. |
+| `ado_keda_proxy.image_tag` | string | No | Proxy image tag. Release tags are created from `ado-keda-proxy/vX.Y.Z`. |
+| `ado_keda_proxy.image_digest` | string | No | Optional `sha256:<digest>` image pin. Preferred for production. |
+| `ado_keda_proxy.image_pull_policy` | string | No | Proxy image pull policy. Defaults to `IfNotPresent`. |
 | `secret_recovery_days` | number | No | Days to recover deleted secret (7-30) |
 | `secret_refresh_interval` | string | No | How often ESO syncs secret |
 
@@ -434,7 +444,7 @@ secret_refresh_interval = "5m"
 export TF_VAR_ado_pat_value='your-personal-access-token'
 ```
 
-To run agent containers with SPN auth while keeping KEDA on the PAT path:
+To run agent containers and KEDA with SPN auth:
 
 ```hcl
 ado_agent_auth_mode = "spn"
@@ -443,11 +453,23 @@ ado_agent_spn_secret = {
   k8s_secret_name  = "ado-agent-spn"
   refresh_interval = ""
 }
+ado_keda_proxy = {
+  image_repository  = "ghcr.io/launchbynttdata/platform-eks-cluster-for-ado-agents/ado-keda-proxy"
+  image_tag         = "v1.2.3"
+  image_digest      = "sha256:<published-digest>"
+  image_pull_policy = "IfNotPresent"
+}
 ```
 
 The external SPN secret must already exist in AWS Secrets Manager and contain non-empty JSON string properties named `ClientId`, `ClientSecret`, and `TenantId`. This AWS secret is intentionally outside this Terraform state: it is expected to be created, rotated, and governed by a separate credential-management process. The application layer consumes the existing secret by looking up its metadata, checking that the deploy runner can read the secret value, and granting ESO read access to that existing secret ARN. It does not create, update, print, or store the SPN credential value.
 
-The application layer maps the AWS secret properties into the Kubernetes secret keys `AZP_CLIENTID`, `AZP_CLIENTSECRET`, and `AZP_TENANTID` that the agent containers expect.
+The application layer maps the AWS secret properties into the Kubernetes secret keys `AZP_CLIENTID`, `AZP_CLIENTSECRET`, and `AZP_TENANTID` that the agent containers and ADO KEDA proxy expect.
+
+In SPN mode, the ADO KEDA proxy is deployed in the ADO agents namespace. KEDA's
+Azure Pipelines scaler points at that internal proxy URL while the agent pods
+still use the real Azure DevOps organization URL. The chart renders a dummy
+`personalAccessToken` Secret only to satisfy official KEDA's current auth
+schema; it is not a real credential.
 
 In SPN mode, the application layer idempotently applies the ESO
 `ClusterSecretStore`, creates or updates the SPN `ExternalSecret` bridge, and

@@ -63,15 +63,23 @@ spec:
           imagePullPolicy: {{ $poolConfig.image.pullPolicy }}
           env:
           - name: AZP_ORG
+            {{- if eq ($.Values.auth.mode | default "pat") "spn" }}
+            value: {{ $.Values.auth.adoOrg | quote }}
+            {{- else }}
             valueFrom:
               secretKeyRef:
                 name: {{ $poolConfig.ado.secretName }}
                 key: organization
+            {{- end }}
           - name: AZP_URL
+            {{- if eq ($.Values.auth.mode | default "pat") "spn" }}
+            value: {{ $.Values.auth.adoURL | quote }}
+            {{- else }}
             valueFrom:
               secretKeyRef:
                 name: {{ $poolConfig.ado.secretName }}
                 key: adourl
+            {{- end }}
           {{- if eq ($.Values.auth.mode | default "pat") "spn" }}
           - name: AZP_CLIENTID
             valueFrom:
@@ -133,8 +141,10 @@ spec:
   triggers:
   - type: azure-pipelines
     metadata:
+      {{- if eq ($.Values.auth.mode | default "pat") "spn" }}
+      organizationURL: {{ include "ado-agent-cluster.kedaProxyURL" $ | quote }}
+      {{- else }}
       organizationURLFromEnv: "AZP_URL"
-      {{- if ne ($.Values.auth.mode | default "pat") "spn" }}
       personalAccessTokenFromEnv: "AZP_TOKEN"
       {{- end }}
       {{- if $poolConfig.autoscaling.poolID }}

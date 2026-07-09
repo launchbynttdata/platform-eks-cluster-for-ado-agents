@@ -338,6 +338,22 @@ locals {
     k8s_secret_name  = "ado-agent-spn"
     refresh_interval = ""
   }
+  ado_keda_proxy = {
+    image_repository  = "ghcr.io/launchbynttdata/platform-eks-cluster-for-ado-agents/ado-keda-proxy"
+    image_tag         = "v0.1.0"
+    image_digest      = "" # Prefer pinning production deployments to sha256:<digest>.
+    image_pull_policy = "IfNotPresent"
+    resources = {
+      requests = {
+        cpu    = "25m"
+        memory = "64Mi"
+      }
+      limits = {
+        cpu    = "250m"
+        memory = "256Mi"
+      }
+    }
+  }
   secret_recovery_days    = 7
   secret_refresh_interval = "5m"
 

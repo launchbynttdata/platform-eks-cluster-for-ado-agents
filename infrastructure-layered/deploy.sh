@@ -307,9 +307,42 @@ require_ado_credentials() {
     prompt_for_ado_credentials
 }
 
+configured_ado_auth_mode() {
+    if [[ -n "${TF_VAR_ado_agent_auth_mode:-}" ]]; then
+        echo "${TF_VAR_ado_agent_auth_mode,,}"
+        return 0
+    fi
+    if [[ -n "${ADO_AGENT_AUTH_MODE:-}" ]]; then
+        echo "${ADO_AGENT_AUTH_MODE,,}"
+        return 0
+    fi
+
+    local env_file="${DEPLOY_LAYERS_DIR:-${SCRIPT_DIR}}/env.hcl"
+    if [[ -f "${env_file}" ]]; then
+        local mode
+        mode=$(sed -n 's/^[[:space:]]*ado_agent_auth_mode[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "${env_file}" | tail -n 1)
+        if [[ -n "${mode}" ]]; then
+            echo "${mode,,}"
+            return 0
+        fi
+    fi
+
+    echo "pat"
+}
+
+is_ado_spn_mode() {
+    [[ "$(configured_ado_auth_mode)" == "spn" ]]
+}
+
 validate_update_ado_secret_prerequisites() {
     if [[ "${UPDATE_ADO_SECRET}" != "true" ]]; then
         return 0
+    fi
+
+    if is_ado_spn_mode; then
+        log_error "--update-ado-secret is only valid for PAT mode."
+        log_error "SPN mode uses an externally managed AWS Secrets Manager secret."
+        return 1
     fi
 
     if [[ "${AUTO_APPROVE}" == "true" ]]; then
@@ -1096,6 +1129,11 @@ prompt_for_ado_credentials() {
 }
 
 prepare_ado_pat_for_terraform() {
+    if is_ado_spn_mode; then
+        unset TF_VAR_ado_pat_value
+        return 0
+    fi
+
     if [[ -n "${ADO_PAT:-}" ]]; then
         export TF_VAR_ado_pat_value="${ADO_PAT}"
     fi
@@ -1205,6 +1243,12 @@ refresh_ado_secret_in_cluster() {
 inject_ado_secret() {
     local cluster_name="$1"
     local region="$2"
+
+    if is_ado_spn_mode; then
+        log_error "ADO PAT injection is disabled in SPN mode."
+        log_error "Rotate the externally managed SPN secret in the owning system."
+        return 1
+    fi
     
     log_info "Updating ADO PAT in AWS Secrets Manager..."
     
@@ -1412,6 +1456,12 @@ deploy_config_layer() {
     fi
 
     if [[ "${update_ado_secret}" == "true" ]]; then
+        if is_ado_spn_mode; then
+            log_error "--update-ado-secret is only valid for PAT mode."
+            log_error "SPN mode uses an externally managed AWS Secrets Manager secret."
+            return 1
+        fi
+
         local application_secret_json
         application_secret_json=$(get_terragrunt_output_json "application" "ado_pat_secret" || true)
         local application_secret_name
@@ -1481,8 +1531,12 @@ deploy_config_layer() {
     log_info "Check External Secrets:"
     log_info "  kubectl get externalsecrets -A"
     log_info ""
-    log_info "To update ADO PAT later:"
-    log_info "  ./${SCRIPT_NAME} deploy --layer config --update-ado-secret"
+    if is_ado_spn_mode; then
+        log_info "SPN mode: rotate the externally managed AWS Secrets Manager secret in the owning system."
+    else
+        log_info "To update ADO PAT later:"
+        log_info "  ./${SCRIPT_NAME} deploy --layer config --update-ado-secret"
+    fi
     echo
     
     return 0

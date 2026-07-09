@@ -12,7 +12,12 @@ metadata:
 spec:
   secretTargetRef:
   - parameter: personalAccessToken
+    {{- if eq ($.Values.auth.mode | default "pat") "spn" }}
+    name: {{ $.Values.auth.dummyKedaPATSecretName }}
+    key: personalAccessToken
+    {{- else }}
     name: {{ $poolConfig.ado.secretName }}
     key: personalAccessToken
+    {{- end }}
 {{- end }}
 {{- end }}
