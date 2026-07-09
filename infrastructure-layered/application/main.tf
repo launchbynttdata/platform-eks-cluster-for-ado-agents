@@ -54,6 +54,11 @@ locals {
   ado_keda_proxy_enabled = local.ado_agent_spn_enabled && anytrue([
     for pool in values(var.agent_pools) : pool.enabled && pool.autoscaling.enabled
   ])
+  ado_agent_chart_dir = "${path.module}/helm/ado-agent-cluster"
+  ado_agent_chart_checksum = sha256(join("|", [
+    for chart_file in sort(fileset(local.ado_agent_chart_dir, "**")) :
+    "${chart_file}:${filesha256("${local.ado_agent_chart_dir}/${chart_file}")}"
+  ]))
 
   ado_execution_policy_statements = {
     for role_key, role_cfg in var.ado_execution_roles :
@@ -642,7 +647,12 @@ locals {
     # Common labels and annotations
     commonLabels = var.common_labels
     labels       = var.additional_labels
-    annotations  = var.additional_annotations
+    annotations = merge(
+      var.additional_annotations,
+      {
+        "platform.launch.nttdata.com/helm-chart-checksum" = local.ado_agent_chart_checksum
+      }
+    )
 
     # Security contexts
     podSecurityContext = var.pod_security_context
