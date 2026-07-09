@@ -14,6 +14,7 @@ This document tracks significant changes, fixes, and improvements. Entries are o
 - **Deploy script hardening**: ADO auth-mode detection is bash 3.2-compatible and fails closed when the mode cannot be determined. `--update-ado-secret` is rejected in SPN mode because SPN credential rotation is owned externally.
 - **Layer initialization reliability**: Deploy, plan, and apply paths now clear local `.terragrunt-cache` and `.terraform` directories before each layer initialization so deployments do not trust stale local provider plugins, generated modules, or Terragrunt cache contents.
 - **Deployment prerequisites**: Documented that ADO agent container images must exist in the configured repositories before the application layer deploys, because Terraform may create ECR repositories but does not build or push the image tags Helm references.
+- **ADO image build workflow**: Updated `app/build-and-push-ecr.sh` so structure-tested image pushes do not rebuild after tests pass. Single-platform pushes now build, load, test, and push the same image; multi-platform pushes build once to a temporary ECR tag, test a pulled platform image, promote the tested manifest to the requested tag, and clean up the temporary tag.
 - **Documentation and tests**: Added the ADO KEDA proxy reference, expanded Terragrunt configuration docs, pinned Go with `mise`, and added Go, Helm render, Terragrunt HCL, and BATS coverage for the SPN/KEDA migration paths.
 
 ## 2026-03-05
