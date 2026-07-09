@@ -47,6 +47,7 @@ This repository uses [.tool-versions](.tool-versions) for version pinning. We re
 - **S3 bucket** for Terraform state (Terraform >= 1.10 uses native S3 lockfiles; no DynamoDB table required)
 - **Azure DevOps** organization, Personal Access Token (PAT), and agent pool(s)
 - **VPC and subnets** (or use defaults from configuration)
+- **ADO agent container images** available in the configured image repositories before deploying the application layer. The application layer creates ECR repositories when configured, but it does not build or push the ADO agent images; Helm will fail to roll out the final agent Jobs/ScaledJobs if the referenced image tags do not exist.
 
 ## Getting Started
 

@@ -22,6 +22,7 @@ A **config layer** (kubectl-based, not Terraform) runs after all layers to creat
 - S3 bucket for remote state (`TF_STATE_BUCKET`)
 - Existing VPC with subnets (configured in `env.hcl`)
 - Azure DevOps organization, PAT, and agent pool(s)
+- ADO agent images already pushed to the repositories/tags referenced by the application layer. Managed ECR repositories can be created by Terraform, but image build/push is a separate prerequisite; the final Helm release cannot deploy successfully if the referenced agent images are missing.
 
 ## Quick Start
 
