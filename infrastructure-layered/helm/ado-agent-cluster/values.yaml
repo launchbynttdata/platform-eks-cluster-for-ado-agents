@@ -37,6 +37,14 @@ adoKedaProxy:
     pullPolicy: IfNotPresent
   service:
     port: 8080
+  networkPolicy:
+    enabled: false
+    kedaNamespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: keda-system
+    kedaPodSelector:
+      matchLabels:
+        app.kubernetes.io/name: keda-operator
   resources:
     requests:
       cpu: 25m

@@ -39,19 +39,48 @@ type Config struct {
 }
 
 func LoadFromEnv() (Config, error) {
+	readHeaderTimeout, err := durationEnv("READ_HEADER_TIMEOUT", defaultReadHeaderTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	readTimeout, err := durationEnv("READ_TIMEOUT", defaultReadTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	writeTimeout, err := durationEnv("WRITE_TIMEOUT", defaultWriteTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	idleTimeout, err := durationEnv("IDLE_TIMEOUT", defaultIdleTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	upstreamTimeout, err := durationEnv("UPSTREAM_TIMEOUT", defaultUpstreamTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	tokenRefreshSkew, err := durationEnv("TOKEN_REFRESH_SKEW", defaultTokenRefreshSkew)
+	if err != nil {
+		return Config{}, err
+	}
+	shutdownTimeout, err := durationEnv("SHUTDOWN_TIMEOUT", defaultShutdownTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		ListenAddress:     getEnv("LISTEN_ADDRESS", defaultListenAddress),
 		TokenScope:        getEnv("TOKEN_SCOPE", defaultTokenScope),
 		ClientID:          firstEnv("ADO_PROXY_CLIENT_ID", "AZP_CLIENTID"),
 		ClientSecret:      firstEnv("ADO_PROXY_CLIENT_SECRET", "AZP_CLIENTSECRET"),
 		TenantID:          firstEnv("ADO_PROXY_TENANT_ID", "AZP_TENANTID"),
-		ReadHeaderTimeout: durationEnv("READ_HEADER_TIMEOUT", defaultReadHeaderTimeout),
-		ReadTimeout:       durationEnv("READ_TIMEOUT", defaultReadTimeout),
-		WriteTimeout:      durationEnv("WRITE_TIMEOUT", defaultWriteTimeout),
-		IdleTimeout:       durationEnv("IDLE_TIMEOUT", defaultIdleTimeout),
-		UpstreamTimeout:   durationEnv("UPSTREAM_TIMEOUT", defaultUpstreamTimeout),
-		TokenRefreshSkew:  durationEnv("TOKEN_REFRESH_SKEW", defaultTokenRefreshSkew),
-		ShutdownTimeout:   durationEnv("SHUTDOWN_TIMEOUT", defaultShutdownTimeout),
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+		UpstreamTimeout:   upstreamTimeout,
+		TokenRefreshSkew:  tokenRefreshSkew,
+		ShutdownTimeout:   shutdownTimeout,
 	}
 
 	adoURL, err := parseADOOrgURL(firstEnv("ADO_ORG_URL", "AZP_URL"))
@@ -88,6 +117,8 @@ func (c Config) Validate() error {
 		errs = append(errs, errors.New("TOKEN_URL is required"))
 	} else if parsed, err := url.Parse(c.TokenURL); err != nil || parsed.Scheme != "https" || parsed.Host == "" {
 		errs = append(errs, errors.New("TOKEN_URL must be a valid https URL"))
+	} else if !isMicrosoftOnlineHost(parsed.Hostname()) {
+		errs = append(errs, errors.New("TOKEN_URL host must be login.microsoftonline.com or a microsoftonline.com subdomain"))
 	}
 	if strings.TrimSpace(c.TokenScope) == "" {
 		errs = append(errs, errors.New("TOKEN_SCOPE is required"))
@@ -147,14 +178,19 @@ func getEnv(name, fallback string) string {
 	return fallback
 }
 
-func durationEnv(name string, fallback time.Duration) time.Duration {
+func durationEnv(name string, fallback time.Duration) (time.Duration, error) {
 	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
-		return fallback
+		return fallback, nil
 	}
 	parsed, err := time.ParseDuration(value)
 	if err != nil {
-		return -1
+		return 0, fmt.Errorf("%s is invalid: %w", name, err)
 	}
-	return parsed
+	return parsed, nil
+}
+
+func isMicrosoftOnlineHost(host string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(host))
+	return normalized == "login.microsoftonline.com" || strings.HasSuffix(normalized, ".microsoftonline.com")
 }

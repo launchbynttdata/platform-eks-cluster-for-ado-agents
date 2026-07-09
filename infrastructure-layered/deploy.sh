@@ -308,30 +308,48 @@ require_ado_credentials() {
 }
 
 configured_ado_auth_mode() {
+    local mode=""
     if [[ -n "${TF_VAR_ado_agent_auth_mode:-}" ]]; then
-        echo "${TF_VAR_ado_agent_auth_mode,,}"
-        return 0
-    fi
-    if [[ -n "${ADO_AGENT_AUTH_MODE:-}" ]]; then
-        echo "${ADO_AGENT_AUTH_MODE,,}"
-        return 0
-    fi
+        mode="${TF_VAR_ado_agent_auth_mode}"
+    elif [[ -n "${ADO_AGENT_AUTH_MODE:-}" ]]; then
+        mode="${ADO_AGENT_AUTH_MODE}"
+    else
+        local env_file="${DEPLOY_LAYERS_DIR:-${SCRIPT_DIR}}/env.hcl"
+        if [[ ! -r "${env_file}" ]]; then
+            log_error "Unable to determine ADO auth mode: ${env_file} is missing or unreadable."
+            log_error "Set ADO_AGENT_AUTH_MODE or TF_VAR_ado_agent_auth_mode to pat or spn."
+            return 1
+        fi
 
-    local env_file="${DEPLOY_LAYERS_DIR:-${SCRIPT_DIR}}/env.hcl"
-    if [[ -f "${env_file}" ]]; then
-        local mode
         mode=$(sed -n 's/^[[:space:]]*ado_agent_auth_mode[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "${env_file}" | tail -n 1)
-        if [[ -n "${mode}" ]]; then
-            echo "${mode,,}"
-            return 0
+        if [[ -z "${mode}" ]]; then
+            log_error "Unable to determine ADO auth mode from ${env_file}."
+            log_error "Set ado_agent_auth_mode to a literal \"pat\" or \"spn\", or export ADO_AGENT_AUTH_MODE."
+            return 1
         fi
     fi
 
-    echo "pat"
+    mode=$(printf '%s' "${mode}" | tr '[:upper:]' '[:lower:]')
+    case "${mode}" in
+        pat|spn)
+            echo "${mode}"
+            ;;
+        *)
+            log_error "Unsupported ADO auth mode: ${mode}"
+            log_error "Set ADO auth mode to pat or spn."
+            return 1
+            ;;
+    esac
 }
 
 is_ado_spn_mode() {
-    [[ "$(configured_ado_auth_mode)" == "spn" ]]
+    local mode
+    mode=$(configured_ado_auth_mode) || return 2
+    [[ "${mode}" == "spn" ]]
+}
+
+require_ado_auth_mode() {
+    configured_ado_auth_mode >/dev/null
 }
 
 validate_update_ado_secret_prerequisites() {
@@ -339,7 +357,9 @@ validate_update_ado_secret_prerequisites() {
         return 0
     fi
 
-    if is_ado_spn_mode; then
+    local auth_mode
+    auth_mode=$(configured_ado_auth_mode) || return 1
+    if [[ "${auth_mode}" == "spn" ]]; then
         log_error "--update-ado-secret is only valid for PAT mode."
         log_error "SPN mode uses an externally managed AWS Secrets Manager secret."
         return 1
@@ -1129,7 +1149,9 @@ prompt_for_ado_credentials() {
 }
 
 prepare_ado_pat_for_terraform() {
-    if is_ado_spn_mode; then
+    local auth_mode
+    auth_mode=$(configured_ado_auth_mode) || return 1
+    if [[ "${auth_mode}" == "spn" ]]; then
         unset TF_VAR_ado_pat_value
         return 0
     fi
@@ -1244,7 +1266,9 @@ inject_ado_secret() {
     local cluster_name="$1"
     local region="$2"
 
-    if is_ado_spn_mode; then
+    local auth_mode
+    auth_mode=$(configured_ado_auth_mode) || return 1
+    if [[ "${auth_mode}" == "spn" ]]; then
         log_error "ADO PAT injection is disabled in SPN mode."
         log_error "Rotate the externally managed SPN secret in the owning system."
         return 1
@@ -1456,7 +1480,9 @@ deploy_config_layer() {
     fi
 
     if [[ "${update_ado_secret}" == "true" ]]; then
-        if is_ado_spn_mode; then
+        local auth_mode
+        auth_mode=$(configured_ado_auth_mode) || return 1
+        if [[ "${auth_mode}" == "spn" ]]; then
             log_error "--update-ado-secret is only valid for PAT mode."
             log_error "SPN mode uses an externally managed AWS Secrets Manager secret."
             return 1
@@ -1531,7 +1557,9 @@ deploy_config_layer() {
     log_info "Check External Secrets:"
     log_info "  kubectl get externalsecrets -A"
     log_info ""
-    if is_ado_spn_mode; then
+    local auth_mode
+    auth_mode=$(configured_ado_auth_mode) || return 1
+    if [[ "${auth_mode}" == "spn" ]]; then
         log_info "SPN mode: rotate the externally managed AWS Secrets Manager secret in the owning system."
     else
         log_info "To update ADO PAT later:"

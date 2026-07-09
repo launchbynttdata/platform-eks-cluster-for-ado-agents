@@ -3,8 +3,10 @@ package token
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -74,8 +76,49 @@ func TestClientCredentialsProviderRedactsEndpointError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Token() error = nil, want error")
 	}
-	if got := err.Error(); got == "" || got == "super-secret" {
+	if got := err.Error(); got == "" || strings.Contains(got, "super-secret") || !strings.Contains(got, "contains sensitive detail") {
 		t.Fatalf("unexpected error text: %q", got)
+	}
+}
+
+func TestClientCredentialsProviderRejectsMissingAccessToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"expires_in": 3600})
+	}))
+	defer server.Close()
+
+	provider := ClientCredentialsProvider{Client: server.Client(), TokenURL: server.URL, ClientID: "client-id", ClientSecret: "client-secret", Scope: "scope"}
+	_, err := provider.Token(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "access_token") {
+		t.Fatalf("Token() error = %v, want missing access_token", err)
+	}
+}
+
+func TestClientCredentialsProviderRejectsInvalidExpiresIn(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "token", "expires_in": 0})
+	}))
+	defer server.Close()
+
+	provider := ClientCredentialsProvider{Client: server.Client(), TokenURL: server.URL, ClientID: "client-id", ClientSecret: "client-secret", Scope: "scope"}
+	_, err := provider.Token(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "expires_in") {
+		t.Fatalf("Token() error = %v, want invalid expires_in", err)
+	}
+}
+
+func TestClientCredentialsProviderReportsTransportError(t *testing.T) {
+	provider := ClientCredentialsProvider{
+		Client:       &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("dial failed") })},
+		TokenURL:     "https://login.microsoftonline.com/tenant/oauth2/v2.0/token",
+		ClientID:     "client-id",
+		ClientSecret: "client-secret",
+		Scope:        "scope",
+	}
+
+	_, err := provider.Token(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "request token") {
+		t.Fatalf("Token() error = %v, want transport error", err)
 	}
 }
 
@@ -123,4 +166,10 @@ func TestCachingProviderRefreshesNearExpiry(t *testing.T) {
 	if source.count.Load() != 2 {
 		t.Fatalf("source calls = %d, want 2", source.count.Load())
 	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }

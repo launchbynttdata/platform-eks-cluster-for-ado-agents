@@ -124,6 +124,14 @@
           },
           "required": ["port"]
         },
+        "networkPolicy": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "kedaNamespaceSelector": {"type": "object"},
+            "kedaPodSelector": {"type": "object"}
+          }
+        },
         "resources": {"type": "object"},
         "env": {"type": "object"},
         "podLabels": {"type": "object"},

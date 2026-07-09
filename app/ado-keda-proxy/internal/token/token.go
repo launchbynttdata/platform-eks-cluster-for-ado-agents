@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -58,14 +59,18 @@ func (p ClientCredentialsProvider) Token(ctx context.Context) (Token, error) {
 		Error       string `json:"error"`
 		Description string `json:"error_description"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil {
 		return Token{}, fmt.Errorf("decode token response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		if body.Error != "" {
+		switch {
+		case body.Error != "" && body.Description != "":
+			return Token{}, fmt.Errorf("token endpoint returned HTTP %d: %s: %s", resp.StatusCode, body.Error, body.Description)
+		case body.Error != "":
 			return Token{}, fmt.Errorf("token endpoint returned HTTP %d: %s", resp.StatusCode, body.Error)
+		default:
+			return Token{}, fmt.Errorf("token endpoint returned HTTP %d", resp.StatusCode)
 		}
-		return Token{}, fmt.Errorf("token endpoint returned HTTP %d", resp.StatusCode)
 	}
 	if body.AccessToken == "" {
 		return Token{}, errors.New("token endpoint response did not include access_token")
@@ -105,6 +110,7 @@ func (p *CachingProvider) Token(ctx context.Context) (Token, error) {
 		return p.token, nil
 	}
 
+	// Hold the mutex while refreshing so concurrent callers share one upstream token request.
 	token, err := p.source.Token(ctx)
 	if err != nil {
 		return Token{}, err

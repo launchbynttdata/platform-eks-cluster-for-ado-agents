@@ -82,7 +82,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.forward(w, r, kedaPath); err != nil {
+	upstreamStatus, committed, err := h.forward(w, r, kedaPath)
+	if upstreamStatus != 0 {
+		status = upstreamStatus
+	}
+	if err != nil {
+		if committed {
+			h.logger.Error("upstream response failed after headers were sent", "error", err)
+			return
+		}
 		status = http.StatusBadGateway
 		http.Error(w, "upstream request failed", http.StatusBadGateway)
 		h.logger.Error("upstream request failed", "error", err)
@@ -90,16 +98,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Handler) forward(w http.ResponseWriter, r *http.Request, kedaPath string) error {
+func (h *Handler) forward(w http.ResponseWriter, r *http.Request, kedaPath string) (int, bool, error) {
 	tok, err := h.tokenProvider.Token(r.Context())
 	if err != nil {
-		return fmt.Errorf("get token: %w", err)
+		return 0, false, fmt.Errorf("get token: %w", err)
 	}
 
 	upstreamURL := h.upstreamURL(r.URL, kedaPath)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL.String(), nil)
 	if err != nil {
-		return fmt.Errorf("create upstream request: %w", err)
+		return 0, false, fmt.Errorf("create upstream request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+tok.Value)
 	req.Header.Set("Accept", "application/json")
@@ -107,16 +115,16 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, kedaPath strin
 
 	resp, err := h.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("send upstream request: %w", err)
+		return 0, false, fmt.Errorf("send upstream request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	copyResponseHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	if _, err := io.Copy(w, resp.Body); err != nil {
-		return fmt.Errorf("copy upstream response: %w", err)
+		return resp.StatusCode, true, fmt.Errorf("copy upstream response: %w", err)
 	}
-	return nil
+	return resp.StatusCode, true, nil
 }
 
 func (h *Handler) upstreamURL(in *url.URL, kedaPath string) *url.URL {

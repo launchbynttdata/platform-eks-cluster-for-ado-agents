@@ -61,7 +61,15 @@ The proxy is intentionally narrow:
 - arbitrary hosts, paths, methods, and query keys are rejected,
 - inbound authorization headers are ignored,
 - only the service-principal bearer token is sent upstream,
+- token acquisition is restricted to Microsoft login hosts,
 - secret values are not logged or returned in errors.
+
+The proxy does not authenticate callers itself. Its trust boundary is the
+cluster network plus the request allowlist above. Any workload that can reach
+the Service can ask the proxy for the same queue-inspection data that KEDA can
+request. Enable `adoKedaProxy.networkPolicy.enabled` and set selectors matching
+the installed KEDA operator to restrict ingress where the cluster CNI enforces
+NetworkPolicy.
 
 The dummy `personalAccessToken` Secret rendered in SPN mode is not a credential.
 It exists only because official KEDA requires that auth parameter when it is not

@@ -53,3 +53,29 @@ func TestLoadFromEnvRejectsMissingSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadFromEnvRejectsNonMicrosoftTokenURL(t *testing.T) {
+	t.Setenv("ADO_ORG_URL", "https://dev.azure.com/example")
+	t.Setenv("AZP_CLIENTID", "client-id")
+	t.Setenv("AZP_CLIENTSECRET", "client-secret")
+	t.Setenv("AZP_TENANTID", "tenant-id")
+	t.Setenv("TOKEN_URL", "https://login.example.com/tenant/oauth2/v2.0/token")
+
+	_, err := LoadFromEnv()
+	if err == nil || !strings.Contains(err.Error(), "microsoftonline.com") {
+		t.Fatalf("LoadFromEnv() error = %v, want microsoftonline.com validation", err)
+	}
+}
+
+func TestLoadFromEnvReturnsDurationParseError(t *testing.T) {
+	t.Setenv("ADO_ORG_URL", "https://dev.azure.com/example")
+	t.Setenv("AZP_CLIENTID", "client-id")
+	t.Setenv("AZP_CLIENTSECRET", "client-secret")
+	t.Setenv("AZP_TENANTID", "tenant-id")
+	t.Setenv("UPSTREAM_TIMEOUT", "not-a-duration")
+
+	_, err := LoadFromEnv()
+	if err == nil || !strings.Contains(err.Error(), "UPSTREAM_TIMEOUT is invalid") {
+		t.Fatalf("LoadFromEnv() error = %v, want parse error", err)
+	}
+}

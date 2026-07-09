@@ -108,6 +108,8 @@ spec:
         - name: {{ $name }}
           value: {{ $value | quote }}
         {{- end }}
+        - name: LISTEN_ADDRESS
+          value: {{ printf ":%v" .Values.adoKedaProxy.service.port | quote }}
         readinessProbe:
           httpGet:
             path: /readyz
@@ -130,4 +132,31 @@ spec:
         securityContext:
           {{- toYaml . | nindent 10 }}
         {{- end }}
+{{- if .Values.adoKedaProxy.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ado-agent-cluster.kedaProxyName" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "ado-agent-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ado-keda-proxy
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "ado-agent-cluster.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ado-keda-proxy
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        {{- toYaml .Values.adoKedaProxy.networkPolicy.kedaNamespaceSelector | nindent 8 }}
+      podSelector:
+        {{- toYaml .Values.adoKedaProxy.networkPolicy.kedaPodSelector | nindent 8 }}
+    ports:
+    - protocol: TCP
+      port: http
+{{- end }}
 {{- end }}

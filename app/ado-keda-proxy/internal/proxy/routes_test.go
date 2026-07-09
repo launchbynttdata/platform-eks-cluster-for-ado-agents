@@ -20,6 +20,8 @@ func TestAllowedKEDARequest(t *testing.T) {
 		{name: "reject post", method: http.MethodPost, target: "/_apis/distributedtask/pools?poolName=agents", allowed: false},
 		{name: "reject extra query", method: http.MethodGet, target: "/_apis/distributedtask/pools?poolName=agents&redirect=https://evil.example", allowed: false},
 		{name: "reject non-numeric pool id path", method: http.MethodGet, target: "/_apis/distributedtask/pools/abc/jobrequests", allowed: false},
+		{name: "reject encoded slash path", method: http.MethodGet, target: "/_apis/distributedtask/pools%2F1%2Fjobrequests", allowed: false},
+		{name: "reject traversal path", method: http.MethodGet, target: "/_apis/distributedtask/pools/1/../jobrequests", allowed: false},
 		{name: "reject unrelated path", method: http.MethodGet, target: "/_apis/projects", allowed: false},
 	}
 
