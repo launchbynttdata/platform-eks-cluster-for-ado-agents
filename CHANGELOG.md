@@ -2,6 +2,18 @@
 
 This document tracks significant changes, fixes, and improvements. Entries are ordered by date (most recent first). Dates reflect last significant update per source document.
 
+## 2026-07-09
+
+- **KEDA SPN authentication**: Added `app/ado-keda-proxy`, a first-class Go proxy that lets the official KEDA Azure Pipelines scaler poll Azure DevOps with SPN-backed bearer tokens instead of a real PAT in SPN mode. The proxy is allowlist-only, strips sensitive headers, pins token acquisition to Microsoft login hosts, exposes health/readiness endpoints, runs as a non-root distroless container, and is covered by focused security-negative tests.
+- **Proxy release and image publishing**: Added GitHub Actions workflows for proxy PR validation and tag-based releases from `ado-keda-proxy/vX.Y.Z`, publishing multi-architecture images to `ghcr.io/launchbynttdata/platform-eks-cluster-for-ado-agents/ado-keda-proxy` with OCI metadata and semver-derived tags.
+- **ADO agent SPN mode**: Added `ado_agent_auth_mode = "spn"` support using an externally managed AWS Secrets Manager SPN secret containing `ClientId`, `ClientSecret`, and `TenantId`. Terraform now reads and grants ESO access to that existing secret without creating or managing the secret value.
+- **PAT removal in SPN mode**: Application-layer Terraform now removes real PAT desired state in SPN mode, including PAT AWS secret/version creation, PAT bootstrap secret rendering, PAT ExternalSecret rendering, PAT deploy-script injection, and PAT-oriented operational outputs. PAT mode remains unchanged.
+- **KEDA proxy Helm integration**: The ADO agent chart renders the proxy Deployment, Service, optional NetworkPolicy, and dummy non-secret KEDA auth Secret only in SPN proxy mode. SPN-mode ScaledJobs point `organizationURL` at the proxy Service while agent pods keep the real Azure DevOps URL and SPN credential refs.
+- **ScaledJob worker model**: ADO agent autoscaling uses KEDA `ScaledJob` workers with placeholder registration Jobs and offline template agents for queue matching. The deploy script refresh path now restarts KEDA after secret updates and notes that ScaledJob workers consume refreshed secrets on the next queued job.
+- **CloudWatch observability**: Added middleware-layer CloudWatch log group management, optional Amazon CloudWatch Observability EKS add-on support, Fargate Fluent Bit logging ConfigMap support, Application Signals namespace exclusions, and an `enable_ado_agent_cloudwatch_log_groups` escape hatch for accounts where deploy roles or KMS policies cannot create the ADO agent log group.
+- **Deploy script hardening**: ADO auth-mode detection is bash 3.2-compatible and fails closed when the mode cannot be determined. `--update-ado-secret` is rejected in SPN mode because SPN credential rotation is owned externally.
+- **Documentation and tests**: Added the ADO KEDA proxy reference, expanded Terragrunt configuration docs, pinned Go with `mise`, and added Go, Helm render, Terragrunt HCL, and BATS coverage for the SPN/KEDA migration paths.
+
 ## 2026-03-05
 
 - **IAM documentation**: Updated IAM roles and policies documentation for ADO agents

@@ -342,16 +342,6 @@ configured_ado_auth_mode() {
     esac
 }
 
-is_ado_spn_mode() {
-    local mode
-    mode=$(configured_ado_auth_mode) || return 2
-    [[ "${mode}" == "spn" ]]
-}
-
-require_ado_auth_mode() {
-    configured_ado_auth_mode >/dev/null
-}
-
 validate_update_ado_secret_prerequisites() {
     if [[ "${UPDATE_ADO_SECRET}" != "true" ]]; then
         return 0

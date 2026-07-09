@@ -57,6 +57,7 @@
 
 ## Documentation Expectations
 
+- Update root `CHANGELOG.md` for significant user-facing behavior, infrastructure interface, operational workflow, deployment architecture, release process, or security changes. Add a dated entry at the top and include related backfill context when a PR bundles work that was previously undocumented.
 - Update `docs/terragrunt/TERRAGRUNT_CONFIGURATION_REFERENCE.md` for public `env.hcl` interface changes.
 - Update `docs/terragrunt/LAYER_DEPENDENCY_REFERENCE.md` when layer order, remote-state usage, or dependency assumptions change.
 - Update `docs/reference/CNI_MODES.md` when changing pod networking behavior or Cilium settings.
