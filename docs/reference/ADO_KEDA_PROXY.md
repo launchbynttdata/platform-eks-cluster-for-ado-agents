@@ -15,6 +15,7 @@ The proxy is released from this repository with tags matching:
 
 ```text
 ado-keda-proxy/vX.Y.Z
+ado-keda-proxy/vX.Y.Z-rc.N
 ```
 
 The release workflow publishes a public multi-architecture image to:
@@ -30,6 +31,13 @@ For a tag such as `ado-keda-proxy/v1.2.3`, the workflow publishes:
 - `1.2`
 - `1`
 - `sha-<shortsha>`
+
+Final release tags must reference a commit reachable from `main`. Release
+candidates may be published from `ado-keda-proxy/vX.Y.Z-rc.N` tags for testing;
+they publish only the RC version and immutable SHA tags, never stable
+major/minor tags. Protect the full `ado-keda-proxy/v*` tag pattern with a
+repository tag ruleset that permits creation, update, and deletion only for the
+designated release identity.
 
 Production deployments should prefer digest pinning with
 `ado_keda_proxy.image_digest = "sha256:..."`.
@@ -58,11 +66,25 @@ The proxy is intentionally narrow:
 
 - only `GET /_apis/distributedtask/pools` is allowed,
 - only `GET /_apis/distributedtask/pools/<poolID>/jobrequests` is allowed,
-- arbitrary hosts, paths, methods, and query keys are rejected,
+- pool lookups and job requests are restricted to enabled autoscaling pools from
+  the existing `agentPools` Helm values; the proxy learns an allowed numeric ID
+  only from a successful lookup of an allowed pool name,
+- request query shapes are bounded and exact (one configured pool selector,
+  `completedRequestCount=0`, or `$top` equal to a configured pool's
+  `jobsToFetch` value, defaulting to KEDA's `250`),
+- arbitrary hosts, paths, methods, query keys, and high-cardinality query
+  strings are rejected before query parsing,
 - inbound authorization headers are ignored,
 - only the service-principal bearer token is sent upstream,
-- token acquisition is restricted to Microsoft login hosts,
+- token acquisition is restricted to Microsoft login hosts and neither token
+  acquisition nor Azure DevOps forwarding follows redirects,
+- the server caps request headers at 16 KiB,
 - secret values are not logged or returned in errors.
+
+The chart derives `ALLOWED_POOL_NAMES`, `ALLOWED_POOL_IDS`, and allowed
+`jobsToFetch` values from enabled autoscaling `agentPools`; no additional
+Terragrunt configuration is required. Adding, removing, or changing those pools
+updates the proxy allow-list with the normal Helm release upgrade.
 
 The proxy does not authenticate callers itself. Its trust boundary is the
 cluster network plus the request allowlist above. Any workload that can reach

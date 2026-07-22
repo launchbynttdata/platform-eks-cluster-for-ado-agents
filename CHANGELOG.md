@@ -2,6 +2,13 @@
 
 This document tracks significant changes, fixes, and improvements. Entries are ordered by date (most recent first). Dates reflect last significant update per source document.
 
+## 2026-07-22
+
+- **ADO KEDA proxy security hardening**: Upgraded the proxy build and local toolchain to Go 1.26.5; added a 16 KiB request-header limit, bounded raw-query parsing, exact KEDA query validation, and redirect-disabled HTTP clients so SPN credentials and bearer tokens are never replayed to redirected hosts.
+- **KEDA pool authorization**: The proxy now derives its name/ID allow-list from enabled autoscaling `agent_pools` already passed through Terraform and Helm. Pool-name lookups can authorize only their matching returned ID, and pool fleet changes update that allow-list during the normal Helm release upgrade without new Terragrunt inputs.
+- **Proxy security checks**: Added the `make go-static` target and CI enforcement for `govulncheck`, `gosec`, `go vet`, `staticcheck`, and `golangci-lint` with error, context, HTTP body, and static analyzers.
+- **Release controls**: Final proxy tags now require `main` ancestry, while protected `-rc.N` tags can publish test images without overwriting stable major/minor tags. A repository tag ruleset restricting `ado-keda-proxy/v*` creation, update, and deletion to the release identity is required before release promotion.
+
 ## 2026-07-09
 
 - **KEDA SPN authentication**: Added `app/ado-keda-proxy`, a first-class Go proxy that lets the official KEDA Azure Pipelines scaler poll Azure DevOps with SPN-backed bearer tokens instead of a real PAT in SPN mode. The proxy is allowlist-only, strips sensitive headers, pins token acquisition to Microsoft login hosts, exposes health/readiness endpoints, runs as a non-root distroless container, and is covered by focused security-negative tests.

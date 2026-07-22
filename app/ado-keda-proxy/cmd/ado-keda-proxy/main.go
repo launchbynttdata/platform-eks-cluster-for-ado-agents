@@ -40,10 +40,20 @@ func main() {
 	client := &http.Client{
 		Timeout:   cfg.UpstreamTimeout,
 		Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	tokenClient := &http.Client{
+		Timeout:   cfg.UpstreamTimeout,
+		Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 
 	tokenProvider := token.NewCachingProvider(token.ClientCredentialsProvider{
-		Client:       client,
+		Client:       tokenClient,
 		TokenURL:     cfg.TokenURL,
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
@@ -51,18 +61,22 @@ func main() {
 	}, cfg.TokenRefreshSkew)
 
 	handler := proxy.NewHandler(proxy.Options{
-		UpstreamBaseURL: cfg.ADOOrgURL,
-		TokenProvider:   tokenProvider,
-		Client:          client,
-		Logger:          logger,
-		Version:         version,
-		Commit:          commit,
+		UpstreamBaseURL:    cfg.ADOOrgURL,
+		TokenProvider:      tokenProvider,
+		Client:             client,
+		Logger:             logger,
+		Version:            version,
+		Commit:             commit,
+		AllowedPoolNames:   cfg.AllowedPoolNames,
+		AllowedPoolIDs:     cfg.AllowedPoolIDs,
+		AllowedJobsToFetch: cfg.AllowedJobsToFetch,
 	})
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddress,
 		Handler:           handler,
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+		MaxHeaderBytes:    16 << 10,
 		ReadTimeout:       cfg.ReadTimeout,
 		WriteTimeout:      cfg.WriteTimeout,
 		IdleTimeout:       cfg.IdleTimeout,

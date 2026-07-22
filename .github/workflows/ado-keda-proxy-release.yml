@@ -17,24 +17,55 @@ jobs:
     name: Publish release
     runs-on: ubuntu-latest
     steps:
+      # A repository tag ruleset must limit ado-keda-proxy/v* creation to the
+      # release identity. This check is defence in depth for final releases.
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Derive version
         id: version
         run: |
           version="${GITHUB_REF_NAME#ado-keda-proxy/}"
           clean="${version#v}"
+          if [[ "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+            prerelease=true
+          elif [[ "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            prerelease=false
+          else
+            echo "Tag must be vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-rc.N" >&2
+            exit 1
+          fi
           major="${clean%%.*}"
           minor="$(printf '%s' "${clean}" | awk -F. '{print $1 "." $2}')"
           short_sha="$(git rev-parse --short=12 HEAD)"
+          image_tags="${IMAGE_NAME}:${version}"$'\n'"${IMAGE_NAME}:sha-${short_sha}"
+          if [[ "${prerelease}" == false ]]; then
+            image_tags+=$'\n'"${IMAGE_NAME}:${clean}"
+            image_tags+=$'\n'"${IMAGE_NAME}:${minor}"
+            image_tags+=$'\n'"${IMAGE_NAME}:${major}"
+          fi
           {
             echo "version=${version}"
             echo "clean=${clean}"
             echo "major=${major}"
             echo "minor=${minor}"
             echo "short_sha=${short_sha}"
+            echo "prerelease=${prerelease}"
+            echo "image_tags<<EOF"
+            echo "${image_tags}"
+            echo "EOF"
           } >> "${GITHUB_OUTPUT}"
+
+      - name: Require main ancestry for final releases
+        if: steps.version.outputs.prerelease == 'false'
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main || {
+            echo "Final release tags must reference a commit reachable from main." >&2
+            exit 1
+          }
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -57,12 +88,7 @@ jobs:
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
             COMMIT=${{ github.sha }}
-          tags: |
-            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
-            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.clean }}
-            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.minor }}
-            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.major }}
-            ${{ env.IMAGE_NAME }}:sha-${{ steps.version.outputs.short_sha }}
+          tags: ${{ steps.version.outputs.image_tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -75,6 +101,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: ADO KEDA Proxy ${{ steps.version.outputs.version }}
+          prerelease: ${{ steps.version.outputs.prerelease }}
           body: |
             Published ADO KEDA proxy image:
 
@@ -82,9 +109,6 @@ jobs:
 
             Tags:
             - `${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}`
-            - `${{ env.IMAGE_NAME }}:${{ steps.version.outputs.clean }}`
-            - `${{ env.IMAGE_NAME }}:${{ steps.version.outputs.minor }}`
-            - `${{ env.IMAGE_NAME }}:${{ steps.version.outputs.major }}`
             - `${{ env.IMAGE_NAME }}:sha-${{ steps.version.outputs.short_sha }}`
 
             If the GHCR package is not public after first publish, set package visibility to public in the repository package settings.

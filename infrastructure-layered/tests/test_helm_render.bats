@@ -23,6 +23,8 @@ render_spn_chart() {
     grep -q "parameter: organizationURL" "${RENDERED}"
     grep -q "key: organizationURL" "${RENDERED}"
     grep -q "parameter: personalAccessToken" "${RENDERED}"
+    grep -q 'name: ALLOWED_POOL_NAMES' "${RENDERED}"
+    grep -q 'value: "example-ado-agent-pool,example-ado-iac-pool"' "${RENDERED}"
     ! grep -q "organizationURLFromEnv" "${RENDERED}"
 }
 

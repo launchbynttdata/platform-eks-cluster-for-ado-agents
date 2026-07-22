@@ -1,4 +1,20 @@
 {{- if and (eq (.Values.auth.mode | default "pat") "spn") .Values.adoKedaProxy.enabled }}
+{{- $allowedPoolNames := list }}
+{{- $allowedPoolIDs := list }}
+{{- $allowedJobsToFetch := list }}
+{{- range $poolName, $poolConfig := .Values.agentPools }}
+{{- if and $poolConfig.enabled $poolConfig.autoscaling.enabled }}
+{{- if $poolConfig.autoscaling.poolID }}
+{{- $allowedPoolIDs = append $allowedPoolIDs (toString $poolConfig.autoscaling.poolID) }}
+{{- else }}
+{{- $allowedPoolNames = append $allowedPoolNames $poolConfig.ado.poolName }}
+{{- end }}
+{{- if and (not $poolConfig.autoscaling.templateAgentName) (not $poolConfig.autoscaling.createTemplateAgent) (not $poolConfig.autoscaling.fetchUnfinishedJobsOnly) }}
+{{- $jobsToFetch := $poolConfig.autoscaling.jobsToFetch | default 250 }}
+{{- $allowedJobsToFetch = append $allowedJobsToFetch (toString $jobsToFetch) }}
+{{- end }}
+{{- end }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Secret
@@ -90,6 +106,12 @@ spec:
         env:
         - name: ADO_ORG_URL
           value: {{ .Values.auth.adoURL | quote }}
+        - name: ALLOWED_POOL_NAMES
+          value: {{ join "," (uniq (sortAlpha $allowedPoolNames)) | quote }}
+        - name: ALLOWED_POOL_IDS
+          value: {{ join "," (uniq (sortAlpha $allowedPoolIDs)) | quote }}
+        - name: ALLOWED_JOBS_TO_FETCH
+          value: {{ join "," (uniq (sortAlpha $allowedJobsToFetch)) | quote }}
         - name: AZP_CLIENTID
           valueFrom:
             secretKeyRef:

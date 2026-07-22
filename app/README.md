@@ -34,7 +34,9 @@ Agent deployments are managed by Helm via the [application layer](../docs/deploy
 ## ADO KEDA proxy releases
 
 The `ado-keda-proxy` image is published by GitHub Actions when a tag matching
-`ado-keda-proxy/vX.Y.Z` is pushed. Images are published to:
+`ado-keda-proxy/vX.Y.Z` is pushed. Release candidates use
+`ado-keda-proxy/vX.Y.Z-rc.N`; they publish only RC and SHA tags for testing.
+Final tags must reference a commit reachable from `main`. Images are published to:
 
 ```text
 ghcr.io/launchbynttdata/platform-eks-cluster-for-ado-agents/ado-keda-proxy

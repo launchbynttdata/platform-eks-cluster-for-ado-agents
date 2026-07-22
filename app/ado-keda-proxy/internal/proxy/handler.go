@@ -14,12 +14,15 @@ import (
 )
 
 type Options struct {
-	UpstreamBaseURL *url.URL
-	TokenProvider   token.Provider
-	Client          *http.Client
-	Logger          *slog.Logger
-	Version         string
-	Commit          string
+	UpstreamBaseURL    *url.URL
+	TokenProvider      token.Provider
+	Client             *http.Client
+	Logger             *slog.Logger
+	Version            string
+	Commit             string
+	AllowedPoolNames   []string
+	AllowedPoolIDs     []string
+	AllowedJobsToFetch []string
 }
 
 type Handler struct {
@@ -29,6 +32,7 @@ type Handler struct {
 	logger          *slog.Logger
 	version         string
 	commit          string
+	authorizer      *poolAuthorizer
 }
 
 func NewHandler(opts Options) *Handler {
@@ -43,6 +47,7 @@ func NewHandler(opts Options) *Handler {
 		logger:          logger,
 		version:         opts.Version,
 		commit:          opts.Commit,
+		authorizer:      newPoolAuthorizer(opts.AllowedPoolNames, opts.AllowedPoolIDs, opts.AllowedJobsToFetch),
 	}
 }
 
@@ -76,13 +81,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	kedaPath := normalizedKEDAPath(r.URL.EscapedPath(), h.upstreamBaseURL.EscapedPath())
-	if !allowedKEDARequest(r.Method, kedaPath, r.URL.Query()) {
+	query, validQuery := parseKEDAQuery(r.URL.RawQuery)
+	if !validQuery || !h.authorizer.allowedKEDARequest(r.Method, kedaPath, query) {
 		status = http.StatusNotFound
 		http.NotFound(w, r)
 		return
 	}
 
-	upstreamStatus, committed, err := h.forward(w, r, kedaPath)
+	upstreamStatus, committed, err := h.forward(w, r, kedaPath, query)
 	if upstreamStatus != 0 {
 		status = upstreamStatus
 	}
@@ -98,13 +104,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Handler) forward(w http.ResponseWriter, r *http.Request, kedaPath string) (int, bool, error) {
+func (h *Handler) forward(w http.ResponseWriter, r *http.Request, kedaPath string, query url.Values) (int, bool, error) {
 	tok, err := h.tokenProvider.Token(r.Context())
 	if err != nil {
 		return 0, false, fmt.Errorf("get token: %w", err)
 	}
 
 	upstreamURL := h.upstreamURL(r.URL, kedaPath)
+	// #nosec G704 -- upstreamURL starts from the validated dev.azure.com organization URL and replaces only an allowlisted path and query.
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL.String(), nil)
 	if err != nil {
 		return 0, false, fmt.Errorf("create upstream request: %w", err)
@@ -113,11 +120,28 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, kedaPath strin
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", strings.TrimSpace("ado-keda-proxy/"+h.version+" "+h.commit))
 
+	// #nosec G704 -- the client never follows redirects, so the validated Azure DevOps host remains the only upstream destination.
 	resp, err := h.client.Do(req)
 	if err != nil {
 		return 0, false, fmt.Errorf("send upstream request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
+	if kedaPath == "/_apis/distributedtask/pools" {
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20+1))
+		if err != nil {
+			return 0, false, fmt.Errorf("read pool response: %w", err)
+		}
+		if len(body) > 1<<20 {
+			return 0, false, fmt.Errorf("pool response exceeds 1 MiB limit")
+		}
+		h.authorizer.rememberPoolIDs(query, body)
+		copyResponseHeaders(w.Header(), resp.Header)
+		w.WriteHeader(resp.StatusCode)
+		if _, err := w.Write(body); err != nil {
+			return resp.StatusCode, true, fmt.Errorf("write pool response: %w", err)
+		}
+		return resp.StatusCode, true, nil
+	}
 
 	copyResponseHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)

@@ -5,6 +5,9 @@ on:
     paths:
       - "app/ado-keda-proxy/**"
       - "infrastructure-layered/helm/ado-agent-cluster/**"
+      - "Makefile"
+      - ".tool-versions"
+      - "go.work"
       - ".github/workflows/ado-keda-proxy-ci.yml"
   push:
     branches:
@@ -12,6 +15,9 @@ on:
     paths:
       - "app/ado-keda-proxy/**"
       - "infrastructure-layered/helm/ado-agent-cluster/**"
+      - "Makefile"
+      - ".tool-versions"
+      - "go.work"
       - ".github/workflows/ado-keda-proxy-ci.yml"
 
 permissions:
@@ -28,16 +34,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Go
+      - name: Setup Go 1.26.5
         uses: actions/setup-go@v5
         with:
-          go-version-file: app/ado-keda-proxy/go.mod
+          go-version: 1.26.5
 
       - name: Format check
         run: test -z "$(gofmt -l .)"
 
-      - name: Vet
-        run: go vet ./...
+      - name: Vulnerability and static analysis
+        working-directory: .
+        run: make go-static
 
       - name: Test
         run: go test ./...

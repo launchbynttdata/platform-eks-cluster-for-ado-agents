@@ -42,15 +42,17 @@ func TestHandlerForwardsAllowedRequestWithBearerToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	handler := NewHandler(Options{
-		UpstreamBaseURL: baseURL,
-		TokenProvider:   staticTokenProvider{token: token.Token{Value: "bearer-token", ExpiresAt: time.Now().Add(time.Hour)}},
-		Client:          upstream.Client(),
-		Logger:          discardLogger(),
-		Version:         "v1.2.3",
-		Commit:          "abc123",
+		UpstreamBaseURL:    baseURL,
+		TokenProvider:      staticTokenProvider{token: token.Token{Value: "bearer-token", ExpiresAt: time.Now().Add(time.Hour)}},
+		Client:             upstream.Client(),
+		Logger:             discardLogger(),
+		Version:            "v1.2.3",
+		Commit:             "abc123",
+		AllowedPoolIDs:     []string{"42"},
+		AllowedJobsToFetch: []string{"250"},
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/org/_apis/distributedtask/pools/42/jobrequests?$top=250", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/org/_apis/distributedtask/pools/42/jobrequests?$top=250", nil)
 	req.Header.Set("Authorization", "Basic dummy")
 	rec := httptest.NewRecorder()
 
@@ -81,14 +83,15 @@ func TestHandlerStripsSensitiveUpstreamHeaders(t *testing.T) {
 	defer upstream.Close()
 
 	handler := NewHandler(Options{
-		UpstreamBaseURL: mustURL(upstream.URL + "/org"),
-		TokenProvider:   staticTokenProvider{token: token.Token{Value: "bearer-token", ExpiresAt: time.Now().Add(time.Hour)}},
-		Client:          upstream.Client(),
-		Logger:          discardLogger(),
+		UpstreamBaseURL:  mustURL(upstream.URL + "/org"),
+		TokenProvider:    staticTokenProvider{token: token.Token{Value: "bearer-token", ExpiresAt: time.Now().Add(time.Hour)}},
+		Client:           upstream.Client(),
+		Logger:           discardLogger(),
+		AllowedPoolNames: []string{"agents"},
 	})
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/_apis/distributedtask/pools?poolName=agents", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_apis/distributedtask/pools?poolName=agents", nil))
 
 	for _, header := range []string{"Authorization", "WWW-Authenticate", "Set-Cookie"} {
 		if got := rec.Header().Get(header); got != "" {
@@ -102,14 +105,15 @@ func TestHandlerStripsSensitiveUpstreamHeaders(t *testing.T) {
 
 func TestHandlerDeniesUnexpectedPath(t *testing.T) {
 	handler := NewHandler(Options{
-		UpstreamBaseURL: mustURL("https://dev.azure.com/org"),
-		TokenProvider:   staticTokenProvider{token: token.Token{Value: "bearer-token", ExpiresAt: time.Now().Add(time.Hour)}},
-		Client:          http.DefaultClient,
-		Logger:          discardLogger(),
+		UpstreamBaseURL:  mustURL("https://dev.azure.com/org"),
+		TokenProvider:    staticTokenProvider{token: token.Token{Value: "bearer-token", ExpiresAt: time.Now().Add(time.Hour)}},
+		Client:           http.DefaultClient,
+		Logger:           discardLogger(),
+		AllowedPoolNames: []string{"agents"},
 	})
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/_apis/projects", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_apis/projects", nil))
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
@@ -118,14 +122,15 @@ func TestHandlerDeniesUnexpectedPath(t *testing.T) {
 
 func TestHandlerReadinessUsesTokenProvider(t *testing.T) {
 	handler := NewHandler(Options{
-		UpstreamBaseURL: mustURL("https://dev.azure.com/org"),
-		TokenProvider:   staticTokenProvider{token: token.Token{Value: "bearer-token", ExpiresAt: time.Now().Add(time.Hour)}},
-		Client:          http.DefaultClient,
-		Logger:          discardLogger(),
+		UpstreamBaseURL:  mustURL("https://dev.azure.com/org"),
+		TokenProvider:    staticTokenProvider{token: token.Token{Value: "bearer-token", ExpiresAt: time.Now().Add(time.Hour)}},
+		Client:           http.DefaultClient,
+		Logger:           discardLogger(),
+		AllowedPoolNames: []string{"agents"},
 	})
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/readyz", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -138,10 +143,11 @@ func TestHandlerReadinessFailsWhenTokenProviderFails(t *testing.T) {
 		TokenProvider:   staticTokenProvider{err: errors.New("token unavailable")},
 		Client:          http.DefaultClient,
 		Logger:          discardLogger(),
+		AllowedPoolIDs:  []string{"42"},
 	})
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/readyz", nil))
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", rec.Code)
@@ -163,11 +169,13 @@ func TestHandlerDoesNotDoubleWriteAfterCommittedCopyFailure(t *testing.T) {
 				Body:       failingBody{},
 			}, nil
 		})},
-		Logger: slog.New(slog.NewJSONHandler(&logs, nil)),
+		Logger:             slog.New(slog.NewJSONHandler(&logs, nil)),
+		AllowedPoolIDs:     []string{"42"},
+		AllowedJobsToFetch: []string{"1"},
 	})
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/_apis/distributedtask/pools?poolName=agents", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_apis/distributedtask/pools/42/jobrequests?$top=1", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want original upstream status", rec.Code)
@@ -189,14 +197,15 @@ func TestHandlerLogsDoNotIncludeToken(t *testing.T) {
 	defer upstream.Close()
 
 	handler := NewHandler(Options{
-		UpstreamBaseURL: mustURL(upstream.URL + "/org"),
-		TokenProvider:   staticTokenProvider{token: token.Token{Value: "secret-bearer-token", ExpiresAt: time.Now().Add(time.Hour)}},
-		Client:          upstream.Client(),
-		Logger:          logger,
+		UpstreamBaseURL:  mustURL(upstream.URL + "/org"),
+		TokenProvider:    staticTokenProvider{token: token.Token{Value: "secret-bearer-token", ExpiresAt: time.Now().Add(time.Hour)}},
+		Client:           upstream.Client(),
+		Logger:           logger,
+		AllowedPoolNames: []string{"agents"},
 	})
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/_apis/distributedtask/pools?poolName=agents", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_apis/distributedtask/pools?poolName=agents", nil))
 
 	if strings.Contains(logs.String(), "secret-bearer-token") {
 		t.Fatalf("logs contain token: %s", logs.String())

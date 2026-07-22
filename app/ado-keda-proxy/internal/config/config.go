@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	defaultListenAddress     = ":8080"
+	defaultListenAddress = ":8080"
+	// #nosec G101 -- This is Azure DevOps' public resource application ID, not a credential.
 	defaultTokenScope        = "499b84ac-1321-427f-aa17-267ca6975798/.default"
 	defaultReadHeaderTimeout = 5 * time.Second
 	defaultReadTimeout       = 15 * time.Second
@@ -22,20 +24,23 @@ const (
 )
 
 type Config struct {
-	ListenAddress     string
-	ADOOrgURL         *url.URL
-	TokenURL          string
-	TokenScope        string
-	ClientID          string
-	ClientSecret      string
-	TenantID          string
-	ReadHeaderTimeout time.Duration
-	ReadTimeout       time.Duration
-	WriteTimeout      time.Duration
-	IdleTimeout       time.Duration
-	UpstreamTimeout   time.Duration
-	TokenRefreshSkew  time.Duration
-	ShutdownTimeout   time.Duration
+	ListenAddress      string
+	ADOOrgURL          *url.URL
+	TokenURL           string
+	TokenScope         string
+	ClientID           string
+	ClientSecret       string
+	TenantID           string
+	ReadHeaderTimeout  time.Duration
+	ReadTimeout        time.Duration
+	WriteTimeout       time.Duration
+	IdleTimeout        time.Duration
+	UpstreamTimeout    time.Duration
+	TokenRefreshSkew   time.Duration
+	ShutdownTimeout    time.Duration
+	AllowedPoolNames   []string
+	AllowedPoolIDs     []string
+	AllowedJobsToFetch []string
 }
 
 func LoadFromEnv() (Config, error) {
@@ -67,20 +72,35 @@ func LoadFromEnv() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	allowedPoolNames, err := commaSeparatedEnv("ALLOWED_POOL_NAMES", false)
+	if err != nil {
+		return Config{}, err
+	}
+	allowedPoolIDs, err := commaSeparatedEnv("ALLOWED_POOL_IDS", true)
+	if err != nil {
+		return Config{}, err
+	}
+	allowedJobsToFetch, err := commaSeparatedEnv("ALLOWED_JOBS_TO_FETCH", true)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
-		ListenAddress:     getEnv("LISTEN_ADDRESS", defaultListenAddress),
-		TokenScope:        getEnv("TOKEN_SCOPE", defaultTokenScope),
-		ClientID:          firstEnv("ADO_PROXY_CLIENT_ID", "AZP_CLIENTID"),
-		ClientSecret:      firstEnv("ADO_PROXY_CLIENT_SECRET", "AZP_CLIENTSECRET"),
-		TenantID:          firstEnv("ADO_PROXY_TENANT_ID", "AZP_TENANTID"),
-		ReadHeaderTimeout: readHeaderTimeout,
-		ReadTimeout:       readTimeout,
-		WriteTimeout:      writeTimeout,
-		IdleTimeout:       idleTimeout,
-		UpstreamTimeout:   upstreamTimeout,
-		TokenRefreshSkew:  tokenRefreshSkew,
-		ShutdownTimeout:   shutdownTimeout,
+		ListenAddress:      getEnv("LISTEN_ADDRESS", defaultListenAddress),
+		TokenScope:         getEnv("TOKEN_SCOPE", defaultTokenScope),
+		ClientID:           firstEnv("ADO_PROXY_CLIENT_ID", "AZP_CLIENTID"),
+		ClientSecret:       firstEnv("ADO_PROXY_CLIENT_SECRET", "AZP_CLIENTSECRET"),
+		TenantID:           firstEnv("ADO_PROXY_TENANT_ID", "AZP_TENANTID"),
+		ReadHeaderTimeout:  readHeaderTimeout,
+		ReadTimeout:        readTimeout,
+		WriteTimeout:       writeTimeout,
+		IdleTimeout:        idleTimeout,
+		UpstreamTimeout:    upstreamTimeout,
+		TokenRefreshSkew:   tokenRefreshSkew,
+		ShutdownTimeout:    shutdownTimeout,
+		AllowedPoolNames:   allowedPoolNames,
+		AllowedPoolIDs:     allowedPoolIDs,
+		AllowedJobsToFetch: allowedJobsToFetch,
 	}
 
 	adoURL, err := parseADOOrgURL(firstEnv("ADO_ORG_URL", "AZP_URL"))
@@ -123,6 +143,9 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.TokenScope) == "" {
 		errs = append(errs, errors.New("TOKEN_SCOPE is required"))
 	}
+	if len(c.AllowedPoolNames) == 0 && len(c.AllowedPoolIDs) == 0 {
+		errs = append(errs, errors.New("ALLOWED_POOL_NAMES or ALLOWED_POOL_IDS is required"))
+	}
 	for name, value := range map[string]time.Duration{
 		"READ_HEADER_TIMEOUT": c.ReadHeaderTimeout,
 		"READ_TIMEOUT":        c.ReadTimeout,
@@ -137,6 +160,33 @@ func (c Config) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func commaSeparatedEnv(name string, numeric bool) ([]string, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return nil, nil
+	}
+
+	values := make([]string, 0, strings.Count(raw, ",")+1)
+	seen := make(map[string]struct{})
+	for _, value := range strings.Split(raw, ",") {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return nil, fmt.Errorf("%s must not contain empty values", name)
+		}
+		if numeric {
+			parsed, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || parsed <= 0 {
+				return nil, fmt.Errorf("%s must contain positive numeric pool IDs", name)
+			}
+		}
+		if _, ok := seen[value]; !ok {
+			seen[value] = struct{}{}
+			values = append(values, value)
+		}
+	}
+	return values, nil
 }
 
 func parseADOOrgURL(raw string) (*url.URL, error) {

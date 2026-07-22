@@ -10,6 +10,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("AZP_CLIENTID", "client-id")
 	t.Setenv("AZP_CLIENTSECRET", "client-secret")
 	t.Setenv("AZP_TENANTID", "tenant-id")
+	t.Setenv("ALLOWED_POOL_NAMES", "agents")
 	t.Setenv("UPSTREAM_TIMEOUT", "3s")
 
 	cfg, err := LoadFromEnv()
@@ -33,6 +34,7 @@ func TestLoadFromEnvRejectsInvalidADOURL(t *testing.T) {
 	t.Setenv("ADO_PROXY_CLIENT_ID", "client-id")
 	t.Setenv("ADO_PROXY_CLIENT_SECRET", "client-secret")
 	t.Setenv("ADO_PROXY_TENANT_ID", "tenant-id")
+	t.Setenv("ALLOWED_POOL_NAMES", "agents")
 
 	_, err := LoadFromEnv()
 	if err == nil || !strings.Contains(err.Error(), "dev.azure.com") {
@@ -42,6 +44,7 @@ func TestLoadFromEnvRejectsInvalidADOURL(t *testing.T) {
 
 func TestLoadFromEnvRejectsMissingSecrets(t *testing.T) {
 	t.Setenv("ADO_ORG_URL", "https://dev.azure.com/example")
+	t.Setenv("ALLOWED_POOL_NAMES", "agents")
 
 	_, err := LoadFromEnv()
 	if err == nil {
@@ -59,6 +62,7 @@ func TestLoadFromEnvRejectsNonMicrosoftTokenURL(t *testing.T) {
 	t.Setenv("AZP_CLIENTID", "client-id")
 	t.Setenv("AZP_CLIENTSECRET", "client-secret")
 	t.Setenv("AZP_TENANTID", "tenant-id")
+	t.Setenv("ALLOWED_POOL_NAMES", "agents")
 	t.Setenv("TOKEN_URL", "https://login.example.com/tenant/oauth2/v2.0/token")
 
 	_, err := LoadFromEnv()
@@ -72,6 +76,7 @@ func TestLoadFromEnvReturnsDurationParseError(t *testing.T) {
 	t.Setenv("AZP_CLIENTID", "client-id")
 	t.Setenv("AZP_CLIENTSECRET", "client-secret")
 	t.Setenv("AZP_TENANTID", "tenant-id")
+	t.Setenv("ALLOWED_POOL_NAMES", "agents")
 	t.Setenv("UPSTREAM_TIMEOUT", "not-a-duration")
 
 	_, err := LoadFromEnv()

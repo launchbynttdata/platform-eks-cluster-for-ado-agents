@@ -51,7 +51,7 @@ func (p ClientCredentialsProvider) Token(ctx context.Context) (Token, error) {
 	if err != nil {
 		return Token{}, fmt.Errorf("request token: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var body struct {
 		AccessToken string `json:"access_token"`

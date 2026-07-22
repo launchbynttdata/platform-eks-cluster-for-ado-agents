@@ -122,6 +122,38 @@ func TestClientCredentialsProviderReportsTransportError(t *testing.T) {
 	}
 }
 
+func TestClientCredentialsProviderDoesNotFollowRedirects(t *testing.T) {
+	redirected := false
+	redirectTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirected = true
+		if err := r.ParseForm(); err == nil && r.Form.Get("client_secret") != "" {
+			t.Error("client secret was sent to redirect target")
+		}
+	}))
+	defer redirectTarget.Close()
+
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, redirectTarget.URL, http.StatusTemporaryRedirect)
+	}))
+	defer tokenServer.Close()
+
+	provider := ClientCredentialsProvider{
+		Client: &http.Client{
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
+		TokenURL:     tokenServer.URL,
+		ClientID:     "client-id",
+		ClientSecret: "client-secret",
+		Scope:        "scope",
+	}
+	if _, err := provider.Token(context.Background()); err == nil {
+		t.Fatal("Token() error = nil, want redirect response rejection")
+	}
+	if redirected {
+		t.Fatal("token client followed redirect")
+	}
+}
+
 type countingProvider struct {
 	count atomic.Int64
 	token Token

@@ -46,6 +46,8 @@
 
 ## Testing and Validation
 
+- Before committing changes to `app/ado-keda-proxy`, run `mise exec -- make go-static` in addition to the focused Go tests. This is the required local stack: `govulncheck`, `gosec`, `go vet`, `staticcheck`, and `golangci-lint` (including error, context, HTTP body, and static checks).
+
 - Useful focused checks:
   - `mise exec -- bats infrastructure-layered/tests/test_credentials.bats infrastructure-layered/tests/test_init.bats infrastructure-layered/tests/test_validation.bats infrastructure-layered/tests/test_noninteractive_workflow.bats`
   - `TF_STATE_BUCKET=test-bucket mise exec -- terragrunt hcl validate --working-dir infrastructure-layered/base`
