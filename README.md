@@ -37,7 +37,7 @@ All deployment is orchestrated by [infrastructure-layered/deploy.sh](infrastruct
 | aws (CLI) | v2 | AWS operations |
 | jq | latest | JSON parsing (used by deploy.sh) |
 
-Optional tools (in [.tool-versions](.tool-versions)): tflint, checkov, python, uv.
+Optional tools (in [.tool-versions](.tool-versions)): tflint, checkov, python, uv. Go is required when developing the ADO KEDA proxy.
 
 This repository uses [.tool-versions](.tool-versions) for version pinning. We recommend [mise](https://mise.jdx.dev/) for managing tool versions. See the [mise installation documentation](https://mise.jdx.dev/installing-mise.html) for setup. After installing mise, run `mise install` in the repository root to install tools from .tool-versions. Note: `aws` and `jq` are not in .tool-versions; install them via your system package manager or add them to .tool-versions if mise supports them for your platform.
 
@@ -47,6 +47,7 @@ This repository uses [.tool-versions](.tool-versions) for version pinning. We re
 - **S3 bucket** for Terraform state (Terraform >= 1.10 uses native S3 lockfiles; no DynamoDB table required)
 - **Azure DevOps** organization, Personal Access Token (PAT), and agent pool(s)
 - **VPC and subnets** (or use defaults from configuration)
+- **ADO agent container images** available in the configured image repositories before deploying the application layer. The application layer creates ECR repositories when configured, but it does not build or push the ADO agent images; Helm will fail to roll out the final agent Jobs/ScaledJobs if the referenced image tags do not exist.
 
 ## Getting Started
 

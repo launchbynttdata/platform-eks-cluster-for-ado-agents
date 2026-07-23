@@ -1,5 +1,8 @@
 {{- range $poolName, $poolConfig := .Values.agentPools }}
 {{- if and $poolConfig.enabled $poolConfig.autoscaling.enabled }}
+{{- if and (eq ($.Values.auth.mode | default "pat") "spn") (not $.Values.adoKedaProxy.enabled) }}
+{{- fail (printf "auth.mode is spn but adoKedaProxy.enabled is false; agentPools.%s.autoscaling requires the ADO KEDA proxy" $poolName) }}
+{{- end }}
 {{- if and $poolConfig.autoscaling.jobsToFetch (or $poolConfig.autoscaling.templateAgentName $poolConfig.autoscaling.createTemplateAgent) }}
 {{- fail (printf "agentPools.%s.autoscaling.templateAgentName and jobsToFetch are mutually exclusive because KEDA parent matching cannot use jobsToFetch" $poolName) }}
 {{- end }}
@@ -63,15 +66,23 @@ spec:
           imagePullPolicy: {{ $poolConfig.image.pullPolicy }}
           env:
           - name: AZP_ORG
+            {{- if eq ($.Values.auth.mode | default "pat") "spn" }}
+            value: {{ $.Values.auth.adoOrg | quote }}
+            {{- else }}
             valueFrom:
               secretKeyRef:
                 name: {{ $poolConfig.ado.secretName }}
                 key: organization
+            {{- end }}
           - name: AZP_URL
+            {{- if eq ($.Values.auth.mode | default "pat") "spn" }}
+            value: {{ $.Values.auth.adoURL | quote }}
+            {{- else }}
             valueFrom:
               secretKeyRef:
                 name: {{ $poolConfig.ado.secretName }}
                 key: adourl
+            {{- end }}
           {{- if eq ($.Values.auth.mode | default "pat") "spn" }}
           - name: AZP_CLIENTID
             valueFrom:
@@ -133,8 +144,8 @@ spec:
   triggers:
   - type: azure-pipelines
     metadata:
-      organizationURLFromEnv: "AZP_URL"
       {{- if ne ($.Values.auth.mode | default "pat") "spn" }}
+      organizationURLFromEnv: "AZP_URL"
       personalAccessTokenFromEnv: "AZP_TOKEN"
       {{- end }}
       {{- if $poolConfig.autoscaling.poolID }}

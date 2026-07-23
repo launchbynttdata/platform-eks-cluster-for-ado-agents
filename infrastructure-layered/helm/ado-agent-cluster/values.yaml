@@ -17,11 +17,61 @@ agent:
   terminationGracePeriodSeconds: 420
   automountServiceAccountToken: true
 
-# Agent authentication. KEDA TriggerAuthentication continues to use the ADO PAT
-# secret because the azure-pipelines scaler does not use the agent SPN flow here.
+# Agent authentication. In SPN mode, agent pods use the SPN secret directly and
+# KEDA reaches Azure DevOps through the ADO KEDA proxy.
 auth:
   mode: pat
   spnSecretName: ado-agent-spn
+  adoURL: ""
+  adoOrg: ""
+  dummyKedaPATSecretName: ado-keda-dummy-auth
+  dummyKedaPATValue: "unused"
+
+adoKedaProxy:
+  enabled: false
+  name: ado-keda-proxy
+  image:
+    repository: ghcr.io/launchbynttdata/platform-eks-cluster-for-ado-agents/ado-keda-proxy
+    tag: v0.1.0
+    digest: ""
+    pullPolicy: IfNotPresent
+  service:
+    port: 8080
+  networkPolicy:
+    enabled: false
+    kedaNamespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: keda-system
+    kedaPodSelector:
+      matchLabels:
+        app.kubernetes.io/name: keda-operator
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  env: {}
+  podLabels: {}
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations:
+    - key: "eks.amazonaws.com/compute-type"
+      operator: "Equal"
+      value: "fargate"
+      effect: "NoSchedule"
+  affinity: {}
+  topologySpreadConstraints: []
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    capabilities:
+      drop:
+      - ALL
 
 # Agent pool configurations
 # Multiple agent pools can be defined, each with their own configuration

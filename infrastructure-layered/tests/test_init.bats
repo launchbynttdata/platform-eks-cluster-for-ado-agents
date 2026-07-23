@@ -95,7 +95,7 @@ teardown() {
     [[ "$output" =~ "Force initialization" ]] || [[ "$output" =~ "Would initialize" ]]
 }
 
-@test "init_layer: force flag removes stale terragrunt cache before init" {
+@test "init_layer: clears stale terragrunt and terraform caches before init" {
     local bin_dir="${BATS_TMPDIR}/bin"
     mkdir -p "${bin_dir}" "${TEST_LAYER_DIR}/.terragrunt-cache/stale" "${TEST_LAYER_DIR}/.terraform/modules"
     echo "old source" > "${TEST_LAYER_DIR}/.terragrunt-cache/stale/main.tf"
@@ -114,11 +114,12 @@ EOF
     export PATH="${bin_dir}:${PATH}"
     export DRY_RUN="false"
 
-    run init_layer "test" "${TEST_LAYER_DIR}" "true"
+    run init_layer "test" "${TEST_LAYER_DIR}" "false"
     [ "$status" -eq 0 ]
     [ ! -e "${TEST_LAYER_DIR}/.terragrunt-cache/stale/main.tf" ]
+    [ ! -e "${TEST_LAYER_DIR}/.terraform/modules/test.tf" ]
     [ -e "${TEST_LAYER_DIR}/.terragrunt-cache/fresh/main.tf" ]
-    [[ "$output" =~ "Removing stale Terragrunt cache" ]]
+    [[ "$output" =~ "Clearing local Terragrunt and Terraform caches" ]]
 }
 
 @test "init_layer: verbose mode shows debug output" {
@@ -139,20 +140,36 @@ EOF
     # Function should succeed (it changes directory internally)
 }
 
-@test "init_layer: skips initialization when already initialized" {
+@test "init_layer: reinitializes when already initialized" {
+    local bin_dir="${BATS_TMPDIR}/bin-reinit"
     # Create mock initialized state
-    mkdir -p "${TEST_LAYER_DIR}/.terragrunt-cache"
-    mkdir -p "${TEST_LAYER_DIR}/.terraform/modules"
+    mkdir -p "${bin_dir}" "${TEST_LAYER_DIR}/.terragrunt-cache" "${TEST_LAYER_DIR}/.terraform/modules"
     echo "test" > "${TEST_LAYER_DIR}/.terraform/modules/test.tf"
     
     # Create a modules.json to simulate proper cache
     mkdir -p "${TEST_LAYER_DIR}/.terragrunt-cache/test"
     echo '{"Modules":[]}' > "${TEST_LAYER_DIR}/.terragrunt-cache/test/modules.json"
+    cat > "${bin_dir}/terragrunt" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "init" ]]; then
+  mkdir -p .terraform/providers .terragrunt-cache/reinitialized
+  echo "reinitialized" > .terragrunt-cache/reinitialized/marker
+  exit 0
+fi
+exit 1
+EOF
+    chmod +x "${bin_dir}/terragrunt"
+    export PATH="${bin_dir}:${PATH}"
     
+    export DRY_RUN="false"
     export VERBOSE="true"
     run init_layer "test" "${TEST_LAYER_DIR}" "false"
     [ "$status" -eq 0 ]
-    [[ "$output" =~ "already initialized" ]] || [[ "$output" =~ "skipping init" ]]
+    [ ! -e "${TEST_LAYER_DIR}/.terragrunt-cache/test/modules.json" ]
+    [ ! -e "${TEST_LAYER_DIR}/.terraform/modules/test.tf" ]
+    [ -e "${TEST_LAYER_DIR}/.terragrunt-cache/reinitialized/marker" ]
+    [[ "$output" =~ "Running terragrunt init" ]]
 }
 
 # =============================================================================
@@ -261,7 +278,7 @@ EOF
 # Tests for initialization detection logic
 # =============================================================================
 
-@test "init_layer: detects empty terraform modules directory" {
+@test "init_layer: dry-run succeeds with empty terraform modules directory" {
     mkdir -p "${TEST_LAYER_DIR}/.terraform/modules"
     # Empty modules directory should trigger initialization
     
@@ -273,7 +290,7 @@ EOF
     [ -n "$output" ]
 }
 
-@test "init_layer: detects missing modules.json in terragrunt cache" {
+@test "init_layer: dry-run succeeds with missing modules.json in terragrunt cache" {
     mkdir -p "${TEST_LAYER_DIR}/.terragrunt-cache"
     # Cache exists but no modules.json should trigger initialization
     

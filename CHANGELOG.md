@@ -2,6 +2,30 @@
 
 This document tracks significant changes, fixes, and improvements. Entries are ordered by date (most recent first). Dates reflect last significant update per source document.
 
+## 2026-07-22
+
+- **ADO KEDA proxy security hardening**: Upgraded the proxy build and local toolchain to Go 1.26.5; added a 16 KiB request-header limit, bounded raw-query parsing, exact KEDA query validation, and redirect-disabled HTTP clients so SPN credentials and bearer tokens are never replayed to redirected hosts.
+- **KEDA pool authorization**: The proxy now derives its name/ID allow-list from enabled autoscaling `agent_pools` already passed through Terraform and Helm. Pool-name lookups can authorize only their matching returned ID, and pool fleet changes update that allow-list during the normal Helm release upgrade without new Terragrunt inputs.
+- **Proxy security checks**: Added the `make go-static` target and CI enforcement for `govulncheck`, `gosec`, `go vet`, `staticcheck`, and `golangci-lint` with error, context, HTTP body, and static analyzers.
+- **Release controls**: Final proxy tags now require `main` ancestry, while protected `-rc.N` tags can publish test images without overwriting stable major/minor tags. A repository tag ruleset restricting `ado-keda-proxy/v*` creation, update, and deletion to the release identity is required before release promotion.
+
+## 2026-07-09
+
+- **KEDA SPN authentication**: Added `app/ado-keda-proxy`, a first-class Go proxy that lets the official KEDA Azure Pipelines scaler poll Azure DevOps with SPN-backed bearer tokens instead of a real PAT in SPN mode. The proxy is allowlist-only, strips sensitive headers, pins token acquisition to Microsoft login hosts, exposes health/readiness endpoints, runs as a non-root distroless container, and is covered by focused security-negative tests.
+- **Proxy release and image publishing**: Added GitHub Actions workflows for proxy PR validation and tag-based releases from `ado-keda-proxy/vX.Y.Z`, publishing multi-architecture images to `ghcr.io/launchbynttdata/platform-eks-cluster-for-ado-agents/ado-keda-proxy` with OCI metadata and semver-derived tags.
+- **ADO agent SPN mode**: Added `ado_agent_auth_mode = "spn"` support using an externally managed AWS Secrets Manager SPN secret containing `ClientId`, `ClientSecret`, and `TenantId`. Terraform now reads and grants ESO access to that existing secret without creating or managing the secret value.
+- **PAT removal in SPN mode**: Application-layer Terraform now removes real PAT desired state in SPN mode, including PAT AWS secret/version creation, PAT bootstrap secret rendering, PAT ExternalSecret rendering, PAT deploy-script injection, and PAT-oriented operational outputs. PAT mode remains unchanged.
+- **KEDA proxy Helm integration**: The ADO agent chart renders the proxy Deployment, Service, optional NetworkPolicy, and dummy non-secret KEDA auth Secret only in SPN proxy mode. SPN-mode KEDA auth params point `organizationURL` at the proxy Service while agent pods keep the real Azure DevOps URL and SPN credential refs.
+- **KEDA proxy auth parameter fix**: SPN-mode TriggerAuthentications now provide the proxy `organizationURL` through the dummy KEDA auth Secret because KEDA 2.17 reads Azure Pipelines `organizationURL` from auth params or resolved environment, not trigger metadata.
+- **Helm chart change detection**: Application-layer Helm values now include a deterministic checksum of the local ADO agent chart so Terraform detects template-only chart fixes and upgrades the Helm release even when operator-facing values are unchanged.
+- **ScaledJob worker model**: ADO agent autoscaling uses KEDA `ScaledJob` workers with placeholder registration Jobs and offline template agents for queue matching. The deploy script refresh path now restarts KEDA after secret updates and notes that ScaledJob workers consume refreshed secrets on the next queued job.
+- **CloudWatch observability**: Added middleware-layer CloudWatch log group management, optional Amazon CloudWatch Observability EKS add-on support, Fargate Fluent Bit logging ConfigMap support, Application Signals namespace exclusions, and an `enable_ado_agent_cloudwatch_log_groups` escape hatch for accounts where deploy roles or KMS policies cannot create the ADO agent log group.
+- **Deploy script hardening**: ADO auth-mode detection is bash 3.2-compatible and fails closed when the mode cannot be determined. `--update-ado-secret` is rejected in SPN mode because SPN credential rotation is owned externally.
+- **Layer initialization reliability**: Deploy, plan, and apply paths now clear local `.terragrunt-cache` and `.terraform` directories before each layer initialization so deployments do not trust stale local provider plugins, generated modules, or Terragrunt cache contents.
+- **Deployment prerequisites**: Documented that ADO agent container images must exist in the configured repositories before the application layer deploys, because Terraform may create ECR repositories but does not build or push the image tags Helm references.
+- **ADO image build workflow**: Updated `app/build-and-push-ecr.sh` so structure-tested image pushes do not rebuild after tests pass and do not publish temporary ECR tags before tests pass. Single-platform pushes now build, load, test, and push the same image; multi-platform pushes build and test each requested platform locally, then publish temporary per-platform tags only after all tests pass, promote those images to the requested manifest tag, and clean up the temporary tags.
+- **Documentation and tests**: Added the ADO KEDA proxy reference, expanded Terragrunt configuration docs, pinned Go with `mise`, and added Go, Helm render, Terragrunt HCL, and BATS coverage for the SPN/KEDA migration paths.
+
 ## 2026-03-05
 
 - **IAM documentation**: Updated IAM roles and policies documentation for ADO agents

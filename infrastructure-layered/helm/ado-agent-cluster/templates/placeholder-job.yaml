@@ -65,15 +65,23 @@ spec:
         imagePullPolicy: {{ $poolConfig.image.pullPolicy }}
         env:
         - name: AZP_ORG
+          {{- if eq ($.Values.auth.mode | default "pat") "spn" }}
+          value: {{ $.Values.auth.adoOrg | quote }}
+          {{- else }}
           valueFrom:
             secretKeyRef:
               name: {{ $poolConfig.ado.secretName }}
               key: organization
+          {{- end }}
         - name: AZP_URL
+          {{- if eq ($.Values.auth.mode | default "pat") "spn" }}
+          value: {{ $.Values.auth.adoURL | quote }}
+          {{- else }}
           valueFrom:
             secretKeyRef:
               name: {{ $poolConfig.ado.secretName }}
               key: adourl
+          {{- end }}
         {{- if eq ($.Values.auth.mode | default "pat") "spn" }}
         - name: AZP_CLIENTID
           valueFrom:

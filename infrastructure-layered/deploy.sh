@@ -307,9 +307,52 @@ require_ado_credentials() {
     prompt_for_ado_credentials
 }
 
+configured_ado_auth_mode() {
+    local mode=""
+    if [[ -n "${TF_VAR_ado_agent_auth_mode:-}" ]]; then
+        mode="${TF_VAR_ado_agent_auth_mode}"
+    elif [[ -n "${ADO_AGENT_AUTH_MODE:-}" ]]; then
+        mode="${ADO_AGENT_AUTH_MODE}"
+    else
+        local env_file="${DEPLOY_LAYERS_DIR:-${SCRIPT_DIR}}/env.hcl"
+        if [[ ! -r "${env_file}" ]]; then
+            log_error "Unable to determine ADO auth mode: ${env_file} is missing or unreadable."
+            log_error "Set ADO_AGENT_AUTH_MODE or TF_VAR_ado_agent_auth_mode to pat or spn."
+            return 1
+        fi
+
+        mode=$(sed -n 's/^[[:space:]]*ado_agent_auth_mode[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "${env_file}" | tail -n 1)
+        if [[ -z "${mode}" ]]; then
+            log_error "Unable to determine ADO auth mode from ${env_file}."
+            log_error "Set ado_agent_auth_mode to a literal \"pat\" or \"spn\", or export ADO_AGENT_AUTH_MODE."
+            return 1
+        fi
+    fi
+
+    mode=$(printf '%s' "${mode}" | tr '[:upper:]' '[:lower:]')
+    case "${mode}" in
+        pat|spn)
+            echo "${mode}"
+            ;;
+        *)
+            log_error "Unsupported ADO auth mode: ${mode}"
+            log_error "Set ADO auth mode to pat or spn."
+            return 1
+            ;;
+    esac
+}
+
 validate_update_ado_secret_prerequisites() {
     if [[ "${UPDATE_ADO_SECRET}" != "true" ]]; then
         return 0
+    fi
+
+    local auth_mode
+    auth_mode=$(configured_ado_auth_mode) || return 1
+    if [[ "${auth_mode}" == "spn" ]]; then
+        log_error "--update-ado-secret is only valid for PAT mode."
+        log_error "SPN mode uses an externally managed AWS Secrets Manager secret."
+        return 1
     fi
 
     if [[ "${AUTO_APPROVE}" == "true" ]]; then
@@ -607,51 +650,14 @@ init_layer() {
         log_info "[DRY-RUN] Would initialize ${layer} layer"
         return 0
     fi
-    
-    # Check if initialization is needed
-    local needs_init=false
-    
+
     if [[ "${force}" == "true" ]]; then
         log_debug "Force initialization requested"
-        if [[ -d "${layer_dir}/.terragrunt-cache" ]]; then
-            log_info "Removing stale Terragrunt cache for ${layer} layer..."
-            rm -rf -- "${layer_dir}/.terragrunt-cache"
-        fi
-        needs_init=true
-    elif [[ ! -d "${layer_dir}/.terragrunt-cache" ]]; then
-        log_debug "Terragrunt cache not found - initialization needed"
-        needs_init=true
-    elif [[ ! -d "${layer_dir}/.terraform" ]]; then
-        log_debug "Terraform directory not found - initialization needed"
-        needs_init=true
-    else
-        # Check if .terraform/modules exists and has content (for external modules)
-        if [[ -d "${layer_dir}/.terraform/modules" ]]; then
-            local module_count
-            module_count=$(find "${layer_dir}/.terraform/modules" -type f -name "*.tf" 2>/dev/null | wc -l | tr -d ' ')
-            if [[ "${module_count}" -eq 0 ]]; then
-                log_debug "Terraform modules directory is empty - initialization needed"
-                needs_init=true
-            fi
-        fi
-        
-        # Check if .terragrunt-cache contains proper Terraform modules
-        if [[ -d "${layer_dir}/.terragrunt-cache" ]]; then
-            # Look for module manifests in terragrunt cache
-            local cache_modules
-            cache_modules=$(find "${layer_dir}/.terragrunt-cache" -type f -name "modules.json" 2>/dev/null | wc -l | tr -d ' ')
-            if [[ "${cache_modules}" -eq 0 ]]; then
-                log_debug "Terragrunt cache exists but no module manifests found - initialization needed"
-                needs_init=true
-            fi
-        fi
     fi
-    
-    if [[ "${needs_init}" == "false" ]]; then
-        log_info "Layer ${layer} already initialized, skipping init"
-        return 0
-    fi
-    
+
+    log_info "Clearing local Terragrunt and Terraform caches for ${layer} layer..."
+    rm -rf -- "${layer_dir}/.terragrunt-cache" "${layer_dir}/.terraform"
+
     log_info "Running terragrunt init for ${layer} layer..."
     
     local init_args=("--non-interactive")
@@ -1096,6 +1102,13 @@ prompt_for_ado_credentials() {
 }
 
 prepare_ado_pat_for_terraform() {
+    local auth_mode
+    auth_mode=$(configured_ado_auth_mode) || return 1
+    if [[ "${auth_mode}" == "spn" ]]; then
+        unset TF_VAR_ado_pat_value
+        return 0
+    fi
+
     if [[ -n "${ADO_PAT:-}" ]]; then
         export TF_VAR_ado_pat_value="${ADO_PAT}"
     fi
@@ -1205,6 +1218,14 @@ refresh_ado_secret_in_cluster() {
 inject_ado_secret() {
     local cluster_name="$1"
     local region="$2"
+
+    local auth_mode
+    auth_mode=$(configured_ado_auth_mode) || return 1
+    if [[ "${auth_mode}" == "spn" ]]; then
+        log_error "ADO PAT injection is disabled in SPN mode."
+        log_error "Rotate the externally managed SPN secret in the owning system."
+        return 1
+    fi
     
     log_info "Updating ADO PAT in AWS Secrets Manager..."
     
@@ -1412,6 +1433,14 @@ deploy_config_layer() {
     fi
 
     if [[ "${update_ado_secret}" == "true" ]]; then
+        local auth_mode
+        auth_mode=$(configured_ado_auth_mode) || return 1
+        if [[ "${auth_mode}" == "spn" ]]; then
+            log_error "--update-ado-secret is only valid for PAT mode."
+            log_error "SPN mode uses an externally managed AWS Secrets Manager secret."
+            return 1
+        fi
+
         local application_secret_json
         application_secret_json=$(get_terragrunt_output_json "application" "ado_pat_secret" || true)
         local application_secret_name
@@ -1481,8 +1510,14 @@ deploy_config_layer() {
     log_info "Check External Secrets:"
     log_info "  kubectl get externalsecrets -A"
     log_info ""
-    log_info "To update ADO PAT later:"
-    log_info "  ./${SCRIPT_NAME} deploy --layer config --update-ado-secret"
+    local auth_mode
+    auth_mode=$(configured_ado_auth_mode) || return 1
+    if [[ "${auth_mode}" == "spn" ]]; then
+        log_info "SPN mode: rotate the externally managed AWS Secrets Manager secret in the owning system."
+    else
+        log_info "To update ADO PAT later:"
+        log_info "  ./${SCRIPT_NAME} deploy --layer config --update-ado-secret"
+    fi
     echo
     
     return 0

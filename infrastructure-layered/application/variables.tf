@@ -145,7 +145,7 @@ variable "secret_refresh_interval" {
 }
 
 variable "ado_agent_auth_mode" {
-  description = "Authentication mode for ADO agent pods. KEDA continues to use the PAT secret."
+  description = "Authentication mode for ADO agent pods and KEDA queue polling. Valid values are pat and spn."
   type        = string
   default     = "pat"
   nullable    = false
@@ -181,6 +181,43 @@ variable "ado_agent_spn_secret" {
   validation {
     condition     = var.ado_agent_spn_secret.refresh_interval == null || var.ado_agent_spn_secret.refresh_interval == "" || can(regex("^\\d+[smh]$", var.ado_agent_spn_secret.refresh_interval))
     error_message = "ado_agent_spn_secret.refresh_interval must be empty or use a duration like '5m', '30s', or '1h'."
+  }
+}
+
+variable "ado_keda_proxy" {
+  description = "Configuration for the ADO KEDA proxy used when ado_agent_auth_mode is spn."
+  type = object({
+    image_repository  = optional(string, "ghcr.io/launchbynttdata/platform-eks-cluster-for-ado-agents/ado-keda-proxy")
+    image_tag         = optional(string, "v0.1.0")
+    image_digest      = optional(string, "")
+    image_pull_policy = optional(string, "IfNotPresent")
+    resources = optional(object({
+      requests = optional(object({
+        cpu    = optional(string, "25m")
+        memory = optional(string, "64Mi")
+      }), {})
+      limits = optional(object({
+        cpu    = optional(string, "250m")
+        memory = optional(string, "256Mi")
+      }), {})
+    }), {})
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = can(regex("^[a-z0-9]+([._/-]?[a-z0-9]+)*(:[0-9]+)?(/[a-z0-9]+([._-]?[a-z0-9]+)*)*$", var.ado_keda_proxy.image_repository))
+    error_message = "ado_keda_proxy.image_repository must be a valid lowercase OCI image repository."
+  }
+
+  validation {
+    condition     = contains(["Always", "IfNotPresent", "Never"], var.ado_keda_proxy.image_pull_policy)
+    error_message = "ado_keda_proxy.image_pull_policy must be Always, IfNotPresent, or Never."
+  }
+
+  validation {
+    condition     = var.ado_keda_proxy.image_digest == "" || can(regex("^sha256:[a-f0-9]{64}$", var.ado_keda_proxy.image_digest))
+    error_message = "ado_keda_proxy.image_digest must be empty or a sha256 digest."
   }
 }
 

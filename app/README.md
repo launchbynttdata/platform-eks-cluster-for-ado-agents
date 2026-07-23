@@ -8,6 +8,7 @@ Docker build contexts for Azure DevOps agent container images deployed by the pl
 |-----------|---------|
 | `ado-agent/` | General-purpose build agent image |
 | `ado-agent-iac/` | Infrastructure-as-code focused agent image |
+| `ado-keda-proxy/` | Go proxy that lets official KEDA poll Azure DevOps with SPN-backed bearer auth |
 
 ## Build and push
 
@@ -22,8 +23,26 @@ For multi-arch builds, see [OCI image cross-build guide](../docs/guides/OCI_IMAG
 
 ### Container structure tests
 
-When a build context includes `container-structure-test.yaml` at its root (for example `ado-agent/container-structure-test.yaml`), `build-and-push-ecr.sh` runs [container-structure-test](https://github.com/GoogleContainerTools/container-structure-test) against a locally loaded image before the build completes. Install the CLI via mise (`container-structure-test` is pinned in `.tool-versions`).
+When a build context includes `container-structure-test.yaml` at its root (for example `ado-agent/container-structure-test.yaml`), `build-and-push-ecr.sh` runs [container-structure-test](https://github.com/GoogleContainerTools/container-structure-test) before publishing the requested image tag. Install the CLI via mise (`container-structure-test` is pinned in `.tool-versions`).
 
-For multi-arch pushes, structure tests run against the first `--platforms` value using a locally built image. After the test passes, the script pushes the full multi-platform image to the requested tag only. CST is invoked with `--platform` matching the tested image (required on Apple Silicon when testing non-arm64 images).
+Single-platform pushes build once with Buildx, load that image locally, test it, then push that same image with `docker push`.
+
+For multi-arch pushes, the script builds and tests each requested platform locally before writing anything to ECR. After every structure test passes, it pushes temporary per-platform ECR tags, promotes those tested images to the requested manifest tag with `docker buildx imagetools create`, and deletes the temporary tags after the run. CST is invoked with `--platform` matching each tested image (required on Apple Silicon when testing non-arm64 images).
 
 Agent deployments are managed by Helm via the [application layer](../docs/deployment/application-layer.md), not raw Kubernetes manifests in this directory.
+
+## ADO KEDA proxy releases
+
+The `ado-keda-proxy` image is published by GitHub Actions when a tag matching
+`ado-keda-proxy/vX.Y.Z` is pushed. Release candidates use
+`ado-keda-proxy/vX.Y.Z-rc.N`; they publish only RC and SHA tags for testing.
+Final tags must reference a commit reachable from `main`. Images are published to:
+
+```text
+ghcr.io/launchbynttdata/platform-eks-cluster-for-ado-agents/ado-keda-proxy
+```
+
+After the first publish, confirm the GHCR package is public if the organization
+default did not make linked packages public automatically. See
+[ADO_KEDA_PROXY.md](../docs/reference/ADO_KEDA_PROXY.md) for runtime and
+security details.

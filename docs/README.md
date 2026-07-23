@@ -40,6 +40,7 @@ Documentation for the EKS cluster platform with Azure DevOps self-hosted agents.
 - [IAM_ADO_AGENTS.md](./reference/IAM_ADO_AGENTS.md) - IAM roles and policies for ADO agents
 - [FARGATE_CONFIGURATION.md](./reference/FARGATE_CONFIGURATION.md) - Fargate profile configuration
 - [ADO_SECRET_MANAGEMENT.md](./reference/ADO_SECRET_MANAGEMENT.md) - ADO PAT lifecycle and ESO sync
+- [ADO_KEDA_PROXY.md](./reference/ADO_KEDA_PROXY.md) - SPN-backed proxy for KEDA Azure Pipelines scaling
 - [CNI_MODES.md](./reference/CNI_MODES.md) - VPC CNI and optional Cilium overlay networking modes
 - [cluster-autoscaler-middleware.md](./reference/cluster-autoscaler-middleware.md) - Cluster autoscaler in layered infra
 - [ADDONS_AND_COMPUTE.md](./reference/ADDONS_AND_COMPUTE.md) - EKS addon ordering and compute dependencies

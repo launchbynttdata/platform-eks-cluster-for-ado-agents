@@ -22,10 +22,11 @@ Environment:
   cross-building linux/amd64 and linux/arm64 images with Buildx.
 
 Structure tests:
-  When <context>/container-structure-test.yaml exists, the script builds once,
-  runs container-structure-test, then pushes (or loads) the requested image tag.
-  Multi-arch pushes test the first --platforms value locally, then build and push
-  the full multi-platform image to the requested tag.
+  When <context>/container-structure-test.yaml exists, the script builds once.
+  Single-platform builds are loaded, tested, then pushed with docker push.
+  Multi-platform builds are built and tested locally once per platform. Only
+  after every structure test passes does the script push temporary platform tags
+  and promote them to the requested multi-platform image tag.
 
 Examples:
   # Push one manifest tag that works on Linux x86_64 and arm64 cluster nodes.
@@ -209,14 +210,78 @@ run_buildx() {
   docker "${args[@]}"
 }
 
-# Single-platform build loaded into the local Docker daemon. container-structure-test
-# reads images from the default daemon, not the buildx docker-container builder cache.
-run_local_build() {
+run_docker_push() {
+  local image_tag="$1"
+
+  docker push "$image_tag"
+}
+
+tag_image() {
+  local source_image="$1"
+  local target_image="$2"
+
+  docker tag "$source_image" "$target_image"
+}
+
+create_manifest_from_images() {
+  local target_image="$1"
+  shift
+
+  docker buildx imagetools create -t "$target_image" "$@"
+}
+
+delete_ecr_image_tag() {
+  local image_tag="$1"
+
+  aws ecr batch-delete-image \
+    --region "$REGION" \
+    --repository-name "$REPO" \
+    --image-ids "imageTag=${image_tag}" >/dev/null 2>&1 || true
+}
+
+cleanup_temp_image() {
+  local tag
+
+  for tag in "${TEMP_TAGS[@]:-}"; do
+    delete_ecr_image_tag "$tag"
+  done
+}
+
+temporary_tag() {
+  local suffix="$1"
+  local now
+
+  now="$(date +%Y%m%d%H%M%S)"
+  echo "${TAG}-buildtest-${suffix}-${now}-$$"
+}
+
+is_multi_platform() {
+  [[ "$PLATFORMS" == *,* ]]
+}
+
+safe_platform_name() {
+  local platform="$1"
+
+  platform="${platform//\//-}"
+  platform="${platform//./-}"
+  echo "$platform"
+}
+
+local_platform_image() {
+  local platform="$1"
+  local safe_platform
+
+  safe_platform="$(safe_platform_name "$platform")"
+  echo "ado-build-local/${REPO}:${TAG}-${safe_platform}"
+}
+
+run_local_buildx_load() {
   local platform="$1"
   local image_tag="$2"
 
   local args=(
-    build
+    buildx build
+    --builder "$BUILDER"
     --platform "$platform"
     --file "$DOCKERFILE"
     -t "$image_tag"
@@ -226,7 +291,7 @@ run_local_build() {
     args+=(--no-cache)
   fi
 
-  args+=("$CTX")
+  args+=(--load "$CTX")
   docker "${args[@]}"
   ensure_local_image "$image_tag"
 }
@@ -260,21 +325,57 @@ run_structure_tests() {
 TEST_PLATFORM="$(first_platform "$PLATFORMS")"
 
 if [[ "$RUN_STRUCTURE_TESTS" == true ]]; then
-  BUILD_IMAGE="$IMAGE"
-  BUILD_PLATFORM="$TEST_PLATFORM"
-
-  echo "Building image: $BUILD_IMAGE"
+  echo "Building image: $IMAGE"
   echo "Context: $CTX"
   echo "Dockerfile: $DOCKERFILE"
-  echo "Platforms: $BUILD_PLATFORM"
-  run_local_build "$BUILD_PLATFORM" "$BUILD_IMAGE"
-  run_structure_tests "$BUILD_IMAGE" "$BUILD_PLATFORM"
+  echo "Platforms: $PLATFORMS"
 
   if [[ "$LOAD" == true ]]; then
-    echo "Loaded locally: $IMAGE ($BUILD_PLATFORM)"
+    run_local_buildx_load "$TEST_PLATFORM" "$IMAGE"
+    run_structure_tests "$IMAGE" "$TEST_PLATFORM"
+    echo "Loaded locally: $IMAGE ($TEST_PLATFORM)"
+  elif is_multi_platform; then
+    IFS=',' read -r -a REQUESTED_PLATFORMS <<< "$PLATFORMS"
+    TEMP_TAGS=()
+    TEMP_IMAGES=()
+    trap cleanup_temp_image EXIT
+
+    for platform in "${REQUESTED_PLATFORMS[@]}"; do
+      platform="${platform#"${platform%%[![:space:]]*}"}"
+      platform="${platform%"${platform##*[![:space:]]}"}"
+
+      LOCAL_IMAGE="$(local_platform_image "$platform")"
+      echo "Building local test image: $LOCAL_IMAGE ($platform)"
+      run_local_buildx_load "$platform" "$LOCAL_IMAGE"
+      run_structure_tests "$LOCAL_IMAGE" "$platform"
+    done
+
+    for platform in "${REQUESTED_PLATFORMS[@]}"; do
+      platform="${platform#"${platform%%[![:space:]]*}"}"
+      platform="${platform%"${platform##*[![:space:]]}"}"
+
+      LOCAL_IMAGE="$(local_platform_image "$platform")"
+      TEMP_TAG="$(temporary_tag "$(safe_platform_name "$platform")")"
+      TEMP_IMAGE="${ECR_URI}/${REPO}:${TEMP_TAG}"
+      TEMP_TAGS+=("$TEMP_TAG")
+      TEMP_IMAGES+=("$TEMP_IMAGE")
+
+      echo "Pushing tested platform image: $TEMP_IMAGE ($platform)"
+      tag_image "$LOCAL_IMAGE" "$TEMP_IMAGE"
+      run_docker_push "$TEMP_IMAGE"
+    done
+
+    echo "Promoting tested platform images to manifest: $IMAGE"
+    create_manifest_from_images "$IMAGE" "${TEMP_IMAGES[@]}"
+    cleanup_temp_image
+    TEMP_TAGS=()
+    trap - EXIT
+    echo "Pushed: $IMAGE ($PLATFORMS)"
   else
-    echo "Pushing image: $IMAGE"
-    run_buildx "$PLATFORMS" --push "$IMAGE"
+    run_local_buildx_load "$TEST_PLATFORM" "$IMAGE"
+    run_structure_tests "$IMAGE" "$TEST_PLATFORM"
+    echo "Pushing tested image: $IMAGE"
+    run_docker_push "$IMAGE"
     echo "Pushed: $IMAGE ($PLATFORMS)"
   fi
 else

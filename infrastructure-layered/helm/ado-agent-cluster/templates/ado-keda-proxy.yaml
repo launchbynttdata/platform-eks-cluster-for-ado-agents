@@ -1,0 +1,185 @@
+{{- if and (eq (.Values.auth.mode | default "pat") "spn") .Values.adoKedaProxy.enabled }}
+{{- $allowedPoolNames := list }}
+{{- $allowedPoolIDs := list }}
+{{- $allowedJobsToFetch := list }}
+{{- range $poolName, $poolConfig := .Values.agentPools }}
+{{- if and $poolConfig.enabled $poolConfig.autoscaling.enabled }}
+{{- if $poolConfig.autoscaling.poolID }}
+{{- $allowedPoolIDs = append $allowedPoolIDs (toString $poolConfig.autoscaling.poolID) }}
+{{- else }}
+{{- $allowedPoolNames = append $allowedPoolNames $poolConfig.ado.poolName }}
+{{- end }}
+{{- if and (not $poolConfig.autoscaling.templateAgentName) (not $poolConfig.autoscaling.createTemplateAgent) (not $poolConfig.autoscaling.fetchUnfinishedJobsOnly) }}
+{{- $jobsToFetch := $poolConfig.autoscaling.jobsToFetch | default 250 }}
+{{- $allowedJobsToFetch = append $allowedJobsToFetch (toString $jobsToFetch) }}
+{{- end }}
+{{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.auth.dummyKedaPATSecretName }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "ado-agent-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ado-keda-proxy
+type: Opaque
+stringData:
+  personalAccessToken: {{ .Values.auth.dummyKedaPATValue | quote }}
+  organizationURL: {{ include "ado-agent-cluster.kedaProxyURL" . | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ado-agent-cluster.kedaProxyName" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "ado-agent-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ado-keda-proxy
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: {{ .Values.adoKedaProxy.service.port }}
+    targetPort: http
+  selector:
+    {{- include "ado-agent-cluster.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: ado-keda-proxy
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ado-agent-cluster.kedaProxyName" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "ado-agent-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ado-keda-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ado-agent-cluster.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ado-keda-proxy
+  template:
+    metadata:
+      labels:
+        {{- include "ado-agent-cluster.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ado-keda-proxy
+        {{- with .Values.adoKedaProxy.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.adoKedaProxy.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      {{- with .Values.adoKedaProxy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.adoKedaProxy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.adoKedaProxy.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.adoKedaProxy.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: ado-keda-proxy
+        image: {{ include "ado-agent-cluster.kedaProxyImage" . | quote }}
+        imagePullPolicy: {{ .Values.adoKedaProxy.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.adoKedaProxy.service.port }}
+        env:
+        - name: ADO_ORG_URL
+          value: {{ .Values.auth.adoURL | quote }}
+        - name: ALLOWED_POOL_NAMES
+          value: {{ join "," (uniq (sortAlpha $allowedPoolNames)) | quote }}
+        - name: ALLOWED_POOL_IDS
+          value: {{ join "," (uniq (sortAlpha $allowedPoolIDs)) | quote }}
+        - name: ALLOWED_JOBS_TO_FETCH
+          value: {{ join "," (uniq (sortAlpha $allowedJobsToFetch)) | quote }}
+        - name: AZP_CLIENTID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.auth.spnSecretName }}
+              key: AZP_CLIENTID
+        - name: AZP_CLIENTSECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.auth.spnSecretName }}
+              key: AZP_CLIENTSECRET
+        - name: AZP_TENANTID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.auth.spnSecretName }}
+              key: AZP_TENANTID
+        {{- range $name, $value := .Values.adoKedaProxy.env }}
+        - name: {{ $name }}
+          value: {{ $value | quote }}
+        {{- end }}
+        - name: LISTEN_ADDRESS
+          value: {{ printf ":%v" .Values.adoKedaProxy.service.port | quote }}
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        {{- with .Values.adoKedaProxy.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.adoKedaProxy.securityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+{{- if .Values.adoKedaProxy.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ado-agent-cluster.kedaProxyName" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "ado-agent-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ado-keda-proxy
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "ado-agent-cluster.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ado-keda-proxy
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        {{- toYaml .Values.adoKedaProxy.networkPolicy.kedaNamespaceSelector | nindent 8 }}
+      podSelector:
+        {{- toYaml .Values.adoKedaProxy.networkPolicy.kedaPodSelector | nindent 8 }}
+    ports:
+    - protocol: TCP
+      port: http
+{{- end }}
+{{- end }}

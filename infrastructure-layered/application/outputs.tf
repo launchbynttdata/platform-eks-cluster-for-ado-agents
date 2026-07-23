@@ -24,11 +24,11 @@ output "ecr_repositories" {
 
 output "ado_pat_secret" {
   description = "ADO PAT secret information"
-  value = {
-    name = aws_secretsmanager_secret.ado_pat.name
-    arn  = aws_secretsmanager_secret.ado_pat.arn
-    id   = aws_secretsmanager_secret.ado_pat.id
-  }
+  value = local.requires_ado_pat_secret ? {
+    name = aws_secretsmanager_secret.ado_pat[0].name
+    arn  = aws_secretsmanager_secret.ado_pat[0].arn
+    id   = aws_secretsmanager_secret.ado_pat[0].id
+  } : null
   sensitive = true
 }
 
@@ -94,7 +94,8 @@ output "application_summary" {
 
     # Security configuration
     secrets = {
-      ado_pat_secret_name = aws_secretsmanager_secret.ado_pat.name
+      ado_pat_secret_name = local.requires_ado_pat_secret ? aws_secretsmanager_secret.ado_pat[0].name : null
+      ado_spn_secret_name = local.ado_agent_spn_enabled ? local.ado_agent_spn_aws_secret_name : null
     }
 
     # Deployment metadata
@@ -132,10 +133,17 @@ output "operational_info" {
     }
 
     # AWS CLI commands for secrets management
-    aws_commands = {
-      view_secret   = "aws secretsmanager get-secret-value --secret-id ${aws_secretsmanager_secret.ado_pat.name} --query SecretString --output text"
-      update_secret = "aws secretsmanager update-secret --secret-id ${aws_secretsmanager_secret.ado_pat.name} --secret-string '{\"personalAccessToken\":\"NEW_PAT\",\"organization\":\"${var.ado_org}\",\"adourl\":\"${var.ado_url}\"}'"
-    }
+    aws_commands = (
+      local.requires_ado_pat_secret
+      ? {
+        view_secret   = "aws secretsmanager get-secret-value --secret-id ${aws_secretsmanager_secret.ado_pat[0].name} --query SecretString --output text"
+        update_secret = "aws secretsmanager update-secret --secret-id ${aws_secretsmanager_secret.ado_pat[0].name} --secret-string '{\"personalAccessToken\":\"NEW_PAT\",\"organization\":\"${var.ado_org}\",\"adourl\":\"${var.ado_url}\"}'"
+      }
+      : {
+        view_secret   = "aws secretsmanager get-secret-value --secret-id ${local.ado_agent_spn_aws_secret_name} --query SecretString --output text"
+        update_secret = "SPN secret is externally managed; rotate it in the owning system."
+      }
+    )
 
     # Monitoring and observability
     monitoring = {
