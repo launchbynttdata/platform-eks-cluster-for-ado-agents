@@ -823,11 +823,6 @@ resource "kubernetes_manifest" "buildkitd" {
           labels = {
             app = "buildkitd"
           }
-          # buildkitd reads this ConfigMap only at startup, so its content hash
-          # must be part of the pod template to trigger a rolling restart.
-          annotations = {
-            "platform.launch.nttdata.com/buildkitd-config-sha256" = sha256(local.buildkitd_config_toml)
-          }
         }
         spec = {
           serviceAccountName = kubernetes_service_account.buildkitd[0].metadata[0].name
@@ -921,7 +916,11 @@ resource "kubernetes_manifest" "buildkitd" {
                 { name = "AWS_DEFAULT_REGION", value = data.aws_region.current.name },
                 { name = "AWS_EC2_METADATA_DISABLED", value = "true" },
                 { name = "DOCKER_CONFIG", value = "/home/user/.docker" },
-                { name = "PATH", value = "/ecr:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }
+                { name = "PATH", value = "/ecr:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" },
+                # buildkitd reads this ConfigMap only at startup. Keep its digest
+                # in a Terraform-managed pod-template field to trigger a rollout
+                # when the rendered configuration changes.
+                { name = "BUILDKITD_CONFIG_SHA256", value = sha256(local.buildkitd_config_toml) }
               ]
               args = concat(local.buildkitd_base_args, local.buildkitd_tls_args)
               securityContext = {
@@ -1040,6 +1039,11 @@ resource "kubernetes_manifest" "buildkitd" {
     "metadata.resourceVersion",
     "metadata.uid",
     "status",
+    # The scheduled recycler runs `kubectl rollout restart`, which writes a
+    # timestamp annotation. Provider v2 cannot reliably treat one nested map
+    # key as computed, so Kubernetes owns this annotation map. The managed
+    # BuildKit configuration digest is kept in the pod environment instead.
+    "spec.template.metadata.annotations",
   ]
 }
 

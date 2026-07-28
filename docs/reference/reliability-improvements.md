@@ -93,6 +93,11 @@ upstream bug is fixed:
   `buildkitd` Deployment. Because a restart interrupts in-flight builds and
   clears the node-local `emptyDir` cache, schedule it during a low-traffic
   window.
+  Its pod-template annotations are externally managed by Terraform because the
+  Kubernetes provider version used by this platform cannot reliably ignore only
+  the restart timestamp. An environment variable holds the Terraform-managed
+  BuildKit configuration digest instead, so configuration changes still trigger
+  configuration rollouts.
 
 To confirm whether keys are still leaking on a given BuildKit/runc version, watch
 the `qnkeys/maxkeys` field for the BuildKit UID across a sequence of builds:
