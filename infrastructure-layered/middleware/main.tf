@@ -950,7 +950,7 @@ resource "kubernetes_manifest" "buildkitd" {
             }
           ]
           volumes = concat([
-            { name = "ecr-helper-bin", emptyDir = {} },
+            { name = "ecr-helper-bin", emptyDir = { medium = "" } },
             {
               name = "buildkit-docker-config"
               configMap = {
@@ -971,14 +971,18 @@ resource "kubernetes_manifest" "buildkitd" {
             },
             {
               name = "tmp"
-              emptyDir = var.buildkitd_tmp_storage_size == null ? {} : {
-                sizeLimit = var.buildkitd_tmp_storage_size
-              }
+              emptyDir = merge(
+                { medium = "" },
+                var.buildkitd_tmp_storage_size == null ? {} : {
+                  sizeLimit = var.buildkitd_tmp_storage_size
+                }
+              )
             },
-            { name = "run", emptyDir = {} },
+            { name = "run", emptyDir = { medium = "" } },
             {
               name = "buildkit-rootless"
               emptyDir = {
+                medium    = ""
                 sizeLimit = var.buildkitd_storage_size
               }
             }
