@@ -30,7 +30,22 @@ BuildKit remains a ClusterIP service, with these reliability controls:
 - optional topology spread across zones,
 - a PodDisruptionBudget,
 - HPA support,
+- configurable OCI-worker garbage collection thresholds,
+- optional Kubernetes ephemeral-storage requests and limits,
+- separate size limits for the cache and `/tmp` node-backed `emptyDir` volumes,
 - optional TLS wiring when a Kubernetes secret with `ca.pem`, `cert.pem`, and `key.pem` is provided.
+
+BuildKit garbage collection removes unused cache; it cannot reclaim records used
+by an active build. Configure `buildkitd_gc.max_used_space` below
+`buildkitd_storage_size` with enough remaining space for the largest expected
+active build. The `emptyDir` size limits do not provision disk and can never
+exceed the storage available on the selected node. Kubernetes also uses the same
+node-local storage for container images, writable layers, logs, and system data.
+
+Set `buildkitd_resources.requests.ephemeral_storage` so the scheduler and Cluster
+Autoscaler account for expected pod disk use. Set
+`buildkitd_resources.limits.ephemeral_storage` to bound total pod ephemeral
+storage, including `emptyDir` volumes, writable layers, and logs.
 
 ## ECR Pull-Through Cache
 

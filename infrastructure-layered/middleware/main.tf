@@ -779,6 +779,10 @@ resource "kubernetes_config_map" "buildkitd_config" {
     "buildkitd.toml" = <<-EOT
       [worker.oci]
         max-parallelism = 1
+        gc = ${var.buildkitd_gc.enabled}
+        ${var.buildkitd_gc.reserved_space == null ? "" : "reservedSpace = ${jsonencode(var.buildkitd_gc.reserved_space)}"}
+        ${var.buildkitd_gc.max_used_space == null ? "" : "maxUsedSpace = ${jsonencode(var.buildkitd_gc.max_used_space)}"}
+        ${var.buildkitd_gc.min_free_space == null ? "" : "minFreeSpace = ${jsonencode(var.buildkitd_gc.min_free_space)}"}
       ${local.buildkitd_registry_mirror_config}
     EOT
   }
@@ -903,14 +907,24 @@ resource "kubernetes_manifest" "buildkitd" {
                 periodSeconds       = 20
               }
               resources = {
-                requests = {
-                  cpu    = var.buildkitd_resources.requests.cpu
-                  memory = var.buildkitd_resources.requests.memory
-                }
-                limits = {
-                  cpu    = var.buildkitd_resources.limits.cpu
-                  memory = var.buildkitd_resources.limits.memory
-                }
+                requests = merge(
+                  {
+                    cpu    = var.buildkitd_resources.requests.cpu
+                    memory = var.buildkitd_resources.requests.memory
+                  },
+                  var.buildkitd_resources.requests.ephemeral_storage == null ? {} : {
+                    "ephemeral-storage" = var.buildkitd_resources.requests.ephemeral_storage
+                  }
+                )
+                limits = merge(
+                  {
+                    cpu    = var.buildkitd_resources.limits.cpu
+                    memory = var.buildkitd_resources.limits.memory
+                  },
+                  var.buildkitd_resources.limits.ephemeral_storage == null ? {} : {
+                    "ephemeral-storage" = var.buildkitd_resources.limits.ephemeral_storage
+                  }
+                )
               }
               volumeMounts = concat([
                 { name = "tmp", mountPath = "/tmp" },
@@ -944,7 +958,12 @@ resource "kubernetes_manifest" "buildkitd" {
                 name = kubernetes_config_map.buildkitd_config[0].metadata[0].name
               }
             },
-            { name = "tmp", emptyDir = {} },
+            {
+              name = "tmp"
+              emptyDir = var.buildkitd_tmp_storage_size == null ? {} : {
+                sizeLimit = var.buildkitd_tmp_storage_size
+              }
+            },
             { name = "run", emptyDir = {} },
             {
               name = "buildkit-rootless"

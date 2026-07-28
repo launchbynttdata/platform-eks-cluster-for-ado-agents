@@ -17,10 +17,10 @@ This layer deploys cluster operators and middleware services on the EKS cluster.
 - **IAM Role**: Created with basic Secrets Manager permissions
 ### Buildkitd Service
 - **Purpose**: Provides cluster-wide container build capabilities
-- **Image**: `moby/buildkit:v0.12.5` (configurable)
+- **Image**: `moby/buildkit:v0.30.0-rootless` (configurable)
 - **Namespace**: `buildkit-system` (configurable)
 - **Deployment**: Standalone service accessible cluster-wide
-- **Storage**: Configurable ephemeral storage for builds
+- **Storage**: Configurable node-backed ephemeral storage for builds
 
 ### Namespaces Created
 - KEDA system namespace
@@ -125,10 +125,18 @@ See [Operations Guide](./OPERATIONS.md) for detailed instructions.
 - **IAM Permissions**: Basic Secrets Manager access (specific secrets added by application layer)
 
 ### Buildkitd Configuration
-- **Privileged**: Runs in privileged mode for container builds
+- **Execution**: Runs as a non-root user with the rootless BuildKit image; the no-process-sandbox mode requires privilege escalation plus unconfined seccomp and AppArmor profiles
 - **Node Selection**: Can be configured to run on specific EC2 nodes
-- **Storage**: Uses ephemeral storage (configurable size)
+- **Storage**: Uses node-backed `emptyDir` volumes for its cache and `/tmp`; their size limits do not provision or resize node disks
+- **Garbage Collection**: Supports explicit OCI-worker cache retention and free-space thresholds through `buildkitd_gc`
+- **Scheduling**: Optional `ephemeral_storage` requests and limits in `buildkitd_resources` make pod disk consumption visible to Kubernetes
 - **Service**: Exposed as ClusterIP service for cluster-wide access
+
+Keep the BuildKit cache, `/tmp`, container images, logs, and node system overhead
+within node allocatable ephemeral storage. For constrained nodes, configure an
+absolute `buildkitd_gc.max_used_space` below `buildkitd_storage_size` and leave
+enough headroom for active builds, because garbage collection cannot remove cache
+records still in use.
 
 ## Verification
 

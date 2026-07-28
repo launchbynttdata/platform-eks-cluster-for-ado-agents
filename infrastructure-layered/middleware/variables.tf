@@ -320,12 +320,14 @@ variable "buildkitd_resources" {
   description = "Resource requests and limits for buildkitd"
   type = object({
     requests = object({
-      cpu    = string
-      memory = string
+      cpu               = string
+      memory            = string
+      ephemeral_storage = optional(string)
     })
     limits = object({
-      cpu    = string
-      memory = string
+      cpu               = string
+      memory            = string
+      ephemeral_storage = optional(string)
     })
   })
   default = {
@@ -341,9 +343,37 @@ variable "buildkitd_resources" {
 }
 
 variable "buildkitd_storage_size" {
-  description = "Size of buildkitd storage volume"
+  description = "Size limit for the node-backed BuildKit cache emptyDir. This does not provision storage and must fit within node allocatable ephemeral storage."
   type        = string
   default     = "20Gi"
+}
+
+variable "buildkitd_tmp_storage_size" {
+  description = "Optional size limit for the node-backed BuildKit /tmp emptyDir. Null preserves the Kubernetes default with no explicit emptyDir size limit."
+  type        = string
+  default     = null
+}
+
+variable "buildkitd_gc" {
+  description = "BuildKit OCI worker garbage-collection settings. Null thresholds use BuildKit defaults."
+  type = object({
+    enabled        = optional(bool, true)
+    reserved_space = optional(string)
+    max_used_space = optional(string)
+    min_free_space = optional(string)
+  })
+  default = {}
+
+  validation {
+    condition = alltrue([
+      for value in [
+        var.buildkitd_gc.reserved_space,
+        var.buildkitd_gc.max_used_space,
+        var.buildkitd_gc.min_free_space
+      ] : value == null || (trimspace(value) == value && length(value) > 0 && !can(regex("[\r\n]", value)))
+    ])
+    error_message = "BuildKit GC space values must be non-empty, single-line strings without surrounding whitespace."
+  }
 }
 
 variable "buildkitd_hpa_enabled" {

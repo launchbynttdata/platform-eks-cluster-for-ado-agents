@@ -290,16 +290,27 @@ locals {
 
   buildkitd_resources = {
     requests = {
-      cpu    = "500m"
-      memory = "1Gi"
+      cpu               = "500m"
+      memory            = "1Gi"
+      ephemeral_storage = "60Gi"
     }
     limits = {
-      cpu    = "2"
-      memory = "4Gi"
+      cpu               = "2"
+      memory            = "4Gi"
+      ephemeral_storage = "75Gi"
     }
   }
 
-  buildkitd_storage_size = "50Gi"
+  # These emptyDir limits do not provision disk. Keep their combined working set,
+  # container images, logs, and system overhead below node allocatable storage.
+  buildkitd_storage_size     = "50Gi"
+  buildkitd_tmp_storage_size = "10Gi"
+  buildkitd_gc = {
+    enabled        = true
+    reserved_space = "5GB"
+    max_used_space = "35GB"
+    min_free_space = "20GB"
+  }
 
   # Optional: ECR accounts / ARNs for BuildKit IRSA (empty in sample = cluster account only in Terraform)
   # buildkitd_ecr_registry_account_ids = ["111111111111", "222222222222"]
