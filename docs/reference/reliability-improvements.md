@@ -31,6 +31,7 @@ BuildKit remains a ClusterIP service, with these reliability controls:
 - a PodDisruptionBudget,
 - HPA support,
 - configurable OCI-worker garbage collection thresholds,
+- automatic rolling restarts when the rendered BuildKit daemon configuration changes,
 - optional Kubernetes ephemeral-storage requests and limits,
 - separate size limits for the cache and `/tmp` node-backed `emptyDir` volumes,
 - optional TLS wiring when a Kubernetes secret with `ca.pem`, `cert.pem`, and `key.pem` is provided.
@@ -46,6 +47,12 @@ Set `buildkitd_resources.requests.ephemeral_storage` so the scheduler and Cluste
 Autoscaler account for expected pod disk use. Set
 `buildkitd_resources.limits.ephemeral_storage` to bound total pod ephemeral
 storage, including `emptyDir` volumes, writable layers, and logs.
+
+Changes to `buildkitd_gc` are hashed into the BuildKit Deployment pod template.
+Applying a GC change therefore performs a rolling restart so each new daemon
+loads the updated `buildkitd.toml`; no manual `kubectl rollout restart` is
+required. Schedule those updates outside active builds because restarting a pod
+interrupts its in-flight builds and clears its node-local `emptyDir` cache.
 
 ## ECR Pull-Through Cache
 

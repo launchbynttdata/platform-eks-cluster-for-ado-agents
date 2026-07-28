@@ -97,6 +97,20 @@ locals {
         mirrors = ${jsonencode(mirrors)}
     EOT
   ])
+  buildkitd_oci_worker_config_lines = compact([
+    "max-parallelism = 1",
+    "gc = ${var.buildkitd_gc.enabled}",
+    var.buildkitd_gc.reserved_space == null ? "" : "reservedSpace = ${jsonencode(var.buildkitd_gc.reserved_space)}",
+    var.buildkitd_gc.max_used_space == null ? "" : "maxUsedSpace = ${jsonencode(var.buildkitd_gc.max_used_space)}",
+    var.buildkitd_gc.min_free_space == null ? "" : "minFreeSpace = ${jsonencode(var.buildkitd_gc.min_free_space)}"
+  ])
+  buildkitd_config_toml = join("\n\n", compact([
+    join("\n", concat(
+      ["[worker.oci]"],
+      [for line in local.buildkitd_oci_worker_config_lines : "  ${line}"]
+    )),
+    trimspace(local.buildkitd_registry_mirror_config)
+  ]))
   ecr_pull_through_cache_repository_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -776,15 +790,7 @@ resource "kubernetes_config_map" "buildkitd_config" {
   }
 
   data = {
-    "buildkitd.toml" = <<-EOT
-      [worker.oci]
-        max-parallelism = 1
-        gc = ${var.buildkitd_gc.enabled}
-        ${var.buildkitd_gc.reserved_space == null ? "" : "reservedSpace = ${jsonencode(var.buildkitd_gc.reserved_space)}"}
-        ${var.buildkitd_gc.max_used_space == null ? "" : "maxUsedSpace = ${jsonencode(var.buildkitd_gc.max_used_space)}"}
-        ${var.buildkitd_gc.min_free_space == null ? "" : "minFreeSpace = ${jsonencode(var.buildkitd_gc.min_free_space)}"}
-      ${local.buildkitd_registry_mirror_config}
-    EOT
+    "buildkitd.toml" = local.buildkitd_config_toml
   }
 }
 
@@ -816,6 +822,11 @@ resource "kubernetes_manifest" "buildkitd" {
         metadata = {
           labels = {
             app = "buildkitd"
+          }
+          # buildkitd reads this ConfigMap only at startup, so its content hash
+          # must be part of the pod template to trigger a rolling restart.
+          annotations = {
+            "platform.launch.nttdata.com/buildkitd-config-sha256" = sha256(local.buildkitd_config_toml)
           }
         }
         spec = {

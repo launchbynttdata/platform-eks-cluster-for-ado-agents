@@ -404,7 +404,7 @@ create_ecr_pull_through_cache_repository_policies  = true
 | `buildkitd_resources` | object | No | CPU, memory, and optional `ephemeral_storage` requests and limits. Kubernetes uses the ephemeral-storage request for scheduling and the limit for pod eviction accounting. |
 | `buildkitd_storage_size` | string | No | Size limit for the node-backed BuildKit cache `emptyDir`; it does not provision storage. |
 | `buildkitd_tmp_storage_size` | string or null | No | Optional size limit for the node-backed BuildKit `/tmp` `emptyDir`. Null leaves it without an explicit size limit. |
-| `buildkitd_gc` | object | No | OCI-worker garbage collection settings: `enabled`, `reserved_space`, `max_used_space`, and `min_free_space`. Null/omitted thresholds use BuildKit defaults. |
+| `buildkitd_gc` | object | No | OCI-worker garbage collection settings: `enabled`, `reserved_space`, `max_used_space`, and `min_free_space`. Null/omitted thresholds use BuildKit defaults. Changes automatically roll BuildKit pods so the daemon reloads its configuration. |
 | `enable_ecr_pull_through_cache` | bool | No | Create ECR pull-through cache rules for configured upstream registries. Defaults to `true`. |
 | `create_ecr_pull_through_cache_repository_templates` | bool | No | Create ECR repository creation templates for pull-through cache-created repositories. Defaults to `true`. |
 | `create_ecr_pull_through_cache_repository_policies` | bool | No | Include repository policies in ECR pull-through cache repository creation templates. Defaults to `true`. Set to `false` when the deploy role can manage cache rules/templates but cannot attach repository policies. |
@@ -415,6 +415,8 @@ expected combined use fits within node allocatable storage. A larger
 `buildkitd_storage_size` does not resize the node disk. Use absolute
 `max_used_space` values when the BuildKit cache is an `emptyDir` so garbage
 collection runs before Kubernetes reaches the volume or node-pressure boundary.
+Apply GC changes outside active builds: the automatic rolling restart interrupts
+in-flight builds and clears the restarted pod's node-local cache.
 
 ## Application Layer Configuration
 

@@ -128,7 +128,7 @@ See [Operations Guide](./OPERATIONS.md) for detailed instructions.
 - **Execution**: Runs as a non-root user with the rootless BuildKit image; the no-process-sandbox mode requires privilege escalation plus unconfined seccomp and AppArmor profiles
 - **Node Selection**: Can be configured to run on specific EC2 nodes
 - **Storage**: Uses node-backed `emptyDir` volumes for its cache and `/tmp`; their size limits do not provision or resize node disks
-- **Garbage Collection**: Supports explicit OCI-worker cache retention and free-space thresholds through `buildkitd_gc`
+- **Garbage Collection**: Supports explicit OCI-worker cache retention and free-space thresholds through `buildkitd_gc`; configuration changes automatically roll the Deployment so the daemon reloads its TOML configuration
 - **Scheduling**: Optional `ephemeral_storage` requests and limits in `buildkitd_resources` make pod disk consumption visible to Kubernetes
 - **Service**: Exposed as ClusterIP service for cluster-wide access
 
@@ -137,6 +137,10 @@ within node allocatable ephemeral storage. For constrained nodes, configure an
 absolute `buildkitd_gc.max_used_space` below `buildkitd_storage_size` and leave
 enough headroom for active builds, because garbage collection cannot remove cache
 records still in use.
+
+Changing `buildkitd_gc` restarts BuildKit pods through a rolling Deployment
+update. Apply GC changes outside active builds because a restarted daemon cannot
+continue an in-flight build and its node-local `emptyDir` cache is discarded.
 
 ## Verification
 
