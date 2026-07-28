@@ -32,6 +32,7 @@ BuildKit remains a ClusterIP service, with these reliability controls:
 - HPA support,
 - configurable OCI-worker garbage collection thresholds,
 - automatic rolling restarts when the rendered BuildKit daemon configuration changes,
+- optional node-level kernel keyring limits raised by a privileged init container,
 - optional Kubernetes ephemeral-storage requests and limits,
 - separate size limits for the cache and `/tmp` node-backed `emptyDir` volumes,
 - optional TLS wiring when a Kubernetes secret with `ca.pem`, `cert.pem`, and `key.pem` is provided.
@@ -53,6 +54,19 @@ Applying a GC change therefore performs a rolling restart so each new daemon
 loads the updated `buildkitd.toml`; no manual `kubectl rollout restart` is
 required. Schedule those updates outside active builds because restarting a pod
 interrupts its in-flight builds and clears its node-local `emptyDir` cache.
+
+runc allocates a Linux kernel session keyring per build container. The default
+per-UID quota is 200 keys / 20000 bytes, and high-churn builds (for example
+containerized .NET builds with many stages) can exhaust it, failing container
+init with `unable to create session key: disk quota exceeded` — a keyring quota,
+not a disk-space, error. This is distinct from the `emptyDir`/ephemeral-storage
+controls above. Set `buildkitd_node_keyring_limits` to raise
+`kernel.keys.maxkeys`/`maxbytes`; because that sysctl is node-level and not
+namespaced, a privileged init container applies it on the host before buildkitd
+starts. Raising the ceiling is a mitigation: if the per-UID key count keeps
+climbing toward the new limit and never drains between builds (watch the
+`qnkeys/maxkeys` field for the BuildKit UID in `/proc/key-users`), keyrings are
+leaking rather than churning, which is a runtime-level issue to fix separately.
 
 ## ECR Pull-Through Cache
 

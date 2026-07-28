@@ -350,7 +350,7 @@ cluster_secret_store_name  = "aws-secrets-manager"
 ```hcl
 enable_buildkitd    = true
 buildkitd_namespace = "buildkit-system"
-buildkitd_image     = "moby/buildkit:v0.30.0-rootless"
+buildkitd_image     = "moby/buildkit:v0.31.2-rootless"
 buildkitd_replicas  = 2
 
 buildkitd_node_selector = {
@@ -387,6 +387,11 @@ buildkitd_gc = {
   max_used_space = "35GB"
   min_free_space = "20GB"
 }
+buildkitd_node_keyring_limits = {
+  enabled   = true
+  max_keys  = 20000
+  max_bytes = 25000000
+}
 
 enable_ecr_pull_through_cache                      = true
 create_ecr_pull_through_cache_repository_templates = true
@@ -405,6 +410,7 @@ create_ecr_pull_through_cache_repository_policies  = true
 | `buildkitd_storage_size` | string | No | Size limit for the node-backed BuildKit cache `emptyDir`; it does not provision storage. |
 | `buildkitd_tmp_storage_size` | string or null | No | Optional size limit for the node-backed BuildKit `/tmp` `emptyDir`. Null leaves it without an explicit size limit. |
 | `buildkitd_gc` | object | No | OCI-worker garbage collection settings: `enabled`, `reserved_space`, `max_used_space`, and `min_free_space`. Null/omitted thresholds use BuildKit defaults. Changes automatically roll BuildKit pods so the daemon reloads its configuration. |
+| `buildkitd_node_keyring_limits` | object | No | Node-level kernel keyring quota (`enabled`, `max_keys`, `max_bytes`) applied by a privileged init container. Raises the per-UID `kernel.keys.maxkeys`/`maxbytes` beyond the default 200/20000 so high-churn builds do not fail runc container init with `unable to create session key: disk quota exceeded`. `kernel.keys.*` is not namespaced, so it cannot be set via pod `securityContext` sysctls. |
 | `enable_ecr_pull_through_cache` | bool | No | Create ECR pull-through cache rules for configured upstream registries. Defaults to `true`. |
 | `create_ecr_pull_through_cache_repository_templates` | bool | No | Create ECR repository creation templates for pull-through cache-created repositories. Defaults to `true`. |
 | `create_ecr_pull_through_cache_repository_policies` | bool | No | Include repository policies in ECR pull-through cache repository creation templates. Defaults to `true`. Set to `false` when the deploy role can manage cache rules/templates but cannot attach repository policies. |

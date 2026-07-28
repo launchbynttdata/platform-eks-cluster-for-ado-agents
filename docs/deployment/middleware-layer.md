@@ -17,7 +17,7 @@ This layer deploys cluster operators and middleware services on the EKS cluster.
 - **IAM Role**: Created with basic Secrets Manager permissions
 ### Buildkitd Service
 - **Purpose**: Provides cluster-wide container build capabilities
-- **Image**: `moby/buildkit:v0.30.0-rootless` (configurable)
+- **Image**: `moby/buildkit:v0.31.2-rootless` (configurable)
 - **Namespace**: `buildkit-system` (configurable)
 - **Deployment**: Standalone service accessible cluster-wide
 - **Storage**: Configurable node-backed ephemeral storage for builds
@@ -130,6 +130,7 @@ See [Operations Guide](./OPERATIONS.md) for detailed instructions.
 - **Storage**: Uses node-backed `emptyDir` volumes for its cache and `/tmp`; their size limits do not provision or resize node disks
 - **Garbage Collection**: Supports explicit OCI-worker cache retention and free-space thresholds through `buildkitd_gc`; configuration changes automatically roll the Deployment so the daemon reloads its TOML configuration
 - **Scheduling**: Optional `ephemeral_storage` requests and limits in `buildkitd_resources` make pod disk consumption visible to Kubernetes
+- **Kernel keyring**: Optional `buildkitd_node_keyring_limits` raises the node-level `kernel.keys.maxkeys`/`maxbytes` quota via a privileged init container so high-churn builds do not fail container init with `unable to create session key: disk quota exceeded`
 - **Service**: Exposed as ClusterIP service for cluster-wide access
 
 Keep the BuildKit cache, `/tmp`, container images, logs, and node system overhead

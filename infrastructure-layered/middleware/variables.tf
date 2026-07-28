@@ -281,7 +281,7 @@ variable "buildkitd_namespace" {
 variable "buildkitd_image" {
   description = "Docker image for buildkitd"
   type        = string
-  default     = "moby/buildkit:v0.30.0-rootless"
+  default     = "moby/buildkit:v0.31.2-rootless"
 }
 
 variable "buildkitd_replicas" {
@@ -373,6 +373,22 @@ variable "buildkitd_gc" {
       ] : value == null || (trimspace(value) == value && length(value) > 0 && !can(regex("[\r\n]", value)))
     ])
     error_message = "BuildKit GC space values must be non-empty, single-line strings without surrounding whitespace."
+  }
+}
+
+variable "buildkitd_node_keyring_limits" {
+  description = "Node-level kernel keyring quota applied by a privileged init container on the BuildKit node. Raises the per-UID key limits (kernel.keys.maxkeys/maxbytes) so high-churn builds, such as containerized .NET builds, do not exhaust the default 200 key / 20000 byte quota and fail runc container init with 'unable to create session key: disk quota exceeded'. These are ceilings, not preallocation. kernel.keys.* is not namespaced, so it cannot be set through pod securityContext sysctls."
+  type = object({
+    enabled   = optional(bool, true)
+    max_keys  = optional(number, 20000)
+    max_bytes = optional(number, 25000000)
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = var.buildkitd_node_keyring_limits.max_keys > 0 && var.buildkitd_node_keyring_limits.max_bytes > 0
+    error_message = "buildkitd_node_keyring_limits.max_keys and max_bytes must be greater than zero."
   }
 }
 

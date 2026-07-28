@@ -312,6 +312,17 @@ locals {
     min_free_space = "20GB"
   }
 
+  # Node-level kernel keyring quota raised by a privileged init container so
+  # high-churn builds (for example containerized .NET builds) do not exhaust the
+  # default per-UID 200 key / 20000 byte quota and fail runc container init with
+  # "unable to create session key: disk quota exceeded". These are ceilings, not
+  # preallocation, and apply to all non-root users on the BuildKit node.
+  buildkitd_node_keyring_limits = {
+    enabled   = true
+    max_keys  = 20000
+    max_bytes = 25000000
+  }
+
   # Optional: ECR accounts / ARNs for BuildKit IRSA (empty in sample = cluster account only in Terraform)
   # buildkitd_ecr_registry_account_ids = ["111111111111", "222222222222"]
   # buildkitd_ecr_repository_arns      = ["arn:aws:ecr:us-west-2:222222222222:repository/*"]

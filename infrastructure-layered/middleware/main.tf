@@ -845,32 +845,66 @@ resource "kubernetes_manifest" "buildkitd" {
               }
             }
           ] : []
-          initContainers = [
-            {
-              name    = "install-ecr-credential-helper"
-              image   = "public.ecr.aws/docker/library/alpine:3.20"
-              command = ["/bin/sh", "-c"]
-              args = [
-                "set -eu; apk add --no-cache curl ca-certificates; curl -sSL -o /helper/docker-credential-ecr-login \"https://github.com/awslabs/amazon-ecr-credential-helper/releases/download/v0.12.0/docker-credential-ecr-login-linux-amd64\"; chmod +x /helper/docker-credential-ecr-login"
-              ]
-              volumeMounts = [
-                {
-                  name      = "ecr-helper-bin"
-                  mountPath = "/helper"
+          initContainers = concat(
+            var.buildkitd_node_keyring_limits.enabled ? [
+              {
+                name    = "raise-keyring-limits"
+                image   = "public.ecr.aws/docker/library/alpine:3.20"
+                command = ["/bin/sh", "-c"]
+                # kernel.keys.maxkeys/maxbytes are node-level, non-namespaced sysctls, so they
+                # cannot be set through pod securityContext.sysctls and must be applied on the
+                # host by a privileged init container before buildkitd starts. runc allocates a
+                # session keyring per build container, and high-churn builds can exhaust the
+                # default per-UID 200 key / 20000 byte quota.
+                args = [
+                  "set -eu; echo ${var.buildkitd_node_keyring_limits.max_keys} > /proc/sys/kernel/keys/maxkeys; echo ${var.buildkitd_node_keyring_limits.max_bytes} > /proc/sys/kernel/keys/maxbytes; cat /proc/sys/kernel/keys/maxkeys /proc/sys/kernel/keys/maxbytes"
+                ]
+                volumeMounts = null
+                resources = {
+                  requests = {
+                    cpu    = "50m"
+                    memory = "32Mi"
+                  }
+                  limits = {
+                    cpu    = "100m"
+                    memory = "64Mi"
+                  }
                 }
-              ]
-              resources = {
-                requests = {
-                  cpu    = "100m"
-                  memory = "64Mi"
-                }
-                limits = {
-                  cpu    = "500m"
-                  memory = "128Mi"
+                securityContext = {
+                  privileged   = true
+                  runAsUser    = 0
+                  runAsNonRoot = false
                 }
               }
-            }
-          ]
+            ] : [],
+            [
+              {
+                name    = "install-ecr-credential-helper"
+                image   = "public.ecr.aws/docker/library/alpine:3.20"
+                command = ["/bin/sh", "-c"]
+                args = [
+                  "set -eu; apk add --no-cache curl ca-certificates; curl -sSL -o /helper/docker-credential-ecr-login \"https://github.com/awslabs/amazon-ecr-credential-helper/releases/download/v0.12.0/docker-credential-ecr-login-linux-amd64\"; chmod +x /helper/docker-credential-ecr-login"
+                ]
+                volumeMounts = [
+                  {
+                    name      = "ecr-helper-bin"
+                    mountPath = "/helper"
+                  }
+                ]
+                resources = {
+                  requests = {
+                    cpu    = "100m"
+                    memory = "64Mi"
+                  }
+                  limits = {
+                    cpu    = "500m"
+                    memory = "128Mi"
+                  }
+                }
+                securityContext = null
+              }
+            ]
+          )
           containers = [
             {
               name            = "buildkitd"

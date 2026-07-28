@@ -7,6 +7,8 @@ This document tracks significant changes, fixes, and improvements. Entries are o
 - **BuildKit disk management**: Added `env.hcl` controls for OCI-worker garbage collection, the BuildKit `/tmp` `emptyDir` size limit, and pod ephemeral-storage requests and limits. Existing environments retain their current behavior until the new optional settings are configured.
 - **BuildKit capacity guidance**: Documented that cache and `/tmp` `emptyDir` limits do not provision node storage, and that GC thresholds must leave room for active builds, images, logs, writable layers, and Kubernetes node overhead.
 - **BuildKit configuration rollout**: BuildKit now hashes its rendered daemon TOML into the Deployment pod template, so GC and registry configuration changes automatically roll pods and take effect without a manual restart.
+- **BuildKit kernel keyring limits**: Added `buildkitd_node_keyring_limits` to raise the node-level `kernel.keys.maxkeys`/`maxbytes` quota through a privileged init container. This prevents high-churn builds (for example containerized .NET builds) from exhausting the default 200 key / 20000 byte per-UID quota and failing container init with `unable to create session key: disk quota exceeded`. Enabled by default; disable with `buildkitd_node_keyring_limits.enabled = false`.
+- **BuildKit image bump**: Updated the default `buildkitd_image` to `moby/buildkit:v0.31.2-rootless`.
 
 ## 2026-07-22
 
