@@ -950,7 +950,7 @@ resource "kubernetes_manifest" "buildkitd" {
             }
           ]
           volumes = concat([
-            { name = "ecr-helper-bin", emptyDir = { medium = "" } },
+            { name = "ecr-helper-bin", emptyDir = {} },
             {
               name = "buildkit-docker-config"
               configMap = {
@@ -972,17 +972,19 @@ resource "kubernetes_manifest" "buildkitd" {
             {
               name = "tmp"
               emptyDir = merge(
-                { medium = "" },
+                # The manifest provider requires this attribute when sizeLimit
+                # is present, while Kubernetes returns the default as null.
+                { medium = null },
                 var.buildkitd_tmp_storage_size == null ? {} : {
                   sizeLimit = var.buildkitd_tmp_storage_size
                 }
               )
             },
-            { name = "run", emptyDir = { medium = "" } },
+            { name = "run", emptyDir = {} },
             {
               name = "buildkit-rootless"
               emptyDir = {
-                medium    = ""
+                medium    = null
                 sizeLimit = var.buildkitd_storage_size
               }
             }
