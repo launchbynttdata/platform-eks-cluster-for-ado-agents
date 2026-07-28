@@ -133,6 +133,7 @@ inputs = {
   buildkitd_tmp_storage_size                         = try(local.env.locals.buildkitd_tmp_storage_size, null)
   buildkitd_gc                                       = try(local.env.locals.buildkitd_gc, {})
   buildkitd_node_keyring_limits                      = try(local.env.locals.buildkitd_node_keyring_limits, {})
+  buildkitd_recycle                                  = try(local.env.locals.buildkitd_recycle, {})
   buildkitd_hpa_enabled                              = local.env.locals.buildkitd_hpa_enabled
   buildkitd_hpa_min_replicas                         = local.env.locals.buildkitd_hpa_min_replicas
   buildkitd_hpa_max_replicas                         = local.env.locals.buildkitd_hpa_max_replicas

@@ -323,6 +323,16 @@ locals {
     max_bytes = 25000000
   }
 
+  # Scheduled restart of the BuildKit Deployment to reclaim leaked kernel
+  # keyrings (workaround for moby/buildkit#6247; see reliability docs). Raising
+  # the keyring ceiling above only delays exhaustion, so recycle weekly. Default
+  # is 02:00 Sunday US/Pacific; tune the schedule as build volume dictates.
+  buildkitd_recycle = {
+    enabled  = true
+    schedule = "0 2 * * 0"
+    timezone = "America/Los_Angeles"
+  }
+
   # Optional: ECR accounts / ARNs for BuildKit IRSA (empty in sample = cluster account only in Terraform)
   # buildkitd_ecr_registry_account_ids = ["111111111111", "222222222222"]
   # buildkitd_ecr_repository_arns      = ["arn:aws:ecr:us-west-2:222222222222:repository/*"]

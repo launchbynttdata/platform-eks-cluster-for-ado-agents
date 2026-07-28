@@ -392,6 +392,28 @@ variable "buildkitd_node_keyring_limits" {
   }
 }
 
+variable "buildkitd_recycle" {
+  description = "Scheduled rollout-restart of the BuildKit Deployment to reclaim leaked kernel keyrings. WORKAROUND for moby/buildkit#6247: rootless BuildKit/runc allocates one session keyring per build container under the build UID and does not reclaim them, eventually exhausting the per-UID key quota and failing builds with 'unable to create session key: disk quota exceeded'. Restarting the daemon releases the keys. buildkitd_node_keyring_limits only raises the ceiling; this recycle actually reclaims. Revisit/remove once the upstream bug is fixed. schedule is a standard cron expression evaluated in timezone (defaults to 02:00 Sunday US/Pacific)."
+  type = object({
+    enabled         = optional(bool, true)
+    schedule        = optional(string, "0 2 * * 0")
+    timezone        = optional(string, "America/Los_Angeles")
+    kubectl_version = optional(string, "v1.31.4")
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = length(trimspace(var.buildkitd_recycle.schedule)) > 0 && length(trimspace(var.buildkitd_recycle.timezone)) > 0
+    error_message = "buildkitd_recycle.schedule and timezone must be non-empty."
+  }
+
+  validation {
+    condition     = can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+$", var.buildkitd_recycle.kubectl_version))
+    error_message = "buildkitd_recycle.kubectl_version must be a full version tag like v1.31.4."
+  }
+}
+
 variable "buildkitd_hpa_enabled" {
   description = "Whether to manage a Horizontal Pod Autoscaler for buildkitd."
   type        = bool

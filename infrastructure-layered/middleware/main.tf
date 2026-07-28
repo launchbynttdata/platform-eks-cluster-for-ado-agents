@@ -1161,6 +1161,192 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "buildkitd" {
   depends_on = [kubernetes_manifest.buildkitd]
 }
 
+# =============================================================================
+# BuildKit keyring-leak workaround: scheduled Deployment recycle
+# -----------------------------------------------------------------------------
+# WORKAROUND for an unresolved upstream bug. Rootless BuildKit runs every build
+# under a single UID, and runc allocates one kernel session keyring per build
+# container (opencontainers/runc#488). Under this deployment those keyrings
+# accumulate under the build UID and are not reclaimed, so over days of uptime
+# the per-UID key quota is exhausted and builds fail at container init with:
+#     "unable to create session key: disk quota exceeded"
+# That is a kernel keyring quota (EDQUOT), not disk space. Tracking issue:
+# https://github.com/moby/buildkit/issues/6247 (OPEN as of 2026-07, no upstream
+# fix). Restarting the daemon releases the keys. buildkitd_node_keyring_limits
+# raises the ceiling (delays the failure); this CronJob periodically restarts the
+# Deployment to actually reclaim the keys.
+#
+# REVISIT/REMOVE once moby/buildkit#6247 is fixed and the fixed BuildKit/runc is
+# deployed: keys should then reclaim on container exit, making both this
+# scheduled recycle and the raised keyring ceiling unnecessary.
+# =============================================================================
+resource "kubernetes_service_account" "buildkitd_recycler" {
+  count = var.enable_buildkitd && var.buildkitd_recycle.enabled ? 1 : 0
+
+  metadata {
+    name      = "buildkitd-recycler"
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+    labels = {
+      app = "buildkitd-recycler"
+    }
+  }
+}
+
+resource "kubernetes_role" "buildkitd_recycler" {
+  count = var.enable_buildkitd && var.buildkitd_recycle.enabled ? 1 : 0
+
+  metadata {
+    name      = "buildkitd-recycler"
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+    labels = {
+      app = "buildkitd-recycler"
+    }
+  }
+
+  # Least privilege: rollout restart only needs to read and patch the single
+  # buildkitd Deployment (it patches spec.template.metadata.annotations).
+  rule {
+    api_groups     = ["apps"]
+    resources      = ["deployments"]
+    resource_names = ["buildkitd"]
+    verbs          = ["get", "patch"]
+  }
+}
+
+resource "kubernetes_role_binding" "buildkitd_recycler" {
+  count = var.enable_buildkitd && var.buildkitd_recycle.enabled ? 1 : 0
+
+  metadata {
+    name      = "buildkitd-recycler"
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+    labels = {
+      app = "buildkitd-recycler"
+    }
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role.buildkitd_recycler[0].metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.buildkitd_recycler[0].metadata[0].name
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+  }
+}
+
+resource "kubernetes_cron_job_v1" "buildkitd_recycler" {
+  count = var.enable_buildkitd && var.buildkitd_recycle.enabled ? 1 : 0
+
+  metadata {
+    name      = "buildkitd-recycler"
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+    labels = {
+      app = "buildkitd-recycler"
+    }
+  }
+
+  spec {
+    schedule                      = var.buildkitd_recycle.schedule
+    timezone                      = var.buildkitd_recycle.timezone
+    concurrency_policy            = "Forbid"
+    successful_jobs_history_limit = 3
+    failed_jobs_history_limit     = 3
+    starting_deadline_seconds     = 600
+
+    job_template {
+      metadata {
+        labels = {
+          app = "buildkitd-recycler"
+        }
+      }
+
+      spec {
+        backoff_limit           = 2
+        active_deadline_seconds = 300
+
+        template {
+          metadata {
+            labels = {
+              app = "buildkitd-recycler"
+            }
+          }
+
+          spec {
+            service_account_name = kubernetes_service_account.buildkitd_recycler[0].metadata[0].name
+            restart_policy       = "Never"
+            node_selector        = var.buildkitd_node_selector
+
+            dynamic "toleration" {
+              for_each = var.buildkitd_tolerations
+              content {
+                key      = toleration.value.key
+                operator = toleration.value.operator
+                value    = toleration.value.value
+                effect   = toleration.value.effect
+              }
+            }
+
+            security_context {
+              run_as_non_root = true
+              run_as_user     = 65534
+              run_as_group    = 65534
+              seccomp_profile {
+                type = "RuntimeDefault"
+              }
+            }
+
+            container {
+              name    = "recycle"
+              image   = "public.ecr.aws/docker/library/alpine:3.20"
+              command = ["/bin/sh", "-c"]
+              # busybox wget (https-capable) fetches kubectl at runtime, matching the
+              # existing ecr-credential-helper init pattern and avoiding Docker Hub.
+              args = [<<-EOT
+                set -eu
+                arch="$(uname -m)"
+                case "$arch" in
+                  x86_64) arch="amd64" ;;
+                  aarch64) arch="arm64" ;;
+                  *) echo "unsupported architecture: $arch" >&2; exit 1 ;;
+                esac
+                wget -qO /tmp/kubectl "https://dl.k8s.io/release/${var.buildkitd_recycle.kubectl_version}/bin/linux/$arch/kubectl"
+                chmod +x /tmp/kubectl
+                echo "Recycling deployment/buildkitd (keyring-leak workaround, moby/buildkit#6247)"
+                exec /tmp/kubectl -n ${kubernetes_namespace.buildkit[0].metadata[0].name} rollout restart deployment/buildkitd
+              EOT
+              ]
+
+              security_context {
+                allow_privilege_escalation = false
+                read_only_root_filesystem  = false
+                capabilities {
+                  drop = ["ALL"]
+                }
+              }
+
+              resources {
+                requests = {
+                  cpu    = "50m"
+                  memory = "64Mi"
+                }
+                limits = {
+                  cpu    = "200m"
+                  memory = "128Mi"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [kubernetes_manifest.buildkitd]
+}
+
 # AWS Node Termination Handler (queue processor mode)
 module "node_termination_handler" {
   count  = local.node_auto_heal_enabled && local.node_auto_heal_queue_url != null && local.node_auto_heal_role_arn != null ? 1 : 0

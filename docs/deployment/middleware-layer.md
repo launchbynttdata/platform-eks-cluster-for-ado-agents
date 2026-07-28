@@ -131,6 +131,7 @@ See [Operations Guide](./OPERATIONS.md) for detailed instructions.
 - **Garbage Collection**: Supports explicit OCI-worker cache retention and free-space thresholds through `buildkitd_gc`; configuration changes automatically roll the Deployment so the daemon reloads its TOML configuration
 - **Scheduling**: Optional `ephemeral_storage` requests and limits in `buildkitd_resources` make pod disk consumption visible to Kubernetes
 - **Kernel keyring**: Optional `buildkitd_node_keyring_limits` raises the node-level `kernel.keys.maxkeys`/`maxbytes` quota via a privileged init container so high-churn builds do not fail container init with `unable to create session key: disk quota exceeded`
+- **Keyring-leak recycle**: Optional `buildkitd_recycle` CronJob periodically runs `kubectl rollout restart deployment/buildkitd` (default 02:00 Sunday US/Pacific) to reclaim leaked kernel keyrings, a workaround for [moby/buildkit#6247](https://github.com/moby/buildkit/issues/6247); see the [reliability reference](../reference/reliability-improvements.md) for details and how to revisit it
 - **Service**: Exposed as ClusterIP service for cluster-wide access
 
 Keep the BuildKit cache, `/tmp`, container images, logs, and node system overhead

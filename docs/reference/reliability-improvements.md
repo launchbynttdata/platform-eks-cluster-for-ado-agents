@@ -68,6 +68,47 @@ climbing toward the new limit and never drains between builds (watch the
 `qnkeys/maxkeys` field for the BuildKit UID in `/proc/key-users`), keyrings are
 leaking rather than churning, which is a runtime-level issue to fix separately.
 
+### Known issue: BuildKit keyring leak (moby/buildkit#6247)
+
+Rootless BuildKit runs every build under a single UID, and runc allocates one
+kernel session keyring per build container ([opencontainers/runc#488](https://github.com/opencontainers/runc/pull/488)).
+In this deployment those keyrings accumulate under the build UID and are not
+reclaimed on container exit, so over days of uptime the per-UID quota is
+exhausted and builds fail at container init with `unable to create session key:
+disk quota exceeded`. This is tracked upstream in
+[moby/buildkit#6247](https://github.com/moby/buildkit/issues/6247), which is open
+with no fix as of this writing. The error text mentions "disk quota" but it is a
+kernel keyring quota (`EDQUOT`), unrelated to disk space or the `emptyDir`/GC
+controls above; a cache prune does not clear it, only a daemon restart does.
+
+Two controls address it, and both are expected to become unnecessary once the
+upstream bug is fixed:
+
+- `buildkitd_node_keyring_limits` raises the per-UID key ceiling, which *delays*
+  exhaustion but does not stop a genuine leak.
+- `buildkitd_recycle` schedules a least-privilege CronJob that runs
+  `kubectl rollout restart deployment/buildkitd` (default: 02:00 Sunday
+  US/Pacific, weekly) to reclaim the leaked keyrings before the ceiling is hit.
+  The CronJob's ServiceAccount is limited to `get`/`patch` on the single
+  `buildkitd` Deployment. Because a restart interrupts in-flight builds and
+  clears the node-local `emptyDir` cache, schedule it during a low-traffic
+  window.
+
+To confirm whether keys are still leaking on a given BuildKit/runc version, watch
+the `qnkeys/maxkeys` field for the BuildKit UID across a sequence of builds:
+
+```sh
+while true; do printf '%s ' "$(date -u +%T)"; \
+  kubectl -n <buildkit-namespace> exec deploy/buildkitd -- grep '^ *<uid>:' /proc/key-users; \
+  sleep 10; done
+```
+
+A count that climbs across builds and never returns to baseline (well past
+`kernel.keys.gc_delay`) indicates a leak; transient spikes that drain are normal
+churn. **Revisit both controls when moby/buildkit#6247 is resolved** and the
+fixed image is deployed — at that point keys should reclaim on container exit,
+and the scheduled recycle plus raised ceiling can be removed.
+
 ## ECR Pull-Through Cache
 
 The middleware layer creates anonymous-compatible ECR pull-through cache rules for:
