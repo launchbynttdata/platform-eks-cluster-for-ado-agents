@@ -97,6 +97,20 @@ locals {
         mirrors = ${jsonencode(mirrors)}
     EOT
   ])
+  buildkitd_oci_worker_config_lines = compact([
+    "max-parallelism = 1",
+    "gc = ${var.buildkitd_gc.enabled}",
+    var.buildkitd_gc.reserved_space == null ? "" : "reservedSpace = ${jsonencode(var.buildkitd_gc.reserved_space)}",
+    var.buildkitd_gc.max_used_space == null ? "" : "maxUsedSpace = ${jsonencode(var.buildkitd_gc.max_used_space)}",
+    var.buildkitd_gc.min_free_space == null ? "" : "minFreeSpace = ${jsonencode(var.buildkitd_gc.min_free_space)}"
+  ])
+  buildkitd_config_toml = join("\n\n", compact([
+    join("\n", concat(
+      ["[worker.oci]"],
+      [for line in local.buildkitd_oci_worker_config_lines : "  ${line}"]
+    )),
+    trimspace(local.buildkitd_registry_mirror_config)
+  ]))
   ecr_pull_through_cache_repository_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -776,11 +790,7 @@ resource "kubernetes_config_map" "buildkitd_config" {
   }
 
   data = {
-    "buildkitd.toml" = <<-EOT
-      [worker.oci]
-        max-parallelism = 1
-      ${local.buildkitd_registry_mirror_config}
-    EOT
+    "buildkitd.toml" = local.buildkitd_config_toml
   }
 }
 
@@ -813,6 +823,11 @@ resource "kubernetes_manifest" "buildkitd" {
           labels = {
             app = "buildkitd"
           }
+          # buildkitd reads this ConfigMap only at startup, so its content hash
+          # must be part of the pod template to trigger a rolling restart.
+          annotations = {
+            "platform.launch.nttdata.com/buildkitd-config-sha256" = sha256(local.buildkitd_config_toml)
+          }
         }
         spec = {
           serviceAccountName = kubernetes_service_account.buildkitd[0].metadata[0].name
@@ -830,32 +845,66 @@ resource "kubernetes_manifest" "buildkitd" {
               }
             }
           ] : []
-          initContainers = [
-            {
-              name    = "install-ecr-credential-helper"
-              image   = "public.ecr.aws/docker/library/alpine:3.20"
-              command = ["/bin/sh", "-c"]
-              args = [
-                "set -eu; apk add --no-cache curl ca-certificates; curl -sSL -o /helper/docker-credential-ecr-login \"https://github.com/awslabs/amazon-ecr-credential-helper/releases/download/v0.12.0/docker-credential-ecr-login-linux-amd64\"; chmod +x /helper/docker-credential-ecr-login"
-              ]
-              volumeMounts = [
-                {
-                  name      = "ecr-helper-bin"
-                  mountPath = "/helper"
+          initContainers = concat(
+            var.buildkitd_node_keyring_limits.enabled ? [
+              {
+                name    = "raise-keyring-limits"
+                image   = "public.ecr.aws/docker/library/alpine:3.20"
+                command = ["/bin/sh", "-c"]
+                # kernel.keys.maxkeys/maxbytes are node-level, non-namespaced sysctls, so they
+                # cannot be set through pod securityContext.sysctls and must be applied on the
+                # host by a privileged init container before buildkitd starts. runc allocates a
+                # session keyring per build container, and high-churn builds can exhaust the
+                # default per-UID 200 key / 20000 byte quota.
+                args = [
+                  "set -eu; echo ${var.buildkitd_node_keyring_limits.max_keys} > /proc/sys/kernel/keys/maxkeys; echo ${var.buildkitd_node_keyring_limits.max_bytes} > /proc/sys/kernel/keys/maxbytes; cat /proc/sys/kernel/keys/maxkeys /proc/sys/kernel/keys/maxbytes"
+                ]
+                volumeMounts = null
+                resources = {
+                  requests = {
+                    cpu    = "50m"
+                    memory = "32Mi"
+                  }
+                  limits = {
+                    cpu    = "100m"
+                    memory = "64Mi"
+                  }
                 }
-              ]
-              resources = {
-                requests = {
-                  cpu    = "100m"
-                  memory = "64Mi"
-                }
-                limits = {
-                  cpu    = "500m"
-                  memory = "128Mi"
+                securityContext = {
+                  privileged   = true
+                  runAsUser    = 0
+                  runAsNonRoot = false
                 }
               }
-            }
-          ]
+            ] : [],
+            [
+              {
+                name    = "install-ecr-credential-helper"
+                image   = "public.ecr.aws/docker/library/alpine:3.20"
+                command = ["/bin/sh", "-c"]
+                args = [
+                  "set -eu; apk add --no-cache curl ca-certificates; curl -sSL -o /helper/docker-credential-ecr-login \"https://github.com/awslabs/amazon-ecr-credential-helper/releases/download/v0.12.0/docker-credential-ecr-login-linux-amd64\"; chmod +x /helper/docker-credential-ecr-login"
+                ]
+                volumeMounts = [
+                  {
+                    name      = "ecr-helper-bin"
+                    mountPath = "/helper"
+                  }
+                ]
+                resources = {
+                  requests = {
+                    cpu    = "100m"
+                    memory = "64Mi"
+                  }
+                  limits = {
+                    cpu    = "500m"
+                    memory = "128Mi"
+                  }
+                }
+                securityContext = null
+              }
+            ]
+          )
           containers = [
             {
               name            = "buildkitd"
@@ -903,14 +952,24 @@ resource "kubernetes_manifest" "buildkitd" {
                 periodSeconds       = 20
               }
               resources = {
-                requests = {
-                  cpu    = var.buildkitd_resources.requests.cpu
-                  memory = var.buildkitd_resources.requests.memory
-                }
-                limits = {
-                  cpu    = var.buildkitd_resources.limits.cpu
-                  memory = var.buildkitd_resources.limits.memory
-                }
+                requests = merge(
+                  {
+                    cpu    = var.buildkitd_resources.requests.cpu
+                    memory = var.buildkitd_resources.requests.memory
+                  },
+                  var.buildkitd_resources.requests.ephemeral_storage == null ? {} : {
+                    "ephemeral-storage" = var.buildkitd_resources.requests.ephemeral_storage
+                  }
+                )
+                limits = merge(
+                  {
+                    cpu    = var.buildkitd_resources.limits.cpu
+                    memory = var.buildkitd_resources.limits.memory
+                  },
+                  var.buildkitd_resources.limits.ephemeral_storage == null ? {} : {
+                    "ephemeral-storage" = var.buildkitd_resources.limits.ephemeral_storage
+                  }
+                )
               }
               volumeMounts = concat([
                 { name = "tmp", mountPath = "/tmp" },
@@ -944,11 +1003,22 @@ resource "kubernetes_manifest" "buildkitd" {
                 name = kubernetes_config_map.buildkitd_config[0].metadata[0].name
               }
             },
-            { name = "tmp", emptyDir = {} },
+            {
+              name = "tmp"
+              emptyDir = merge(
+                # The manifest provider requires this attribute when sizeLimit
+                # is present, while Kubernetes returns the default as null.
+                { medium = null },
+                var.buildkitd_tmp_storage_size == null ? {} : {
+                  sizeLimit = var.buildkitd_tmp_storage_size
+                }
+              )
+            },
             { name = "run", emptyDir = {} },
             {
               name = "buildkit-rootless"
               emptyDir = {
+                medium    = null
                 sizeLimit = var.buildkitd_storage_size
               }
             }
@@ -1083,6 +1153,192 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "buildkitd" {
         target {
           type                = "Utilization"
           average_utilization = var.buildkitd_hpa_target_memory_utilization_percentage
+        }
+      }
+    }
+  }
+
+  depends_on = [kubernetes_manifest.buildkitd]
+}
+
+# =============================================================================
+# BuildKit keyring-leak workaround: scheduled Deployment recycle
+# -----------------------------------------------------------------------------
+# WORKAROUND for an unresolved upstream bug. Rootless BuildKit runs every build
+# under a single UID, and runc allocates one kernel session keyring per build
+# container (opencontainers/runc#488). Under this deployment those keyrings
+# accumulate under the build UID and are not reclaimed, so over days of uptime
+# the per-UID key quota is exhausted and builds fail at container init with:
+#     "unable to create session key: disk quota exceeded"
+# That is a kernel keyring quota (EDQUOT), not disk space. Tracking issue:
+# https://github.com/moby/buildkit/issues/6247 (OPEN as of 2026-07, no upstream
+# fix). Restarting the daemon releases the keys. buildkitd_node_keyring_limits
+# raises the ceiling (delays the failure); this CronJob periodically restarts the
+# Deployment to actually reclaim the keys.
+#
+# REVISIT/REMOVE once moby/buildkit#6247 is fixed and the fixed BuildKit/runc is
+# deployed: keys should then reclaim on container exit, making both this
+# scheduled recycle and the raised keyring ceiling unnecessary.
+# =============================================================================
+resource "kubernetes_service_account" "buildkitd_recycler" {
+  count = var.enable_buildkitd && var.buildkitd_recycle.enabled ? 1 : 0
+
+  metadata {
+    name      = "buildkitd-recycler"
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+    labels = {
+      app = "buildkitd-recycler"
+    }
+  }
+}
+
+resource "kubernetes_role" "buildkitd_recycler" {
+  count = var.enable_buildkitd && var.buildkitd_recycle.enabled ? 1 : 0
+
+  metadata {
+    name      = "buildkitd-recycler"
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+    labels = {
+      app = "buildkitd-recycler"
+    }
+  }
+
+  # Least privilege: rollout restart only needs to read and patch the single
+  # buildkitd Deployment (it patches spec.template.metadata.annotations).
+  rule {
+    api_groups     = ["apps"]
+    resources      = ["deployments"]
+    resource_names = ["buildkitd"]
+    verbs          = ["get", "patch"]
+  }
+}
+
+resource "kubernetes_role_binding" "buildkitd_recycler" {
+  count = var.enable_buildkitd && var.buildkitd_recycle.enabled ? 1 : 0
+
+  metadata {
+    name      = "buildkitd-recycler"
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+    labels = {
+      app = "buildkitd-recycler"
+    }
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role.buildkitd_recycler[0].metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.buildkitd_recycler[0].metadata[0].name
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+  }
+}
+
+resource "kubernetes_cron_job_v1" "buildkitd_recycler" {
+  count = var.enable_buildkitd && var.buildkitd_recycle.enabled ? 1 : 0
+
+  metadata {
+    name      = "buildkitd-recycler"
+    namespace = kubernetes_namespace.buildkit[0].metadata[0].name
+    labels = {
+      app = "buildkitd-recycler"
+    }
+  }
+
+  spec {
+    schedule                      = var.buildkitd_recycle.schedule
+    timezone                      = var.buildkitd_recycle.timezone
+    concurrency_policy            = "Forbid"
+    successful_jobs_history_limit = 3
+    failed_jobs_history_limit     = 3
+    starting_deadline_seconds     = 600
+
+    job_template {
+      metadata {
+        labels = {
+          app = "buildkitd-recycler"
+        }
+      }
+
+      spec {
+        backoff_limit           = 2
+        active_deadline_seconds = 300
+
+        template {
+          metadata {
+            labels = {
+              app = "buildkitd-recycler"
+            }
+          }
+
+          spec {
+            service_account_name = kubernetes_service_account.buildkitd_recycler[0].metadata[0].name
+            restart_policy       = "Never"
+            node_selector        = var.buildkitd_node_selector
+
+            dynamic "toleration" {
+              for_each = var.buildkitd_tolerations
+              content {
+                key      = toleration.value.key
+                operator = toleration.value.operator
+                value    = toleration.value.value
+                effect   = toleration.value.effect
+              }
+            }
+
+            security_context {
+              run_as_non_root = true
+              run_as_user     = 65534
+              run_as_group    = 65534
+              seccomp_profile {
+                type = "RuntimeDefault"
+              }
+            }
+
+            container {
+              name    = "recycle"
+              image   = "public.ecr.aws/docker/library/alpine:3.20"
+              command = ["/bin/sh", "-c"]
+              # busybox wget (https-capable) fetches kubectl at runtime, matching the
+              # existing ecr-credential-helper init pattern and avoiding Docker Hub.
+              args = [<<-EOT
+                set -eu
+                arch="$(uname -m)"
+                case "$arch" in
+                  x86_64) arch="amd64" ;;
+                  aarch64) arch="arm64" ;;
+                  *) echo "unsupported architecture: $arch" >&2; exit 1 ;;
+                esac
+                wget -qO /tmp/kubectl "https://dl.k8s.io/release/${var.buildkitd_recycle.kubectl_version}/bin/linux/$arch/kubectl"
+                chmod +x /tmp/kubectl
+                echo "Recycling deployment/buildkitd (keyring-leak workaround, moby/buildkit#6247)"
+                exec /tmp/kubectl -n ${kubernetes_namespace.buildkit[0].metadata[0].name} rollout restart deployment/buildkitd
+              EOT
+              ]
+
+              security_context {
+                allow_privilege_escalation = false
+                read_only_root_filesystem  = false
+                capabilities {
+                  drop = ["ALL"]
+                }
+              }
+
+              resources {
+                requests = {
+                  cpu    = "50m"
+                  memory = "64Mi"
+                }
+                limits = {
+                  cpu    = "200m"
+                  memory = "128Mi"
+                }
+              }
+            }
+          }
         }
       }
     }

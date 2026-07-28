@@ -30,7 +30,84 @@ BuildKit remains a ClusterIP service, with these reliability controls:
 - optional topology spread across zones,
 - a PodDisruptionBudget,
 - HPA support,
+- configurable OCI-worker garbage collection thresholds,
+- automatic rolling restarts when the rendered BuildKit daemon configuration changes,
+- optional node-level kernel keyring limits raised by a privileged init container,
+- optional Kubernetes ephemeral-storage requests and limits,
+- separate size limits for the cache and `/tmp` node-backed `emptyDir` volumes,
 - optional TLS wiring when a Kubernetes secret with `ca.pem`, `cert.pem`, and `key.pem` is provided.
+
+BuildKit garbage collection removes unused cache; it cannot reclaim records used
+by an active build. Configure `buildkitd_gc.max_used_space` below
+`buildkitd_storage_size` with enough remaining space for the largest expected
+active build. The `emptyDir` size limits do not provision disk and can never
+exceed the storage available on the selected node. Kubernetes also uses the same
+node-local storage for container images, writable layers, logs, and system data.
+
+Set `buildkitd_resources.requests.ephemeral_storage` so the scheduler and Cluster
+Autoscaler account for expected pod disk use. Set
+`buildkitd_resources.limits.ephemeral_storage` to bound total pod ephemeral
+storage, including `emptyDir` volumes, writable layers, and logs.
+
+Changes to `buildkitd_gc` are hashed into the BuildKit Deployment pod template.
+Applying a GC change therefore performs a rolling restart so each new daemon
+loads the updated `buildkitd.toml`; no manual `kubectl rollout restart` is
+required. Schedule those updates outside active builds because restarting a pod
+interrupts its in-flight builds and clears its node-local `emptyDir` cache.
+
+runc allocates a Linux kernel session keyring per build container. The default
+per-UID quota is 200 keys / 20000 bytes, and high-churn builds (for example
+containerized .NET builds with many stages) can exhaust it, failing container
+init with `unable to create session key: disk quota exceeded` — a keyring quota,
+not a disk-space, error. This is distinct from the `emptyDir`/ephemeral-storage
+controls above. Set `buildkitd_node_keyring_limits` to raise
+`kernel.keys.maxkeys`/`maxbytes`; because that sysctl is node-level and not
+namespaced, a privileged init container applies it on the host before buildkitd
+starts. Raising the ceiling is a mitigation: if the per-UID key count keeps
+climbing toward the new limit and never drains between builds (watch the
+`qnkeys/maxkeys` field for the BuildKit UID in `/proc/key-users`), keyrings are
+leaking rather than churning, which is a runtime-level issue to fix separately.
+
+### Known issue: BuildKit keyring leak (moby/buildkit#6247)
+
+Rootless BuildKit runs every build under a single UID, and runc allocates one
+kernel session keyring per build container ([opencontainers/runc#488](https://github.com/opencontainers/runc/pull/488)).
+In this deployment those keyrings accumulate under the build UID and are not
+reclaimed on container exit, so over days of uptime the per-UID quota is
+exhausted and builds fail at container init with `unable to create session key:
+disk quota exceeded`. This is tracked upstream in
+[moby/buildkit#6247](https://github.com/moby/buildkit/issues/6247), which is open
+with no fix as of this writing. The error text mentions "disk quota" but it is a
+kernel keyring quota (`EDQUOT`), unrelated to disk space or the `emptyDir`/GC
+controls above; a cache prune does not clear it, only a daemon restart does.
+
+Two controls address it, and both are expected to become unnecessary once the
+upstream bug is fixed:
+
+- `buildkitd_node_keyring_limits` raises the per-UID key ceiling, which *delays*
+  exhaustion but does not stop a genuine leak.
+- `buildkitd_recycle` schedules a least-privilege CronJob that runs
+  `kubectl rollout restart deployment/buildkitd` (default: 02:00 Sunday
+  US/Pacific, weekly) to reclaim the leaked keyrings before the ceiling is hit.
+  The CronJob's ServiceAccount is limited to `get`/`patch` on the single
+  `buildkitd` Deployment. Because a restart interrupts in-flight builds and
+  clears the node-local `emptyDir` cache, schedule it during a low-traffic
+  window.
+
+To confirm whether keys are still leaking on a given BuildKit/runc version, watch
+the `qnkeys/maxkeys` field for the BuildKit UID across a sequence of builds:
+
+```sh
+while true; do printf '%s ' "$(date -u +%T)"; \
+  kubectl -n <buildkit-namespace> exec deploy/buildkitd -- grep '^ *<uid>:' /proc/key-users; \
+  sleep 10; done
+```
+
+A count that climbs across builds and never returns to baseline (well past
+`kernel.keys.gc_delay`) indicates a leak; transient spikes that drain are normal
+churn. **Revisit both controls when moby/buildkit#6247 is resolved** and the
+fixed image is deployed — at that point keys should reclaim on container exit,
+and the scheduled recycle plus raised ceiling can be removed.
 
 ## ECR Pull-Through Cache
 

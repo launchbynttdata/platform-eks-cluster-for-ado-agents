@@ -290,16 +290,48 @@ locals {
 
   buildkitd_resources = {
     requests = {
-      cpu    = "500m"
-      memory = "1Gi"
+      cpu               = "500m"
+      memory            = "1Gi"
+      ephemeral_storage = "60Gi"
     }
     limits = {
-      cpu    = "2"
-      memory = "4Gi"
+      cpu               = "2"
+      memory            = "4Gi"
+      ephemeral_storage = "75Gi"
     }
   }
 
-  buildkitd_storage_size = "50Gi"
+  # These emptyDir limits do not provision disk. Keep their combined working set,
+  # container images, logs, and system overhead below node allocatable storage.
+  buildkitd_storage_size     = "50Gi"
+  buildkitd_tmp_storage_size = "10Gi"
+  buildkitd_gc = {
+    enabled        = true
+    reserved_space = "5GB"
+    max_used_space = "35GB"
+    min_free_space = "20GB"
+  }
+
+  # Node-level kernel keyring quota raised by a privileged init container so
+  # high-churn builds (for example containerized .NET builds) do not exhaust the
+  # default per-UID 200 key / 20000 byte quota and fail runc container init with
+  # "unable to create session key: disk quota exceeded". These are ceilings, not
+  # preallocation, and apply to all non-root users on the BuildKit node.
+  buildkitd_node_keyring_limits = {
+    enabled   = true
+    max_keys  = 20000
+    max_bytes = 25000000
+  }
+
+  # Scheduled restart of the BuildKit Deployment to reclaim leaked kernel
+  # keyrings (workaround for moby/buildkit#6247; see reliability docs). Raising
+  # the keyring ceiling above only delays exhaustion, so recycle weekly. Default
+  # is 02:00 Sunday US/Pacific; tune the schedule as build volume dictates.
+  buildkitd_recycle = {
+    enabled  = true
+    schedule = "0 2 * * 0"
+    timezone = "America/Los_Angeles"
+  }
 
   # Optional: ECR accounts / ARNs for BuildKit IRSA (empty in sample = cluster account only in Terraform)
   # buildkitd_ecr_registry_account_ids = ["111111111111", "222222222222"]

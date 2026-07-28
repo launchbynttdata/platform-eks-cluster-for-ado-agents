@@ -2,6 +2,15 @@
 
 This document tracks significant changes, fixes, and improvements. Entries are ordered by date (most recent first). Dates reflect last significant update per source document.
 
+## 2026-07-28
+
+- **BuildKit disk management**: Added `env.hcl` controls for OCI-worker garbage collection, the BuildKit `/tmp` `emptyDir` size limit, and pod ephemeral-storage requests and limits. Existing environments retain their current behavior until the new optional settings are configured.
+- **BuildKit capacity guidance**: Documented that cache and `/tmp` `emptyDir` limits do not provision node storage, and that GC thresholds must leave room for active builds, images, logs, writable layers, and Kubernetes node overhead.
+- **BuildKit configuration rollout**: BuildKit now hashes its rendered daemon TOML into the Deployment pod template, so GC and registry configuration changes automatically roll pods and take effect without a manual restart.
+- **BuildKit kernel keyring limits**: Added `buildkitd_node_keyring_limits` to raise the node-level `kernel.keys.maxkeys`/`maxbytes` quota through a privileged init container. This prevents high-churn builds (for example containerized .NET builds) from exhausting the default 200 key / 20000 byte per-UID quota and failing container init with `unable to create session key: disk quota exceeded`. Enabled by default; disable with `buildkitd_node_keyring_limits.enabled = false`.
+- **BuildKit keyring-leak recycle**: Added `buildkitd_recycle`, a least-privilege CronJob that runs `kubectl rollout restart deployment/buildkitd` on a schedule (default 02:00 Sunday `America/Los_Angeles`, weekly) to reclaim leaked kernel keyrings. This is a workaround for the upstream keyring leak in [moby/buildkit#6247](https://github.com/moby/buildkit/issues/6247), where raising the keyring ceiling alone only delays failure; both controls should be revisited once the upstream bug is fixed.
+- **BuildKit image bump**: Updated the default `buildkitd_image` to `moby/buildkit:v0.31.2-rootless`.
+
 ## 2026-07-22
 
 - **ADO KEDA proxy security hardening**: Upgraded the proxy build and local toolchain to Go 1.26.5; added a 16 KiB request-header limit, bounded raw-query parsing, exact KEDA query validation, and redirect-disabled HTTP clients so SPN credentials and bearer tokens are never replayed to redirected hosts.

@@ -17,10 +17,10 @@ This layer deploys cluster operators and middleware services on the EKS cluster.
 - **IAM Role**: Created with basic Secrets Manager permissions
 ### Buildkitd Service
 - **Purpose**: Provides cluster-wide container build capabilities
-- **Image**: `moby/buildkit:v0.12.5` (configurable)
+- **Image**: `moby/buildkit:v0.31.2-rootless` (configurable)
 - **Namespace**: `buildkit-system` (configurable)
 - **Deployment**: Standalone service accessible cluster-wide
-- **Storage**: Configurable ephemeral storage for builds
+- **Storage**: Configurable node-backed ephemeral storage for builds
 
 ### Namespaces Created
 - KEDA system namespace
@@ -125,10 +125,24 @@ See [Operations Guide](./OPERATIONS.md) for detailed instructions.
 - **IAM Permissions**: Basic Secrets Manager access (specific secrets added by application layer)
 
 ### Buildkitd Configuration
-- **Privileged**: Runs in privileged mode for container builds
+- **Execution**: Runs as a non-root user with the rootless BuildKit image; the no-process-sandbox mode requires privilege escalation plus unconfined seccomp and AppArmor profiles
 - **Node Selection**: Can be configured to run on specific EC2 nodes
-- **Storage**: Uses ephemeral storage (configurable size)
+- **Storage**: Uses node-backed `emptyDir` volumes for its cache and `/tmp`; their size limits do not provision or resize node disks
+- **Garbage Collection**: Supports explicit OCI-worker cache retention and free-space thresholds through `buildkitd_gc`; configuration changes automatically roll the Deployment so the daemon reloads its TOML configuration
+- **Scheduling**: Optional `ephemeral_storage` requests and limits in `buildkitd_resources` make pod disk consumption visible to Kubernetes
+- **Kernel keyring**: Optional `buildkitd_node_keyring_limits` raises the node-level `kernel.keys.maxkeys`/`maxbytes` quota via a privileged init container so high-churn builds do not fail container init with `unable to create session key: disk quota exceeded`
+- **Keyring-leak recycle**: Optional `buildkitd_recycle` CronJob periodically runs `kubectl rollout restart deployment/buildkitd` (default 02:00 Sunday US/Pacific) to reclaim leaked kernel keyrings, a workaround for [moby/buildkit#6247](https://github.com/moby/buildkit/issues/6247); see the [reliability reference](../reference/reliability-improvements.md) for details and how to revisit it
 - **Service**: Exposed as ClusterIP service for cluster-wide access
+
+Keep the BuildKit cache, `/tmp`, container images, logs, and node system overhead
+within node allocatable ephemeral storage. For constrained nodes, configure an
+absolute `buildkitd_gc.max_used_space` below `buildkitd_storage_size` and leave
+enough headroom for active builds, because garbage collection cannot remove cache
+records still in use.
+
+Changing `buildkitd_gc` restarts BuildKit pods through a rolling Deployment
+update. Apply GC changes outside active builds because a restarted daemon cannot
+continue an in-flight build and its node-local `emptyDir` cache is discarded.
 
 ## Verification
 

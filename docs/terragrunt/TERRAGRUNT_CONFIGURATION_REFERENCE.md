@@ -350,7 +350,7 @@ cluster_secret_store_name  = "aws-secrets-manager"
 ```hcl
 enable_buildkitd    = true
 buildkitd_namespace = "buildkit-system"
-buildkitd_image     = "moby/buildkit:v0.12.5"
+buildkitd_image     = "moby/buildkit:v0.31.2-rootless"
 buildkitd_replicas  = 2
 
 buildkitd_node_selector = {
@@ -368,16 +368,35 @@ buildkitd_tolerations = [
 
 buildkitd_resources = {
   requests = {
-    cpu    = "500m"
-    memory = "1Gi"
+    cpu               = "500m"
+    memory            = "1Gi"
+    ephemeral_storage = "60Gi"
   }
   limits = {
-    cpu    = "2"
-    memory = "4Gi"
+    cpu               = "2"
+    memory            = "4Gi"
+    ephemeral_storage = "75Gi"
   }
 }
 
-buildkitd_storage_size = "50Gi"
+buildkitd_storage_size     = "50Gi"
+buildkitd_tmp_storage_size = "10Gi"
+buildkitd_gc = {
+  enabled        = true
+  reserved_space = "5GB"
+  max_used_space = "35GB"
+  min_free_space = "20GB"
+}
+buildkitd_node_keyring_limits = {
+  enabled   = true
+  max_keys  = 20000
+  max_bytes = 25000000
+}
+buildkitd_recycle = {
+  enabled  = true
+  schedule = "0 2 * * 0"
+  timezone = "America/Los_Angeles"
+}
 
 enable_ecr_pull_through_cache                      = true
 create_ecr_pull_through_cache_repository_templates = true
@@ -392,11 +411,24 @@ create_ecr_pull_through_cache_repository_policies  = true
 | `buildkitd_replicas` | number | No | Number of buildkitd replicas |
 | `buildkitd_node_selector` | map(string) | No | Node selector for pod placement |
 | `buildkitd_tolerations` | list(object) | No | Tolerations for pod scheduling |
-| `buildkitd_resources` | object | No | Resource requests and limits |
-| `buildkitd_storage_size` | string | No | Persistent volume size |
+| `buildkitd_resources` | object | No | CPU, memory, and optional `ephemeral_storage` requests and limits. Kubernetes uses the ephemeral-storage request for scheduling and the limit for pod eviction accounting. |
+| `buildkitd_storage_size` | string | No | Size limit for the node-backed BuildKit cache `emptyDir`; it does not provision storage. |
+| `buildkitd_tmp_storage_size` | string or null | No | Optional size limit for the node-backed BuildKit `/tmp` `emptyDir`. Null leaves it without an explicit size limit. |
+| `buildkitd_gc` | object | No | OCI-worker garbage collection settings: `enabled`, `reserved_space`, `max_used_space`, and `min_free_space`. Null/omitted thresholds use BuildKit defaults. Changes automatically roll BuildKit pods so the daemon reloads its configuration. |
+| `buildkitd_node_keyring_limits` | object | No | Node-level kernel keyring quota (`enabled`, `max_keys`, `max_bytes`) applied by a privileged init container. Raises the per-UID `kernel.keys.maxkeys`/`maxbytes` beyond the default 200/20000 so high-churn builds do not fail runc container init with `unable to create session key: disk quota exceeded`. `kernel.keys.*` is not namespaced, so it cannot be set via pod `securityContext` sysctls. |
+| `buildkitd_recycle` | object | No | Scheduled `rollout restart` of the BuildKit Deployment (`enabled`, `schedule`, `timezone`, `kubectl_version`) run by a least-privilege CronJob. Workaround for the keyring leak in [moby/buildkit#6247](https://github.com/moby/buildkit/issues/6247): raising the keyring ceiling only delays exhaustion, so periodically restarting the daemon reclaims the leaked keys. Defaults to 02:00 Sunday `America/Los_Angeles`. Revisit once the upstream bug is fixed. |
 | `enable_ecr_pull_through_cache` | bool | No | Create ECR pull-through cache rules for configured upstream registries. Defaults to `true`. |
 | `create_ecr_pull_through_cache_repository_templates` | bool | No | Create ECR repository creation templates for pull-through cache-created repositories. Defaults to `true`. |
 | `create_ecr_pull_through_cache_repository_policies` | bool | No | Include repository policies in ECR pull-through cache repository creation templates. Defaults to `true`. Set to `false` when the deploy role can manage cache rules/templates but cannot attach repository policies. |
+
+The cache and `/tmp` volumes both consume node-local ephemeral storage, together with
+container images, writable layers, logs, and Kubernetes system data. Ensure their
+expected combined use fits within node allocatable storage. A larger
+`buildkitd_storage_size` does not resize the node disk. Use absolute
+`max_used_space` values when the BuildKit cache is an `emptyDir` so garbage
+collection runs before Kubernetes reaches the volume or node-pressure boundary.
+Apply GC changes outside active builds: the automatic rolling restart interrupts
+in-flight builds and clears the restarted pod's node-local cache.
 
 ## Application Layer Configuration
 

@@ -281,7 +281,7 @@ variable "buildkitd_namespace" {
 variable "buildkitd_image" {
   description = "Docker image for buildkitd"
   type        = string
-  default     = "moby/buildkit:v0.30.0-rootless"
+  default     = "moby/buildkit:v0.31.2-rootless"
 }
 
 variable "buildkitd_replicas" {
@@ -320,12 +320,14 @@ variable "buildkitd_resources" {
   description = "Resource requests and limits for buildkitd"
   type = object({
     requests = object({
-      cpu    = string
-      memory = string
+      cpu               = string
+      memory            = string
+      ephemeral_storage = optional(string)
     })
     limits = object({
-      cpu    = string
-      memory = string
+      cpu               = string
+      memory            = string
+      ephemeral_storage = optional(string)
     })
   })
   default = {
@@ -341,9 +343,75 @@ variable "buildkitd_resources" {
 }
 
 variable "buildkitd_storage_size" {
-  description = "Size of buildkitd storage volume"
+  description = "Size limit for the node-backed BuildKit cache emptyDir. This does not provision storage and must fit within node allocatable ephemeral storage."
   type        = string
   default     = "20Gi"
+}
+
+variable "buildkitd_tmp_storage_size" {
+  description = "Optional size limit for the node-backed BuildKit /tmp emptyDir. Null preserves the Kubernetes default with no explicit emptyDir size limit."
+  type        = string
+  default     = null
+}
+
+variable "buildkitd_gc" {
+  description = "BuildKit OCI worker garbage-collection settings. Null thresholds use BuildKit defaults."
+  type = object({
+    enabled        = optional(bool, true)
+    reserved_space = optional(string)
+    max_used_space = optional(string)
+    min_free_space = optional(string)
+  })
+  default = {}
+
+  validation {
+    condition = alltrue([
+      for value in [
+        var.buildkitd_gc.reserved_space,
+        var.buildkitd_gc.max_used_space,
+        var.buildkitd_gc.min_free_space
+      ] : value == null || (trimspace(value) == value && length(value) > 0 && !can(regex("[\r\n]", value)))
+    ])
+    error_message = "BuildKit GC space values must be non-empty, single-line strings without surrounding whitespace."
+  }
+}
+
+variable "buildkitd_node_keyring_limits" {
+  description = "Node-level kernel keyring quota applied by a privileged init container on the BuildKit node. Raises the per-UID key limits (kernel.keys.maxkeys/maxbytes) so high-churn builds, such as containerized .NET builds, do not exhaust the default 200 key / 20000 byte quota and fail runc container init with 'unable to create session key: disk quota exceeded'. These are ceilings, not preallocation. kernel.keys.* is not namespaced, so it cannot be set through pod securityContext sysctls."
+  type = object({
+    enabled   = optional(bool, true)
+    max_keys  = optional(number, 20000)
+    max_bytes = optional(number, 25000000)
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = var.buildkitd_node_keyring_limits.max_keys > 0 && var.buildkitd_node_keyring_limits.max_bytes > 0
+    error_message = "buildkitd_node_keyring_limits.max_keys and max_bytes must be greater than zero."
+  }
+}
+
+variable "buildkitd_recycle" {
+  description = "Scheduled rollout-restart of the BuildKit Deployment to reclaim leaked kernel keyrings. WORKAROUND for moby/buildkit#6247: rootless BuildKit/runc allocates one session keyring per build container under the build UID and does not reclaim them, eventually exhausting the per-UID key quota and failing builds with 'unable to create session key: disk quota exceeded'. Restarting the daemon releases the keys. buildkitd_node_keyring_limits only raises the ceiling; this recycle actually reclaims. Revisit/remove once the upstream bug is fixed. schedule is a standard cron expression evaluated in timezone (defaults to 02:00 Sunday US/Pacific)."
+  type = object({
+    enabled         = optional(bool, true)
+    schedule        = optional(string, "0 2 * * 0")
+    timezone        = optional(string, "America/Los_Angeles")
+    kubectl_version = optional(string, "v1.31.4")
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = length(trimspace(var.buildkitd_recycle.schedule)) > 0 && length(trimspace(var.buildkitd_recycle.timezone)) > 0
+    error_message = "buildkitd_recycle.schedule and timezone must be non-empty."
+  }
+
+  validation {
+    condition     = can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+$", var.buildkitd_recycle.kubectl_version))
+    error_message = "buildkitd_recycle.kubectl_version must be a full version tag like v1.31.4."
+  }
 }
 
 variable "buildkitd_hpa_enabled" {
