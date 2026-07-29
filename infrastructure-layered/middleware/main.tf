@@ -218,7 +218,9 @@ locals {
             memory = "128Mi"
           }
         }
-        securityContext = null
+        # Keep this default concrete so provider v2 can preserve the
+        # API-returned value through computed_fields after apply.
+        securityContext = {}
       }
     ]
   )
@@ -229,6 +231,11 @@ locals {
     for index, container in local.buildkitd_init_containers :
     "spec.template.spec.initContainers[${index}].volumeMounts"
     if container.name == "raise-keyring-limits"
+  ]
+  buildkitd_init_container_security_context_computed_fields = [
+    for index, container in local.buildkitd_init_containers :
+    "spec.template.spec.initContainers[${index}].securityContext"
+    if container.name == "install-ecr-credential-helper"
   ]
   buildkitd_volumes = concat([
     { name = "ecr-helper-bin", emptyDir = {} },
@@ -1067,6 +1074,7 @@ resource "kubernetes_manifest" "buildkitd" {
       "spec.template.metadata.annotations",
     ],
     local.buildkitd_init_container_volume_mounts_computed_fields,
+    local.buildkitd_init_container_security_context_computed_fields,
     local.buildkitd_empty_dir_medium_computed_fields
   )
 }
