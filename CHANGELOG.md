@@ -2,6 +2,10 @@
 
 This document tracks significant changes, fixes, and improvements. Entries are ordered by date (most recent first). Dates reflect last significant update per source document.
 
+## 2026-07-29
+
+- **BuildKit emptyDir plan idempotency**: BuildKit now treats the Kubernetes-default `emptyDir.medium` values for its `/tmp` and cache volumes as API-computed, preventing Kubernetes provider v2.38.0 from rendering a persistent apply-time-unknown diff when their `sizeLimit` is managed. The affected paths are derived from the canonical named volume list, so future volume reordering does not invalidate the fix; Terraform continues to manage each `sizeLimit`.
+
 ## 2026-07-28
 
 - **BuildKit disk management**: Added `env.hcl` controls for OCI-worker garbage collection, the BuildKit `/tmp` `emptyDir` size limit, and pod ephemeral-storage requests and limits. Existing environments retain their current behavior until the new optional settings are configured.
