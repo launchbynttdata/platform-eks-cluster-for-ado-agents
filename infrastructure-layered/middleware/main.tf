@@ -183,9 +183,9 @@ locals {
     {
       name = "tmp"
       emptyDir = merge(
-        # The manifest provider requires this attribute when sizeLimit
-        # is present, while Kubernetes returns the default as null.
-        { medium = null },
+        # Keep the Kubernetes default concrete so provider v2 can preserve
+        # the API-returned value through computed_fields after apply.
+        { medium = "" },
         var.buildkitd_tmp_storage_size == null ? {} : {
           sizeLimit = var.buildkitd_tmp_storage_size
         }
@@ -195,7 +195,7 @@ locals {
     {
       name = "buildkit-rootless"
       emptyDir = {
-        medium    = null
+        medium    = ""
         sizeLimit = var.buildkitd_storage_size
       }
     }
