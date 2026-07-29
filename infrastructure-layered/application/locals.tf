@@ -4,51 +4,6 @@
 # default ECR lifecycle policies and other derived configuration.
 
 locals {
-  # Default ECR lifecycle policy for ADO agent images
-  default_ecr_lifecycle_policy = jsonencode({
-    rules = [
-      {
-        rulePriority = 1
-        description  = "Keep last 10 production images"
-        selection = {
-          tagStatus     = "tagged"
-          tagPrefixList = ["prod", "release", "v"]
-          countType     = "imageCountMoreThan"
-          countNumber   = 10
-        }
-        action = {
-          type = "expire"
-        }
-      },
-      {
-        rulePriority = 2
-        description  = "Keep last 5 development images"
-        selection = {
-          tagStatus     = "tagged"
-          tagPrefixList = ["dev", "test", "staging"]
-          countType     = "imageCountMoreThan"
-          countNumber   = 5
-        }
-        action = {
-          type = "expire"
-        }
-      },
-      {
-        rulePriority = 3
-        description  = "Expire untagged images after 1 day"
-        selection = {
-          tagStatus   = "untagged"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 1
-        }
-        action = {
-          type = "expire"
-        }
-      }
-    ]
-  })
-
   # ECR repositories with default lifecycle policy and repository_name applied where needed
   ecr_repositories_with_defaults = {
     for repo_name, repo_config in var.ecr_repositories : repo_name => {

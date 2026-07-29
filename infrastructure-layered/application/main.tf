@@ -14,7 +14,6 @@
 
 # Data sources
 data "aws_region" "current" {}
-data "aws_caller_identity" "current" {}
 
 # Local values
 locals {
@@ -611,7 +610,7 @@ locals {
       enabled                = true
       clusterSecretStoreName = data.terraform_remote_state.middleware.outputs.cluster_secret_store_name
       secrets = local.requires_ado_pat_secret ? {
-        "${local.ado_external_secret_name}" = {
+        (local.ado_external_secret_name) = {
           aws = {
             secretName = aws_secretsmanager_secret.ado_pat[0].name
             region     = data.aws_region.current.name

@@ -1,0 +1,28 @@
+name: IaC static quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  iac-static-quality:
+    name: IaC static quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pinned tooling
+        uses: jdx/mise-action@v3
+
+      - name: Run complete IaC quality contract
+        run: mise exec -- make iac-static

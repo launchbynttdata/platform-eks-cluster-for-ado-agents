@@ -8,3 +8,4 @@ uv                       0.8.2
 helm                     3.19.0
 kubectl                  1.34.1
 container-structure-test latest
+actionlint               1.7.12

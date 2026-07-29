@@ -292,7 +292,7 @@ enable_cloudwatch_observability_addon  = true
 cloudwatch_observability_addon_version = null
 enable_cloudwatch_application_signals_auto_monitor              = true
 cloudwatch_application_signals_auto_monitor_excluded_namespaces = []
-cloudwatch_log_retention_days                                  = 30
+cloudwatch_log_retention_days                                  = 365
 enable_fargate_cloudwatch_logging                              = true
 fargate_fluentbit_log_level                                    = "info"
 fargate_fluentbit_include_process_logs                         = false
@@ -317,7 +317,7 @@ platform_log_groups = [
 | `cloudwatch_observability_addon_version` | string | No | CloudWatch Observability add-on version. Null uses the EKS default. |
 | `enable_cloudwatch_application_signals_auto_monitor` | bool | No | Auto-instrument service workloads with Application Signals. Defaults to `true`. |
 | `cloudwatch_application_signals_auto_monitor_excluded_namespaces` | list(string) | No | Additional namespaces to exclude from Application Signals auto-instrumentation. |
-| `cloudwatch_log_retention_days` | number | No | Retention in days for platform CloudWatch log groups. Defaults to `30`. |
+| `cloudwatch_log_retention_days` | number | No | Retention in days for platform CloudWatch log groups. Defaults to `365`. |
 | `enable_fargate_cloudwatch_logging` | bool | No | Create the `aws-observability/aws-logging` ConfigMap for Fargate pod log shipping. Defaults to `true`. |
 | `fargate_fluentbit_log_level` | string | No | Log level for the Fargate Fluent Bit log router. Defaults to `info`. |
 | `fargate_fluentbit_include_process_logs` | bool | No | Send Fargate Fluent Bit process logs to CloudWatch. Defaults to `false`. |
