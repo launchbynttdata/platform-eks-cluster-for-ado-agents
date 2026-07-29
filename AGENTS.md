@@ -44,6 +44,13 @@
 - The Kubernetes bootstrap secret is used before ESO has reconciled. If ADO URL/PAT values change, make sure the bootstrap secret data can update before Helm hooks run.
 - Pool-level `image_repository` is only used when no managed ECR repositories are configured. When `ecr_repositories` is non-empty, the application layer uses the managed ECR module outputs keyed by `ecr_repository_key`.
 
+## Kubernetes Manifest Idempotency
+
+- With Kubernetes provider v2, an API-defaulted field configured as `null` in a `kubernetes_manifest` can be expanded to `(known after apply)` on every plan, even when it is listed in `computed_fields`.
+- For an API-defaulted scalar, object, or list that must be present in the manifest, configure its concrete Kubernetes default (for example `""`, `{}`, or `[]`) and mark only that field computed. Keep adjacent fields, such as `emptyDir.sizeLimit`, Terraform-managed.
+- `computed_fields` addresses list items by index. Define containers or volumes once in a canonical local and derive the paths by matching their names; do not hard-code an index that can silently target a different item after reordering.
+- Do not mark an entire container or volume list computed merely to suppress default drift. That masks legitimate configuration changes. Confirm the result with repeated live plans after clearing stale Terragrunt cache when needed.
+
 ## Testing and Validation
 
 - Before committing changes to `app/ado-keda-proxy`, run `mise exec -- make go-static` in addition to the focused Go tests. This is the required local stack: `govulncheck`, `gosec`, `go vet`, `staticcheck`, and `golangci-lint` (including error, context, HTTP body, and static checks).
