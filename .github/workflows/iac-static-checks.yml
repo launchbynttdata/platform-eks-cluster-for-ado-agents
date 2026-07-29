@@ -34,6 +34,8 @@ jobs:
             tflint 0.54.0
             checkov 3.2.454
             actionlint 1.7.12
+            shellcheck 0.11.0
+            bats 1.14.0
 
       - name: Run complete IaC quality contract
         run: mise exec -- make iac-static
