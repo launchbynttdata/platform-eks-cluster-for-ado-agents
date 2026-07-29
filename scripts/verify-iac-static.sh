@@ -72,13 +72,53 @@ if [[ -z "${checkov_version}" ]]; then
   exit 1
 fi
 echo "Using Checkov ${checkov_version} (mise standalone binary; Python runtime not required)"
-mise exec -- checkov \
+checkov_report="$(mktemp)"
+if ! mise exec -- checkov \
   -d "${iac_dir}" \
   --framework terraform \
   --compact \
   --quiet \
+  --skip-download \
   --skip-path .terraform \
-  --skip-path .terragrunt-cache
+  --skip-path .terragrunt-cache \
+  -o json > "${checkov_report}" 2>&1; then
+  cat "${checkov_report}" >&2
+  rm -f "${checkov_report}"
+  exit 1
+fi
+python3 - "${checkov_report}" <<'PY'
+import json
+import sys
+
+report_path = sys.argv[1]
+with open(report_path, encoding="utf-8") as handle:
+    data = json.load(handle)
+
+summary = data.get("summary", {})
+parsing_errors = data.get("results", {}).get("parsing_errors", [])
+failed = summary.get("failed", 0)
+passed = summary.get("passed", 0)
+skipped = summary.get("skipped", 0)
+parsing_error_count = summary.get("parsing_errors", 0)
+
+if parsing_error_count:
+    print("Checkov parsing errors:", file=sys.stderr)
+    for path in parsing_errors:
+        print(f"  - {path}", file=sys.stderr)
+    sys.exit(1)
+
+if failed:
+    print(
+        f"Checkov failed checks: {failed} (passed={passed}, skipped={skipped})",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+print(
+    f"Checkov passed (passed={passed}, skipped={skipped}, parsing_errors={parsing_error_count})"
+)
+PY
+rm -f "${checkov_report}"
 
 echo "==> Preparing isolated Terragrunt workspace"
 ci_iac_dir="${work_dir}/infrastructure-layered"

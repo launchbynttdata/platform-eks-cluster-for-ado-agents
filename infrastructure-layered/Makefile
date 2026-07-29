@@ -52,13 +52,13 @@ checkov:
 	@if command -v checkov >/dev/null 2>&1; then \
 		echo ""; \
 		echo "Scanning base layer..."; \
-		checkov -d base --framework terraform --compact || exit 1; \
+		checkov -d base --framework terraform --compact --skip-download || exit 1; \
 		echo ""; \
 		echo "Scanning middleware layer..."; \
-		checkov -d middleware --framework terraform --compact || exit 1; \
+		checkov -d middleware --framework terraform --compact --skip-download || exit 1; \
 		echo ""; \
 		echo "Scanning application layer..."; \
-		checkov -d application --framework terraform --compact || exit 1; \
+		checkov -d application --framework terraform --compact --skip-download || exit 1; \
 		echo ""; \
 		echo "✅ Checkov scan passed! No security issues found."; \
 	else \
