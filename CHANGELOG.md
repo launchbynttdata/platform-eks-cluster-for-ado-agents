@@ -5,6 +5,8 @@ This document tracks significant changes, fixes, and improvements. Entries are o
 ## 2026-07-29
 
 - **BuildKit plan idempotency**: BuildKit now treats Kubernetes-default fields as API-computed, preventing Kubernetes provider v2.38.0 from rendering persistent apply-time-unknown diffs for the `/tmp` and cache `emptyDir.medium` values, the optional keyring init container's empty `volumeMounts` list, and the credential-helper init container's empty `securityContext`. The affected paths are derived from canonical named container and volume lists, so future reordering does not invalidate the fix; Terraform continues to manage each `sizeLimit`.
+- **IaC quality gate**: Added a complete credential-free local and GitHub Actions quality contract for Terraform/Terragrunt formatting and validation, TFLint, Checkov, ShellCheck, BATS, Helm rendering, workflow linting, and whitespace checks. Terraform initialization runs only in a disposable backend-free workspace and never reads a developer's ignored `env.hcl` or contacts live state.
+- **Static-quality remediation**: Added Cluster Autoscaler health probes, validated its release tag, removed unused Terraform declarations, repaired the committed sample configuration used for static validation, and raised the new default CloudWatch log retention to one year.
 
 ## 2026-07-28
 

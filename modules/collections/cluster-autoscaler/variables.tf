@@ -34,6 +34,11 @@ variable "image_repository" {
 variable "image_tag" {
   description = "Cluster Autoscaler image tag (usually matches the cluster minor version)."
   type        = string
+
+  validation {
+    condition     = can(regex("^v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$", var.image_tag))
+    error_message = "image_tag must be a concrete semantic version, not a floating tag such as latest."
+  }
 }
 
 variable "replicas" {

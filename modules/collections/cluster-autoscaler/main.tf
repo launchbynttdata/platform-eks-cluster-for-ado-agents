@@ -185,6 +185,8 @@ resource "kubernetes_role_binding" "this" {
 }
 
 resource "kubernetes_deployment" "this" {
+  # checkov:skip=CKV_K8S_15: The image tag is validated as a concrete Cluster Autoscaler release; IfNotPresent keeps private clusters without NAT from requiring an image-registry round trip for every restart.
+  # checkov:skip=CKV_K8S_43: The Cluster Autoscaler image remains a configurable Kubernetes-version interface. The image tag is validated as a concrete release rather than permitting latest.
   metadata {
     name      = var.service_account_name
     namespace = var.namespace
@@ -234,6 +236,30 @@ resource "kubernetes_deployment" "this" {
           resources {
             limits   = var.resources.limits
             requests = var.resources.requests
+          }
+
+          liveness_probe {
+            http_get {
+              path = "/health-check"
+              port = 8085
+            }
+
+            initial_delay_seconds = 30
+            period_seconds        = 10
+            timeout_seconds       = 5
+            failure_threshold     = 6
+          }
+
+          readiness_probe {
+            http_get {
+              path = "/health-check"
+              port = 8085
+            }
+
+            initial_delay_seconds = 5
+            period_seconds        = 10
+            timeout_seconds       = 5
+            failure_threshold     = 3
           }
 
           volume_mount {

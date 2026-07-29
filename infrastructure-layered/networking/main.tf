@@ -9,7 +9,6 @@ locals {
   cilium_enabled            = var.pod_networking_mode == "cilium-overlay"
   base_pod_networking_mode  = try(data.terraform_remote_state.base.outputs.pod_networking_mode, var.pod_networking_mode)
   cilium_cluster_pool_cidrs = var.cilium_networking.cluster_pool_ipv4_pod_cidr_list
-  cilium_cluster_pool_mask  = var.cilium_networking.cluster_pool_ipv4_mask_size
 }
 
 resource "terraform_data" "networking_mode_validation" {

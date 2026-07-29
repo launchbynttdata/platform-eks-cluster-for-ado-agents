@@ -13,6 +13,22 @@ The `deploy.sh` script (Terragrunt-based) is supported by two types of automated
 
 ## Quick Start
 
+### Run the complete IaC quality contract
+
+From the repository root:
+
+```bash
+mise exec -- make iac-static
+```
+
+This is the same credential-free contract used by the `IaC static quality`
+GitHub Actions workflow. It checks whitespace, workflows, Terraform formatting,
+ShellCheck, the complete BATS suite, Checkov, Terragrunt HCL, backend-free
+Terraform initialization and validation for every layer, and TFLint. Terraform
+and Terragrunt initialization use a disposable workspace seeded from the
+committed `env.sample.hcl`; the command does not read or modify ignored
+`env.hcl`, remote state, or cloud resources.
+
 ### Run All Tests
 
 ```bash

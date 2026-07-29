@@ -67,7 +67,7 @@ variable "cloudwatch_application_signals_auto_monitor_excluded_namespaces" {
 variable "cloudwatch_log_retention_days" {
   description = "Retention in days for platform CloudWatch log groups."
   type        = number
-  default     = 30
+  default     = 365
 }
 
 variable "enable_fargate_cloudwatch_logging" {

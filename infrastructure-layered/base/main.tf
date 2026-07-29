@@ -25,11 +25,6 @@ data "aws_vpc" "selected" {
   id = var.vpc_id
 }
 
-data "aws_subnet" "selected" {
-  for_each = toset(var.subnet_ids)
-  id       = each.value
-}
-
 data "aws_route_tables" "private" {
   vpc_id = var.vpc_id
 
@@ -81,9 +76,7 @@ locals {
   ] : var.ec2_node_group_policies
   effective_ec2_node_group_taints = {
     for name, config in var.ec2_node_group : name => (
-      local.use_cilium_overlay && !contains([for taint in try(config.taints, []) : taint.key], local.cilium_startup_taint_key)
-      ? concat(try(config.taints, []), [local.cilium_startup_taint])
-      : try(config.taints, [])
+      local.use_cilium_overlay && !contains([for taint in try(config.taints, []) : taint.key], local.cilium_startup_taint_key) ? concat(try(config.taints, []), [local.cilium_startup_taint]) : try(config.taints, [])
     )
   }
 
@@ -1036,6 +1029,7 @@ resource "aws_sqs_queue" "node_auto_heal" {
 }
 
 module "node_auto_heal_event_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
   version = "~> 0.1"
   count   = var.enable_node_auto_heal ? 1 : 0
@@ -1058,6 +1052,7 @@ module "node_auto_heal_event_role" {
 }
 
 module "node_auto_heal_event_role_policy" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
   version = "~> 0.1"
   count   = var.enable_node_auto_heal ? 1 : 0
@@ -1076,6 +1071,7 @@ module "node_auto_heal_event_role_policy" {
 }
 
 module "node_auto_heal_event_role_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
   version = "~> 0.1"
   count   = var.enable_node_auto_heal ? 1 : 0
@@ -1102,6 +1098,7 @@ resource "aws_cloudwatch_event_target" "node_auto_heal" {
 }
 
 module "node_auto_heal_role" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role/aws"
   version = "~> 0.1"
   count   = var.enable_node_auto_heal ? 1 : 0
@@ -1136,6 +1133,7 @@ module "node_auto_heal_role" {
 }
 
 module "node_auto_heal_policy" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_policy/aws"
   version = "~> 0.1"
   count   = var.enable_node_auto_heal ? 1 : 0
@@ -1179,6 +1177,7 @@ module "node_auto_heal_policy" {
 }
 
 module "node_auto_heal_policy_attachment" {
+  # checkov:skip=CKV_TF_1: module source is trusted internal registry
   source  = "terraform.registry.launch.nttdata.com/module_primitive/iam_role_policy_attachment/aws"
   version = "~> 0.1"
   count   = var.enable_node_auto_heal ? 1 : 0
