@@ -1044,6 +1044,11 @@ resource "kubernetes_manifest" "buildkitd" {
     # key as computed, so Kubernetes owns this annotation map. The managed
     # BuildKit configuration digest is kept in the pod environment instead.
     "spec.template.metadata.annotations",
+    # Kubernetes omits the default emptyDir medium, but provider v2 plans it
+    # as apply-time unknown when an adjacent sizeLimit is configured. Keep
+    # medium API-owned while retaining Terraform management of sizeLimit.
+    "spec.template.spec.volumes[3].emptyDir.medium",
+    "spec.template.spec.volumes[5].emptyDir.medium",
   ]
 }
 
