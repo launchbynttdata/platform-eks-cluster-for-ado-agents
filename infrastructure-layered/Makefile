@@ -23,6 +23,14 @@ shellcheck:
 BATS_TIMEOUT_SECONDS ?= 120
 bats-test:
 	@echo "Running BATS unit tests (timeout: $(BATS_TIMEOUT_SECONDS)s)..."
+	@if [ ! -f env.sample.hcl ]; then \
+		echo "Missing committed Terragrunt fixture: env.sample.hcl" >&2; \
+		exit 1; \
+	fi
+	@if [ ! -f env.hcl ]; then \
+		cp env.sample.hcl env.hcl; \
+		echo "Created env.hcl from env.sample.hcl for BATS (local env.hcl was not present)"; \
+	fi
 	@if command -v bats >/dev/null 2>&1; then \
 		if command -v timeout >/dev/null 2>&1; then \
 			timeout $(BATS_TIMEOUT_SECONDS) bats tests/; \

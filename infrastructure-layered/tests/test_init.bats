@@ -5,6 +5,16 @@
 # that handle Terragrunt/Terraform module initialization
 # Run with: bats tests/test_init.bats
 
+load test_helper
+
+setup_file() {
+    env_fixture_setup_file
+}
+
+teardown_file() {
+    env_fixture_teardown_file
+}
+
 setup() {
     # Set required environment variables for testing
     export TF_STATE_BUCKET="test-bucket"

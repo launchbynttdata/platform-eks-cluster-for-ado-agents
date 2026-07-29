@@ -93,7 +93,7 @@ The Terragrunt-based script follows shell best practices and should have minimal
 - ✅ Logging functions (log_info, log_success, log_warning, log_error, log_debug)
 - ✅ Layer directory structure validation
 - ✅ Terragrunt configuration file existence
-- ✅ env.hcl and common.hcl configuration files
+- ✅ env.sample.hcl fixture and common.hcl configuration files
 - ✅ init_layer function (initialization detection and execution)
 - ✅ init_all_layers function (batch initialization)
 - ✅ Automatic initialization in plan_layer and apply_layer

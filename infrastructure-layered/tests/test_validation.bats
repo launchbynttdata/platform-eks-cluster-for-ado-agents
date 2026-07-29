@@ -4,6 +4,16 @@
 # These tests verify the validation logic for the Terragrunt-based deploy.sh
 # Run with: bats tests/test_validation.bats
 
+load test_helper
+
+setup_file() {
+    env_fixture_setup_file
+}
+
+teardown_file() {
+    env_fixture_teardown_file
+}
+
 setup() {
     export TF_STATE_BUCKET="test-bucket"
     export TF_STATE_REGION="us-west-2"
@@ -72,8 +82,8 @@ teardown() {
     [ -f "${TEST_SCRIPT_DIR}/root.hcl" ]
 }
 
-@test "env.hcl configuration exists" {
-    [ -f "${TEST_SCRIPT_DIR}/env.hcl" ]
+@test "env.sample.hcl committed configuration fixture exists" {
+    [ -f "${TEST_SCRIPT_DIR}/env.sample.hcl" ]
 }
 
 @test "common.hcl configuration exists" {
