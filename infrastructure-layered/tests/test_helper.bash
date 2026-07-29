@@ -1,5 +1,27 @@
 # Shared BATS helpers for infrastructure-layered deploy.sh tests.
 
+# Source deploy.sh function definitions without executing main.
+# deploy.sh assigns default globals (for example AUTO_APPROVE=false); pass the
+# suite's intended values as NAME=value pairs after layers_dir.
+source_deploy_sh() {
+    local layers_dir="$1"
+    shift
+
+    export DEPLOY_LAYERS_DIR="${layers_dir}"
+    # shellcheck source=/dev/null
+    source <(sed '/^if \[\[ "\${BASH_SOURCE\[0\]}" == "\${0}" \]\]; then/,$d' "${layers_dir}/deploy.sh")
+    init_log_colors
+
+    local assignment
+    for assignment in "$@"; do
+        if [[ "${assignment}" != *"="* ]]; then
+            echo "source_deploy_sh: expected NAME=value, got: ${assignment}" >&2
+            return 1
+        fi
+        export "${assignment?}"
+    done
+}
+
 env_fixture_setup_file() {
     TEST_IAC_DIR="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
 
