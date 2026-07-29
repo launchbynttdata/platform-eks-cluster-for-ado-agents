@@ -24,10 +24,16 @@ jobs:
       - name: Set up pinned tooling
         uses: jdx/mise-action@v4.2.3
         with:
-          # The IaC contract does not execute Python. Installing only its
-          # required tools avoids an unrelated legacy-Python attestation gap
-          # without weakening artifact verification.
-          install_args: terraform terragrunt tflint checkov actionlint
+          # This action writes a CI-only .tool-versions file in its disposable
+          # checkout. The IaC contract does not execute Python, so excluding
+          # it avoids its legacy attestation gap without weakening verification
+          # or changing the local developer toolchain.
+          tool_versions: |
+            terraform 1.12.2
+            terragrunt 0.81.7
+            tflint 0.54.0
+            checkov 3.2.454
+            actionlint 1.7.12
 
       - name: Run complete IaC quality contract
         run: mise exec -- make iac-static
