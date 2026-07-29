@@ -66,6 +66,12 @@ echo "==> BATS"
 mise exec -- make -C "${iac_dir}" bats-test
 
 echo "==> Checkov"
+checkov_version="$(mise exec -- checkov --version 2>/dev/null | head -1 || true)"
+if [[ -z "${checkov_version}" ]]; then
+  echo "Checkov is not available via mise. Pin checkov in .tool-versions and the IaC workflow tool_versions." >&2
+  exit 1
+fi
+echo "Using Checkov ${checkov_version} (mise standalone binary; Python runtime not required)"
 mise exec -- checkov \
   -d "${iac_dir}" \
   --framework terraform \
