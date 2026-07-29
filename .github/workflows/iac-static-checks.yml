@@ -19,10 +19,15 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Set up pinned tooling
-        uses: jdx/mise-action@v3
+        uses: jdx/mise-action@v4.2.3
+        with:
+          # The IaC contract does not execute Python. Installing only its
+          # required tools avoids an unrelated legacy-Python attestation gap
+          # without weakening artifact verification.
+          install_args: terraform terragrunt tflint checkov actionlint
 
       - name: Run complete IaC quality contract
         run: mise exec -- make iac-static
