@@ -160,6 +160,76 @@ locals {
     "--tlscert", "/etc/buildkit/certs/cert.pem",
     "--tlskey", "/etc/buildkit/certs/key.pem"
   ] : []
+  buildkitd_init_containers = concat(
+    var.buildkitd_node_keyring_limits.enabled ? [
+      {
+        name    = "raise-keyring-limits"
+        image   = "public.ecr.aws/docker/library/alpine:3.20"
+        command = ["/bin/sh", "-c"]
+        # kernel.keys.maxkeys/maxbytes are node-level, non-namespaced sysctls, so they
+        # cannot be set through pod securityContext.sysctls and must be applied on the
+        # host by a privileged init container before buildkitd starts. runc allocates a
+        # session keyring per build container, and high-churn builds can exhaust the
+        # default per-UID 200 key / 20000 byte quota.
+        args = [
+          "set -eu; echo ${var.buildkitd_node_keyring_limits.max_keys} > /proc/sys/kernel/keys/maxkeys; echo ${var.buildkitd_node_keyring_limits.max_bytes} > /proc/sys/kernel/keys/maxbytes; cat /proc/sys/kernel/keys/maxkeys /proc/sys/kernel/keys/maxbytes"
+        ]
+        # Keep this default concrete so provider v2 can preserve the
+        # API-returned value through computed_fields after apply.
+        volumeMounts = []
+        resources = {
+          requests = {
+            cpu    = "50m"
+            memory = "32Mi"
+          }
+          limits = {
+            cpu    = "100m"
+            memory = "64Mi"
+          }
+        }
+        securityContext = {
+          privileged   = true
+          runAsUser    = 0
+          runAsNonRoot = false
+        }
+      }
+    ] : [],
+    [
+      {
+        name    = "install-ecr-credential-helper"
+        image   = "public.ecr.aws/docker/library/alpine:3.20"
+        command = ["/bin/sh", "-c"]
+        args = [
+          "set -eu; apk add --no-cache curl ca-certificates; curl -sSL -o /helper/docker-credential-ecr-login \"https://github.com/awslabs/amazon-ecr-credential-helper/releases/download/v0.12.0/docker-credential-ecr-login-linux-amd64\"; chmod +x /helper/docker-credential-ecr-login"
+        ]
+        volumeMounts = [
+          {
+            name      = "ecr-helper-bin"
+            mountPath = "/helper"
+          }
+        ]
+        resources = {
+          requests = {
+            cpu    = "100m"
+            memory = "64Mi"
+          }
+          limits = {
+            cpu    = "500m"
+            memory = "128Mi"
+          }
+        }
+        securityContext = null
+      }
+    ]
+  )
+  # The manifest provider addresses list fields by index. Deriving the
+  # computed path from this canonical list keeps the optional keyring
+  # init-container aligned when init containers are reordered or inserted.
+  buildkitd_init_container_volume_mounts_computed_fields = [
+    for index, container in local.buildkitd_init_containers :
+    "spec.template.spec.initContainers[${index}].volumeMounts"
+    if container.name == "raise-keyring-limits"
+  ]
   buildkitd_volumes = concat([
     { name = "ecr-helper-bin", emptyDir = {} },
     {
@@ -895,66 +965,7 @@ resource "kubernetes_manifest" "buildkitd" {
               }
             }
           ] : []
-          initContainers = concat(
-            var.buildkitd_node_keyring_limits.enabled ? [
-              {
-                name    = "raise-keyring-limits"
-                image   = "public.ecr.aws/docker/library/alpine:3.20"
-                command = ["/bin/sh", "-c"]
-                # kernel.keys.maxkeys/maxbytes are node-level, non-namespaced sysctls, so they
-                # cannot be set through pod securityContext.sysctls and must be applied on the
-                # host by a privileged init container before buildkitd starts. runc allocates a
-                # session keyring per build container, and high-churn builds can exhaust the
-                # default per-UID 200 key / 20000 byte quota.
-                args = [
-                  "set -eu; echo ${var.buildkitd_node_keyring_limits.max_keys} > /proc/sys/kernel/keys/maxkeys; echo ${var.buildkitd_node_keyring_limits.max_bytes} > /proc/sys/kernel/keys/maxbytes; cat /proc/sys/kernel/keys/maxkeys /proc/sys/kernel/keys/maxbytes"
-                ]
-                volumeMounts = null
-                resources = {
-                  requests = {
-                    cpu    = "50m"
-                    memory = "32Mi"
-                  }
-                  limits = {
-                    cpu    = "100m"
-                    memory = "64Mi"
-                  }
-                }
-                securityContext = {
-                  privileged   = true
-                  runAsUser    = 0
-                  runAsNonRoot = false
-                }
-              }
-            ] : [],
-            [
-              {
-                name    = "install-ecr-credential-helper"
-                image   = "public.ecr.aws/docker/library/alpine:3.20"
-                command = ["/bin/sh", "-c"]
-                args = [
-                  "set -eu; apk add --no-cache curl ca-certificates; curl -sSL -o /helper/docker-credential-ecr-login \"https://github.com/awslabs/amazon-ecr-credential-helper/releases/download/v0.12.0/docker-credential-ecr-login-linux-amd64\"; chmod +x /helper/docker-credential-ecr-login"
-                ]
-                volumeMounts = [
-                  {
-                    name      = "ecr-helper-bin"
-                    mountPath = "/helper"
-                  }
-                ]
-                resources = {
-                  requests = {
-                    cpu    = "100m"
-                    memory = "64Mi"
-                  }
-                  limits = {
-                    cpu    = "500m"
-                    memory = "128Mi"
-                  }
-                }
-                securityContext = null
-              }
-            ]
-          )
+          initContainers = local.buildkitd_init_containers
           containers = [
             {
               name            = "buildkitd"
@@ -1043,17 +1054,21 @@ resource "kubernetes_manifest" "buildkitd" {
     }
   }
 
-  computed_fields = concat([
-    "metadata.generation",
-    "metadata.resourceVersion",
-    "metadata.uid",
-    "status",
-    # The scheduled recycler runs `kubectl rollout restart`, which writes a
-    # timestamp annotation. Provider v2 cannot reliably treat one nested map
-    # key as computed, so Kubernetes owns this annotation map. The managed
-    # BuildKit configuration digest is kept in the pod environment instead.
-    "spec.template.metadata.annotations",
-  ], local.buildkitd_empty_dir_medium_computed_fields)
+  computed_fields = concat(
+    [
+      "metadata.generation",
+      "metadata.resourceVersion",
+      "metadata.uid",
+      "status",
+      # The scheduled recycler runs `kubectl rollout restart`, which writes a
+      # timestamp annotation. Provider v2 cannot reliably treat one nested map
+      # key as computed, so Kubernetes owns this annotation map. The managed
+      # BuildKit configuration digest is kept in the pod environment instead.
+      "spec.template.metadata.annotations",
+    ],
+    local.buildkitd_init_container_volume_mounts_computed_fields,
+    local.buildkitd_empty_dir_medium_computed_fields
+  )
 }
 
 resource "kubernetes_pod_disruption_budget_v1" "buildkitd" {

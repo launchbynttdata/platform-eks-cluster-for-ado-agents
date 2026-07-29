@@ -4,7 +4,7 @@ This document tracks significant changes, fixes, and improvements. Entries are o
 
 ## 2026-07-29
 
-- **BuildKit emptyDir plan idempotency**: BuildKit now treats the Kubernetes-default `emptyDir.medium` values for its `/tmp` and cache volumes as API-computed, preventing Kubernetes provider v2.38.0 from rendering a persistent apply-time-unknown diff when their `sizeLimit` is managed. The affected paths are derived from the canonical named volume list, so future volume reordering does not invalidate the fix; Terraform continues to manage each `sizeLimit`.
+- **BuildKit plan idempotency**: BuildKit now treats Kubernetes-default fields as API-computed, preventing Kubernetes provider v2.38.0 from rendering persistent apply-time-unknown diffs for the `/tmp` and cache `emptyDir.medium` values and the optional keyring init container's empty `volumeMounts` list. The affected paths are derived from canonical named container and volume lists, so future reordering does not invalidate the fix; Terraform continues to manage each `sizeLimit`.
 
 ## 2026-07-28
 
