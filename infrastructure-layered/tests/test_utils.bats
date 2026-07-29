@@ -5,24 +5,17 @@
 # Run with: bats tests/test_utils.bats
 
 # Load the functions from deploy.sh
+load test_helper
+
 setup() {
-    # Set required environment variables for testing
     export TF_STATE_BUCKET="test-bucket"
     export TF_STATE_REGION="us-west-2"
     export AWS_REGION="us-west-2"
-    export AUTO_APPROVE="false"
-    export DRY_RUN="false"
-    export VERBOSE="false"
-    
-    # Source the deploy.sh script to get function definitions
     SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
-    export DEPLOY_LAYERS_DIR="${SCRIPT_DIR}"
-
-    # shellcheck source=/dev/null
-    source <(sed '/^if \[\[ "\${BASH_SOURCE\[0\]}" == "\${0}" \]\]; then/,$d' "${SCRIPT_DIR}/deploy.sh")
-    export AUTO_APPROVE="false"
-    export DRY_RUN="false"
-    export VERBOSE="false"
+    source_deploy_sh "${SCRIPT_DIR}" \
+        AUTO_APPROVE=false \
+        DRY_RUN=false \
+        VERBOSE=false
 }
 
 teardown() {

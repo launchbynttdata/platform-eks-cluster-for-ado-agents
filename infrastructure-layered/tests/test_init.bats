@@ -5,27 +5,26 @@
 # that handle Terragrunt/Terraform module initialization
 # Run with: bats tests/test_init.bats
 
+load test_helper
+
+setup_file() {
+    env_fixture_setup_file
+}
+
+teardown_file() {
+    env_fixture_teardown_file
+}
+
 setup() {
-    # Set required environment variables for testing
     export TF_STATE_BUCKET="test-bucket"
     export TF_STATE_REGION="us-west-2"
     export AWS_REGION="us-west-2"
-    export AUTO_APPROVE="true"
-    export DRY_RUN="false"
-    export VERBOSE="false"
-    
-    # Source the deploy.sh script to get function definitions
-    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
-    export DEPLOY_LAYERS_DIR="${SCRIPT_DIR}"
-    export AUTO_APPROVE="true"
-    export DRY_RUN="false"
-    export VERBOSE="false"
 
-    # shellcheck source=/dev/null
-    source <(sed '/^if \[\[ "\${BASH_SOURCE\[0\]}" == "\${0}" \]\]; then/,$d' "${SCRIPT_DIR}/deploy.sh")
-    export AUTO_APPROVE="true"
-    export DRY_RUN="false"
-    export VERBOSE="false"
+    SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
+    source_deploy_sh "${SCRIPT_DIR}" \
+        AUTO_APPROVE=true \
+        DRY_RUN=false \
+        VERBOSE=false
     export TEST_LAYER_DIR="${BATS_TMPDIR}/test-layer"
     mkdir -p "${TEST_LAYER_DIR}"
 }

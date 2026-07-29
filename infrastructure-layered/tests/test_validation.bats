@@ -4,25 +4,28 @@
 # These tests verify the validation logic for the Terragrunt-based deploy.sh
 # Run with: bats tests/test_validation.bats
 
+load test_helper
+
+setup_file() {
+    env_fixture_setup_file
+}
+
+teardown_file() {
+    env_fixture_teardown_file
+}
+
 setup() {
     export TF_STATE_BUCKET="test-bucket"
     export TF_STATE_REGION="us-west-2"
     export AWS_REGION="us-west-2"
-    export AUTO_APPROVE="false"
-    export DRY_RUN="true"
-    export VERBOSE="false"
     export ADO_AGENT_AUTH_MODE="pat"
-    
-    # Store script directory for use in tests
+
     local SCRIPT_DIR_LOCAL="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
     export TEST_SCRIPT_DIR="${SCRIPT_DIR_LOCAL}"
-    export DEPLOY_LAYERS_DIR="${SCRIPT_DIR_LOCAL}"
-
-    # shellcheck source=/dev/null
-    source <(sed '/^if \[\[ "\${BASH_SOURCE\[0\]}" == "\${0}" \]\]; then/,$d' "${TEST_SCRIPT_DIR}/deploy.sh")
-    export AUTO_APPROVE="false"
-    export DRY_RUN="true"
-    export VERBOSE="false"
+    source_deploy_sh "${SCRIPT_DIR_LOCAL}" \
+        AUTO_APPROVE=false \
+        DRY_RUN=true \
+        VERBOSE=false
 }
 
 teardown() {
@@ -72,8 +75,8 @@ teardown() {
     [ -f "${TEST_SCRIPT_DIR}/root.hcl" ]
 }
 
-@test "env.hcl configuration exists" {
-    [ -f "${TEST_SCRIPT_DIR}/env.hcl" ]
+@test "env.sample.hcl committed configuration fixture exists" {
+    [ -f "${TEST_SCRIPT_DIR}/env.sample.hcl" ]
 }
 
 @test "common.hcl configuration exists" {

@@ -184,6 +184,31 @@ locals {
     }
   }
 
+  # Cluster Autoscaler Configuration
+  # Keep the version aligned to cluster_version when enabling this component.
+  enable_cluster_autoscaler     = false
+  cluster_autoscaler_namespace  = "kube-system"
+  cluster_autoscaler_version    = "v1.35.0"
+  cluster_autoscaler_extra_args = {}
+
+  # Node Auto-Heal / AWS Node Termination Handler Configuration
+  enable_node_auto_heal                  = false
+  node_auto_heal_namespace               = "kube-system"
+  node_auto_heal_queue_retention_seconds = 1209600
+  node_auto_heal_enable_dlq              = true
+  node_auto_heal_dlq_max_receive_count   = 5
+  node_auto_heal_daemonset_node_selector = {
+    "eks.amazonaws.com/compute-type" = "ec2"
+  }
+  node_auto_heal_daemonset_tolerations = [
+    {
+      key      = "workload-type"
+      operator = "Equal"
+      value    = "system"
+      effect   = "NoSchedule"
+    }
+  ]
+
   # =============================================================================
   # Middleware Layer Configuration
   # =============================================================================
@@ -228,7 +253,7 @@ locals {
   cloudwatch_observability_addon_version = null
   enable_cloudwatch_application_signals_auto_monitor              = true
   cloudwatch_application_signals_auto_monitor_excluded_namespaces = []
-  cloudwatch_log_retention_days                                  = 30
+  cloudwatch_log_retention_days                                  = 365
   enable_fargate_cloudwatch_logging                              = true
   fargate_fluentbit_log_level                                    = "info"
   fargate_fluentbit_include_process_logs = false
@@ -465,6 +490,11 @@ locals {
   agent_automount_service_account_token  = true
   ado_agents_helm_atomic                 = false
   ado_agents_helm_cleanup_on_fail        = false
+
+  # The current application layer consumes agent_pools. Keep this empty when
+  # using the legacy ado_agent_pools example below, or replace that example
+  # with pools matching the current application-layer schema.
+  agent_pools = {}
 
   ado_agent_pools = {
     default = {

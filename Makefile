@@ -4,10 +4,13 @@
 
 LAYERED_DIR := infrastructure-layered
 
-.PHONY: help
+.PHONY: help iac-static test test-quick shellcheck bats-test checkov go-static clean-tf clean version
 help: ## Show this help message
 	@echo "Available targets:"
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+iac-static: ## Run the complete credential-free IaC quality contract
+	bash scripts/verify-iac-static.sh
 
 .PHONY: test
 test: ## Run layered infrastructure tests (ShellCheck, BATS, Checkov)

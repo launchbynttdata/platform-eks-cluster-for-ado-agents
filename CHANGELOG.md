@@ -2,6 +2,11 @@
 
 This document tracks significant changes, fixes, and improvements. Entries are ordered by date (most recent first). Dates reflect last significant update per source document.
 
+## 2026-07-29
+
+- **IaC quality gate**: Added a complete credential-free local and GitHub Actions quality contract for Terraform/Terragrunt formatting and validation, TFLint, Checkov, ShellCheck, BATS, Helm rendering, workflow linting, and whitespace checks. Terraform initialization runs only in a disposable backend-free workspace and never reads a developer's ignored `env.hcl` or contacts live state.
+- **Static-quality remediation**: Added Cluster Autoscaler health probes, validated its release tag, removed unused Terraform declarations, repaired the committed sample configuration used for static validation, and raised the new default CloudWatch log retention to one year.
+
 ## 2026-07-28
 
 - **BuildKit disk management**: Added `env.hcl` controls for OCI-worker garbage collection, the BuildKit `/tmp` `emptyDir` size limit, and pod ephemeral-storage requests and limits. Existing environments retain their current behavior until the new optional settings are configured.

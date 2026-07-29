@@ -1,21 +1,18 @@
 #!/usr/bin/env bats
 # End-to-end workflow tests: --auto-approve must never block on stdin.
 
+load test_helper
+
 setup_file() {
     SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
     export SCRIPT_DIR
     export ADO_AGENT_AUTH_MODE="pat"
-    if [[ ! -f "${SCRIPT_DIR}/env.hcl" ]]; then
-        cp "${SCRIPT_DIR}/env.sample.hcl" "${SCRIPT_DIR}/env.hcl"
-        export CREATED_ENV_HCL=1
-    fi
+    env_fixture_setup_file
 }
 
 teardown_file() {
-    if [[ "${CREATED_ENV_HCL:-}" == "1" ]]; then
-        rm -f "${SCRIPT_DIR}/env.hcl"
-    fi
-    unset ADO_AGENT_AUTH_MODE
+    env_fixture_teardown_file
+    unset ADO_AGENT_AUTH_MODE SCRIPT_DIR
 }
 
 run_deploy_timeout() {

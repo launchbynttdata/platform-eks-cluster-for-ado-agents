@@ -1,0 +1,41 @@
+name: IaC static quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  iac-static-quality:
+    name: IaC static quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pinned tooling
+        uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
+        with:
+          # This action writes a CI-only .tool-versions file in its disposable
+          # checkout. Python/uv are omitted because this contract does not run
+          # Python tooling; Checkov is installed by mise as a standalone binary
+          # distribution (not pip) from the pinned checkov version below.
+          tool_versions: |
+            terraform 1.12.2
+            terragrunt 0.81.7
+            tflint 0.54.0
+            checkov 3.2.454
+            actionlint 1.7.12
+            shellcheck 0.11.0
+            bats 1.14.0
+
+      - name: Run complete IaC quality contract
+        run: mise exec -- make iac-static

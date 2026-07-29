@@ -1,19 +1,17 @@
 #!/usr/bin/env bats
 # Unit tests for ADO credential validation and helper functions.
 
+load test_helper
+
 setup() {
     SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)"
-    export DEPLOY_LAYERS_DIR="${SCRIPT_DIR}"
     export TF_STATE_BUCKET="test-bucket"
-    export AUTO_APPROVE="true"
-    export DRY_RUN="false"
-    export VERBOSE="false"
-    export UPDATE_ADO_SECRET="true"
-    export ADO_AGENT_AUTH_MODE="pat"
-
-    # shellcheck source=/dev/null
-    source <(sed '/^if \[\[ "\${BASH_SOURCE\[0\]}" == "\${0}" \]\]; then/,$d' "${SCRIPT_DIR}/deploy.sh")
-    init_log_colors
+    source_deploy_sh "${SCRIPT_DIR}" \
+        AUTO_APPROVE=true \
+        DRY_RUN=false \
+        VERBOSE=false \
+        UPDATE_ADO_SECRET=true \
+        ADO_AGENT_AUTH_MODE=pat
 }
 
 teardown() {
