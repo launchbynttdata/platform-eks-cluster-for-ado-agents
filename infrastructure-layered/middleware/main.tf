@@ -160,6 +160,61 @@ locals {
     "--tlscert", "/etc/buildkit/certs/cert.pem",
     "--tlskey", "/etc/buildkit/certs/key.pem"
   ] : []
+  buildkitd_volumes = concat([
+    { name = "ecr-helper-bin", emptyDir = {} },
+    {
+      name = "buildkit-docker-config"
+      configMap = {
+        name = kubernetes_config_map.buildkitd_docker_config[0].metadata[0].name
+        items = [
+          {
+            key  = "config.json"
+            path = "config.json"
+          }
+        ]
+      }
+    },
+    {
+      name = "buildkitd-config"
+      configMap = {
+        name = kubernetes_config_map.buildkitd_config[0].metadata[0].name
+      }
+    },
+    {
+      name = "tmp"
+      emptyDir = merge(
+        # The manifest provider requires this attribute when sizeLimit
+        # is present, while Kubernetes returns the default as null.
+        { medium = null },
+        var.buildkitd_tmp_storage_size == null ? {} : {
+          sizeLimit = var.buildkitd_tmp_storage_size
+        }
+      )
+    },
+    { name = "run", emptyDir = {} },
+    {
+      name = "buildkit-rootless"
+      emptyDir = {
+        medium    = null
+        sizeLimit = var.buildkitd_storage_size
+      }
+    }
+    ], var.buildkitd_tls_enabled ? [
+    {
+      name = "buildkit-tls"
+      secret = {
+        secretName = var.buildkitd_tls_secret_name
+      }
+    }
+  ] : [])
+  # The manifest provider addresses list fields by index. Deriving paths from
+  # this canonical list keeps the defaulted emptyDir medium fields aligned when
+  # volumes are reordered or new volumes are inserted.
+  buildkitd_empty_dir_medium_computed_fields = [
+    for index, volume in local.buildkitd_volumes :
+    "spec.template.spec.volumes[${index}].emptyDir.medium"
+    if contains(["tmp", "buildkit-rootless"], volume.name)
+  ]
   cloudwatch_application_signals_excluded_namespaces = distinct(concat(
     [var.eso_namespace],
     var.cloudwatch_application_signals_auto_monitor_excluded_namespaces
@@ -982,59 +1037,13 @@ resource "kubernetes_manifest" "buildkitd" {
               ] : [])
             }
           ]
-          volumes = concat([
-            { name = "ecr-helper-bin", emptyDir = {} },
-            {
-              name = "buildkit-docker-config"
-              configMap = {
-                name = kubernetes_config_map.buildkitd_docker_config[0].metadata[0].name
-                items = [
-                  {
-                    key  = "config.json"
-                    path = "config.json"
-                  }
-                ]
-              }
-            },
-            {
-              name = "buildkitd-config"
-              configMap = {
-                name = kubernetes_config_map.buildkitd_config[0].metadata[0].name
-              }
-            },
-            {
-              name = "tmp"
-              emptyDir = merge(
-                # The manifest provider requires this attribute when sizeLimit
-                # is present, while Kubernetes returns the default as null.
-                { medium = null },
-                var.buildkitd_tmp_storage_size == null ? {} : {
-                  sizeLimit = var.buildkitd_tmp_storage_size
-                }
-              )
-            },
-            { name = "run", emptyDir = {} },
-            {
-              name = "buildkit-rootless"
-              emptyDir = {
-                medium    = null
-                sizeLimit = var.buildkitd_storage_size
-              }
-            }
-            ], var.buildkitd_tls_enabled ? [
-            {
-              name = "buildkit-tls"
-              secret = {
-                secretName = var.buildkitd_tls_secret_name
-              }
-            }
-          ] : [])
+          volumes = local.buildkitd_volumes
         }
       }
     }
   }
 
-  computed_fields = [
+  computed_fields = concat([
     "metadata.generation",
     "metadata.resourceVersion",
     "metadata.uid",
@@ -1044,12 +1053,7 @@ resource "kubernetes_manifest" "buildkitd" {
     # key as computed, so Kubernetes owns this annotation map. The managed
     # BuildKit configuration digest is kept in the pod environment instead.
     "spec.template.metadata.annotations",
-    # Kubernetes omits the default emptyDir medium, but provider v2 plans it
-    # as apply-time unknown when an adjacent sizeLimit is configured. Keep
-    # medium API-owned while retaining Terraform management of sizeLimit.
-    "spec.template.spec.volumes[3].emptyDir.medium",
-    "spec.template.spec.volumes[5].emptyDir.medium",
-  ]
+  ], local.buildkitd_empty_dir_medium_computed_fields)
 }
 
 resource "kubernetes_pod_disruption_budget_v1" "buildkitd" {
