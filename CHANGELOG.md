@@ -2,6 +2,11 @@
 
 This document tracks significant changes, fixes, and improvements. Entries are ordered by date (most recent first). Dates reflect last significant update per source document.
 
+## 2026-07-30
+
+- **Base and application mock-plan tests**: Added native Terraform plan tests for base and application configuration permutations with mocked providers. Application tests also override base and middleware remote-state outputs. The credential-free `make iac-static` contract now runs base, middleware, and application mock-plan suites in CI and locally.
+- **Middleware mock-plan tests**: Added native Terraform plan tests for middleware configuration permutations with mocked providers and overridden base remote-state outputs. The credential-free `make iac-static` contract now runs these tests in CI and locally.
+
 ## 2026-07-29
 
 - **BuildKit plan idempotency**: BuildKit now treats Kubernetes-default fields as API-computed, preventing Kubernetes provider v2.38.0 from rendering persistent apply-time-unknown diffs for the `/tmp` and cache `emptyDir.medium` values, the optional keyring init container's empty `volumeMounts` list, and the credential-helper init container's empty `securityContext`. The affected paths are derived from canonical named container and volume lists, so future reordering does not invalidate the fix; Terraform continues to manage each `sizeLimit`.

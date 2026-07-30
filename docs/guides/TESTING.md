@@ -24,10 +24,11 @@ mise exec -- make iac-static
 This is the same credential-free contract used by the `IaC static quality`
 GitHub Actions workflow. It checks whitespace, workflows, Terraform formatting,
 ShellCheck, the complete BATS suite, Checkov, Terragrunt HCL, backend-free
-Terraform initialization and validation for every layer, and TFLint. Terraform
-and Terragrunt initialization use a disposable workspace seeded from the
-committed `env.sample.hcl`; the command does not read or modify ignored
-`env.hcl`, remote state, or cloud resources.
+Terraform initialization and validation for every layer, native Terraform
+mock-plan tests for the base, middleware, and application layers, and TFLint. Terraform and Terragrunt initialization
+use a disposable workspace seeded from the committed `env.sample.hcl`; the
+command does not read or modify ignored `env.hcl`, remote state, or cloud
+resources.
 
 ### Run All Tests
 
@@ -54,6 +55,39 @@ make bats-test
 # Security scan only
 make checkov
 ```
+
+### Layer mock-plan tests
+
+The base, middleware, and application layers include native Terraform plan
+tests with mocked providers. Middleware and application also override remote
+state outputs so plans run without cloud credentials or live deployments.
+
+| Layer | Test file |
+|-------|-----------|
+| base | `infrastructure-layered/base/tests/base_configurations.tftest.hcl` |
+| middleware | `infrastructure-layered/middleware/tests/middleware_configurations.tftest.hcl` |
+| application | `infrastructure-layered/application/tests/application_configurations.tftest.hcl` |
+
+`make iac-static` runs all three suites automatically in its disposable
+workspace. To run a layer locally:
+
+```bash
+cd infrastructure-layered/<layer>
+cp ../ci/static-provider.tf provider_generated.tf
+mise exec -- terraform init -backend=false
+mise exec -- terraform test -test-directory=tests
+```
+
+Replace `<layer>` with `base`, `middleware`, or `application`.
+
+Add a new `run` block when introducing layer conditionals that should stay
+plan-safe across feature-flag combinations.
+
+### Middleware mock-plan tests (detail)
+
+The middleware layer mocks AWS, Kubernetes, Helm, and Time providers, overrides
+base remote-state outputs, and asserts conditional resource counts plus BuildKit
+idempotency defaults without contacting cloud APIs.
 
 ## Static Analysis with ShellCheck
 

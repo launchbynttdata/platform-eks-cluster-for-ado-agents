@@ -242,7 +242,7 @@ locals {
     {
       name = "buildkit-docker-config"
       configMap = {
-        name = kubernetes_config_map.buildkitd_docker_config[0].metadata[0].name
+        name = one(kubernetes_config_map.buildkitd_docker_config[*].metadata[0].name)
         items = [
           {
             key  = "config.json"
@@ -254,7 +254,7 @@ locals {
     {
       name = "buildkitd-config"
       configMap = {
-        name = kubernetes_config_map.buildkitd_config[0].metadata[0].name
+        name = one(kubernetes_config_map.buildkitd_config[*].metadata[0].name)
       }
     },
     {

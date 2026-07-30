@@ -42,3 +42,12 @@ env_fixture_teardown_file() {
         unset TEST_CREATED_ENV_HCL TEST_IAC_DIR
     fi
 }
+
+# Clear caller-exported ADO credential env vars before invoking deploy.sh in a subshell.
+ado_credential_env_clear_snippet() {
+    echo "unset ADO_PAT ADO_ORG_URL TF_VAR_ado_pat_value TF_VAR_ado_url TF_VAR_ado_org;"
+}
+
+ado_org_url_env_clear_snippet() {
+    echo "unset ADO_ORG_URL TF_VAR_ado_url TF_VAR_ado_org;"
+}
