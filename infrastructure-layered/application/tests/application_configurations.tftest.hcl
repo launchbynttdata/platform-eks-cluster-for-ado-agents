@@ -87,6 +87,24 @@ override_data {
 run "pat_with_managed_ecr" {
   command = plan
 
+  override_module {
+    target = module.ecr[0]
+    outputs = {
+      repository_urls = {
+        ado-agent     = "123456789012.dkr.ecr.us-west-2.amazonaws.com/mock-cluster-ado-agent"
+        ado-iac-agent = "123456789012.dkr.ecr.us-west-2.amazonaws.com/mock-cluster-ado-iac-agent"
+      }
+      registry_ids = {
+        ado-agent     = "123456789012"
+        ado-iac-agent = "123456789012"
+      }
+      repository_arns = {
+        ado-agent     = "arn:aws:ecr:us-west-2:123456789012:repository/mock-cluster-ado-agent"
+        ado-iac-agent = "arn:aws:ecr:us-west-2:123456789012:repository/mock-cluster-ado-iac-agent"
+      }
+    }
+  }
+
   variables {
     ado_agent_auth_mode = "pat"
   }
@@ -122,8 +140,8 @@ run "pat_with_managed_ecr" {
   }
 
   assert {
-    condition     = contains(keys(var.ecr_repositories), var.agent_pools["ado-agent"].ecr_repository_key)
-    error_message = "Managed ECR repositories should be keyed for agent pool image resolution"
+    condition     = local.helm_values.agentPools["ado-agent"].image.repository == "123456789012.dkr.ecr.us-west-2.amazonaws.com/mock-cluster-ado-agent"
+    error_message = "Managed ECR repositories should resolve agent pool image repositories in Helm values"
   }
 }
 
@@ -160,6 +178,16 @@ run "spn_mode" {
   assert {
     condition     = helm_release.ado_agents.name == "ado-agents"
     error_message = "ADO agents Helm release should still be planned in SPN mode"
+  }
+
+  assert {
+    condition     = local.helm_values.auth.mode == "spn"
+    error_message = "Helm values should select SPN authentication"
+  }
+
+  assert {
+    condition     = local.helm_values.adoKedaProxy.enabled == true
+    error_message = "KEDA proxy should be enabled for autoscaled pools in SPN mode"
   }
 }
 
@@ -216,8 +244,8 @@ run "external_images_without_managed_ecr" {
   }
 
   assert {
-    condition     = var.agent_pools["ado-agent"].image_repository == "mcr.microsoft.com/azure-pipelines/vsts-agent"
-    error_message = "Agent pools should keep explicit image_repository when managed ECR is disabled"
+    condition     = local.helm_values.agentPools["ado-agent"].image.repository == "mcr.microsoft.com/azure-pipelines/vsts-agent"
+    error_message = "Helm values should use explicit image_repository when managed ECR is disabled"
   }
 
   assert {
@@ -360,13 +388,13 @@ run "multiple_execution_roles_and_pools" {
   }
 
   assert {
-    condition     = var.agent_pools["pool-a"].enabled == true
-    error_message = "Enabled agent pools should remain configured in inputs"
+    condition     = local.helm_values.agentPools["pool-a"].enabled == true
+    error_message = "Enabled agent pools should be rendered into Helm values"
   }
 
   assert {
-    condition     = var.agent_pools["pool-c"].enabled == false
-    error_message = "Disabled agent pools should remain configured in inputs"
+    condition     = local.helm_values.agentPools["pool-c"].enabled == false
+    error_message = "Disabled agent pools should remain present but disabled in Helm values"
   }
 }
 
@@ -391,18 +419,13 @@ run "buildkit_cloudwatch_variation" {
   }
 
   assert {
-    condition     = data.terraform_remote_state.middleware.outputs.buildkitd_enabled == false
-    error_message = "Middleware remote state should disable BuildKit for this scenario"
+    condition     = local.helm_values.buildkit.enabled == false
+    error_message = "Helm values should disable BuildKit when middleware outputs disable it"
   }
 
   assert {
-    condition     = data.terraform_remote_state.middleware.outputs.buildkitd_service_endpoint == null
-    error_message = "Middleware remote state should omit the BuildKit endpoint for this scenario"
-  }
-
-  assert {
-    condition     = length(data.terraform_remote_state.middleware.outputs.cloudwatch_log_groups) == 0
-    error_message = "Middleware remote state should expose an empty CloudWatch log-group map"
+    condition     = local.helm_values.buildkit.endpoint == null
+    error_message = "Helm values should omit BuildKit endpoint when middleware has no service endpoint"
   }
 
   assert {
