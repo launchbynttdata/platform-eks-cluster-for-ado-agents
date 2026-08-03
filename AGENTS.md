@@ -44,6 +44,14 @@
 - The Kubernetes bootstrap secret is used before ESO has reconciled. If ADO URL/PAT values change, make sure the bootstrap secret data can update before Helm hooks run.
 - Pool-level `image_repository` is only used when no managed ECR repositories are configured. When `ecr_repositories` is non-empty, the application layer uses the managed ECR module outputs keyed by `ecr_repository_key`.
 
+## Kubernetes Manifest Idempotency
+
+- With Kubernetes provider v2, an API-defaulted field configured as `null` in a `kubernetes_manifest` can be expanded to `(known after apply)` on every plan, even when it is listed in `computed_fields`.
+- For an API-defaulted scalar, object, or list that must be present in the manifest, configure its concrete Kubernetes default (for example `""`, `{}`, or `[]`) and mark only that field computed. Keep adjacent fields, such as `emptyDir.sizeLimit`, Terraform-managed.
+- A field listed in `computed_fields` is API-owned. Remove its computed path before configuring a non-default value, such as changing `emptyDir.medium` from `""` to `"Memory"`, or Terraform may ignore the change.
+- `computed_fields` addresses list items by index. Define containers or volumes once in a canonical local and derive the paths by matching their names; do not hard-code an index that can silently target a different item after reordering.
+- Do not mark an entire container or volume list computed merely to suppress default drift. That masks legitimate configuration changes. Confirm the result with repeated live plans after clearing stale Terragrunt cache when needed.
+
 ## Testing and Validation
 
 - Before committing changes to `app/ado-keda-proxy`, run `mise exec -- make go-static` in addition to the focused Go tests. This is the required local stack: `govulncheck`, `gosec`, `go vet`, `staticcheck`, and `golangci-lint` (including error, context, HTTP body, and static checks).
@@ -53,6 +61,9 @@
   - `TF_STATE_BUCKET=test-bucket mise exec -- terragrunt hcl validate --working-dir infrastructure-layered/base`
   - `TF_STATE_BUCKET=test-bucket mise exec -- terragrunt hcl validate --working-dir infrastructure-layered/networking`
   - `TF_STATE_BUCKET=test-bucket mise exec -- terragrunt hcl validate --working-dir infrastructure-layered/application`
+  - `cd infrastructure-layered/base && cp ../ci/static-provider.tf provider_generated.tf && mise exec -- terraform init -backend=false && mise exec -- terraform test -test-directory=tests`
+  - `cd infrastructure-layered/middleware && cp ../ci/static-provider.tf provider_generated.tf && mise exec -- terraform init -backend=false && mise exec -- terraform test -test-directory=tests`
+  - `cd infrastructure-layered/application && cp ../ci/static-provider.tf provider_generated.tf && mise exec -- terraform init -backend=false && mise exec -- terraform test -test-directory=tests`
 - `terragrunt hcl validate` needs `TF_STATE_BUCKET` because the root config requires it.
 - Dry-run deploy-script tests are valuable because they catch layer-order regressions without touching AWS.
 - Live cluster checks still matter for CNI changes. A successful local validation does not prove Cilium agents are Ready, pods get overlay IPs, or ADO/KEDA workloads can run.

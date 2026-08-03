@@ -30,7 +30,7 @@ run_deploy_timeout() {
 }
 
 @test "auto-approve update-ado-secret: fails fast when ADO credentials missing" {
-    run_deploy_timeout 5 "cd '${SCRIPT_DIR}' && TF_STATE_BUCKET=test-bucket ./deploy.sh deploy --auto-approve --update-ado-secret --dry-run 2>&1"
+    run_deploy_timeout 5 "cd '${SCRIPT_DIR}' && $(ado_credential_env_clear_snippet) TF_STATE_BUCKET=test-bucket ./deploy.sh deploy --auto-approve --update-ado-secret --dry-run 2>&1"
     [ "$status" -ne 0 ]
     [ "$status" -ne 124 ]
     [[ "$output" =~ ADO_PAT ]]
@@ -39,7 +39,7 @@ run_deploy_timeout() {
 }
 
 @test "auto-approve update-ado-secret: fails fast when ADO_ORG_URL missing" {
-    run_deploy_timeout 5 "cd '${SCRIPT_DIR}' && TF_STATE_BUCKET=test-bucket ADO_PAT='abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcd' ./deploy.sh deploy --auto-approve --update-ado-secret --dry-run 2>&1"
+    run_deploy_timeout 5 "cd '${SCRIPT_DIR}' && $(ado_org_url_env_clear_snippet) TF_STATE_BUCKET=test-bucket ADO_PAT='abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcd' ./deploy.sh deploy --auto-approve --update-ado-secret --dry-run 2>&1"
     [ "$status" -ne 0 ]
     [ "$status" -ne 124 ]
     [[ "$output" =~ ADO_ORG_URL ]]
@@ -66,14 +66,14 @@ run_deploy_timeout() {
 }
 
 @test "auto-approve: config layer dry-run fails fast without credentials when update-ado-secret" {
-    run_deploy_timeout 5 "cd '${SCRIPT_DIR}' && TF_STATE_BUCKET=test-bucket ./deploy.sh deploy --layer config --auto-approve --update-ado-secret --dry-run 2>&1"
+    run_deploy_timeout 5 "cd '${SCRIPT_DIR}' && $(ado_credential_env_clear_snippet) TF_STATE_BUCKET=test-bucket ./deploy.sh deploy --layer config --auto-approve --update-ado-secret --dry-run 2>&1"
     [ "$status" -ne 0 ]
     [ "$status" -ne 124 ]
     [[ "$output" =~ ADO_PAT ]]
 }
 
 @test "auto-approve: application layer dry-run fails fast without credentials when update-ado-secret" {
-    run_deploy_timeout 5 "cd '${SCRIPT_DIR}' && TF_STATE_BUCKET=test-bucket ./deploy.sh deploy --layer application --auto-approve --update-ado-secret --dry-run 2>&1"
+    run_deploy_timeout 5 "cd '${SCRIPT_DIR}' && $(ado_credential_env_clear_snippet) TF_STATE_BUCKET=test-bucket ./deploy.sh deploy --layer application --auto-approve --update-ado-secret --dry-run 2>&1"
     [ "$status" -ne 0 ]
     [ "$status" -ne 124 ]
     [[ "$output" =~ ADO_PAT ]]

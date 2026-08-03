@@ -3,6 +3,10 @@
 # Runs the complete credential-free IaC quality contract used by GitHub Actions.
 # Terraform and Terragrunt initialization occurs only in a disposable copy so
 # this command never reads or modifies a developer's ignored env.hcl or caches.
+# Middleware additionally runs native Terraform plan tests with mocked providers
+# and overridden base remote-state outputs to exercise configuration permutations.
+# Base and application run similar credential-free mock-plan suites in the same
+# disposable workspace.
 
 set -euo pipefail
 
@@ -147,6 +151,11 @@ for layer in base networking middleware application; do
   cp "${iac_dir}/ci/static-provider.tf" "${layer_dir}/provider_generated.tf"
   mise exec -- terraform -chdir="${layer_dir}" init -backend=false -input=false
   mise exec -- terraform -chdir="${layer_dir}" validate
+
+  if [[ "${layer}" == "base" || "${layer}" == "middleware" || "${layer}" == "application" ]]; then
+    echo "==> Terraform mock-plan tests: ${layer}"
+    mise exec -- terraform -chdir="${layer_dir}" test -test-directory=tests
+  fi
 
   echo "==> TFLint: ${layer}"
   mise exec -- tflint --chdir "${layer_dir}" --minimum-failure-severity=warning
