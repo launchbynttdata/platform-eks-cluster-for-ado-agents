@@ -499,11 +499,11 @@ run "cilium_overlay_keda_host_network" {
   }
 
   variables {
-    install_keda                   = true
-    install_eso                    = false
-    install_metrics_server         = false
-    enable_cloudwatch_observability = false
-    enable_buildkitd               = false
+    install_keda                       = true
+    install_eso                        = false
+    install_metrics_server             = false
+    enable_cloudwatch_observability    = false
+    enable_buildkitd                   = false
     application_crd_ready_wait_seconds = 0
   }
 
