@@ -224,6 +224,12 @@ namespace = data.terraform_remote_state.middleware.outputs.ado_agents_namespace
 - Verify IAM role has correct trust policy for OIDC provider
 - Check tolerations match node configuration
 
+**Issue: KEDA external metrics APIService `FailedDiscoveryCheck` / namespaces stuck terminating**
+- On `cilium-overlay` clusters, overlay pod IPs are not reachable from the EKS managed API server
+- Middleware enables KEDA metrics-server and webhook `hostNetwork` automatically in that mode
+- After upgrading middleware with this fix, verify `kubectl get apiservice v1beta1.external.metrics.k8s.io` reports `Available=True`
+- If namespaces are already stuck, remove the broken APIService and finalize the namespace: `kubectl get namespace <ns> -o json | jq '.spec.finalizers = []' | kubectl replace --raw /api/v1/namespaces/<ns>/finalize -f -`
+
 **Issue: ESO pods not starting**
 - Verify webhook is disabled (`eso_webhook_enabled = false`) for Fargate
 - Check namespace is included in Fargate profile selectors

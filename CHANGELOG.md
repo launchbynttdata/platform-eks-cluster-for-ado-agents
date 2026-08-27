@@ -2,6 +2,10 @@
 
 This document tracks significant changes, fixes, and improvements. Entries are ordered by date (most recent first). Dates reflect last significant update per source document.
 
+## 2026-08-27
+
+- **KEDA hostNetwork on Cilium overlay**: Middleware now enables KEDA metrics-server and admission-webhook `hostNetwork` when `pod_networking_mode = "cilium-overlay"`. This keeps the `external.metrics.k8s.io` APIService reachable from the EKS managed API server, restores external-metrics scaling, and prevents unrelated namespaces from hanging in `Terminating` with `NamespaceDeletionDiscoveryFailure`.
+
 ## 2026-07-30
 
 - **Base and application mock-plan tests**: Added native Terraform plan tests for base and application configuration permutations with mocked providers. Application tests also override base and middleware remote-state outputs. The credential-free `make iac-static` contract now runs base, middleware, and application mock-plan suites in CI and locally.

@@ -32,3 +32,8 @@ output "scaled_object_name" {
   description = "Name of the KEDA ScaledObject"
   value       = var.create_scaled_object ? kubernetes_manifest.ado_scaledobject[0].manifest.metadata.name : null
 }
+
+output "use_host_network_for_control_plane_reachability" {
+  description = "Whether KEDA metrics server and webhooks use hostNetwork for control-plane reachability"
+  value       = var.use_host_network_for_control_plane_reachability
+}

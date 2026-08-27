@@ -64,6 +64,8 @@ locals {
 
   bk_region              = data.aws_region.current.name
   bk_account             = data.aws_caller_identity.current.account_id
+  pod_networking_mode    = try(data.terraform_remote_state.base.outputs.pod_networking_mode, "vpc-cni")
+  keda_use_host_network  = local.pod_networking_mode == "cilium-overlay"
   buildkitd_registry_ids = length(var.buildkitd_ecr_registry_account_ids) > 0 ? var.buildkitd_ecr_registry_account_ids : [local.bk_account]
   buildkitd_ecr_repo_arns = length(var.buildkitd_ecr_repository_arns) > 0 ? var.buildkitd_ecr_repository_arns : [
     "arn:aws:ecr:${local.bk_region}:${local.bk_account}:repository/*"
@@ -681,6 +683,8 @@ module "keda_operator" {
     value    = "fargate"
     effect   = "NoSchedule"
   }]
+
+  use_host_network_for_control_plane_reachability = local.keda_use_host_network
 }
 
 # Metrics Server (Helm-managed to allow custom arguments)

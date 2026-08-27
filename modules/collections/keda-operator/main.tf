@@ -115,15 +115,17 @@ resource "helm_release" "keda" {
       }
 
       metricsServer = {
-        nodeSelector = var.node_selector
-        tolerations  = var.tolerations
-        affinity     = var.affinity
+        useHostNetwork = var.use_host_network_for_control_plane_reachability
+        nodeSelector   = var.node_selector
+        tolerations    = var.tolerations
+        affinity       = var.affinity
       }
 
       webhooks = {
-        nodeSelector = var.node_selector
-        tolerations  = var.tolerations
-        affinity     = var.affinity
+        useHostNetwork = var.use_host_network_for_control_plane_reachability
+        nodeSelector   = var.node_selector
+        tolerations    = var.tolerations
+        affinity       = var.affinity
       }
     })
   ]
