@@ -516,4 +516,14 @@ run "cilium_overlay_keda_host_network" {
     condition     = module.keda_operator[0].use_host_network_for_control_plane_reachability == true
     error_message = "KEDA should use hostNetwork when pod_networking_mode is cilium-overlay"
   }
+
+  assert {
+    condition     = module.keda_operator[0].host_network_prometheus_metric_server_port == 9080
+    error_message = "KEDA metrics server should use a non-default hostNetwork Prometheus port"
+  }
+
+  assert {
+    condition     = module.keda_operator[0].host_network_prometheus_webhooks_port == 9081
+    error_message = "KEDA webhooks should use a distinct hostNetwork Prometheus port"
+  }
 }
