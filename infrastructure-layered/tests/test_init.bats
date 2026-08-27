@@ -121,6 +121,31 @@ EOF
     [[ "$output" =~ "Clearing local Terragrunt and Terraform caches" ]]
 }
 
+@test "init_layer: removes stale Terragrunt-generated provider files before init" {
+    local bin_dir="${BATS_TMPDIR}/bin-provider-cleanup"
+    mkdir -p "${bin_dir}" "${TEST_LAYER_DIR}"
+    echo "stale provider" > "${TEST_LAYER_DIR}/provider_generated.tf"
+    echo "stale backend" > "${TEST_LAYER_DIR}/backend_generated.tf"
+    cat > "${bin_dir}/terragrunt" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "init" ]]; then
+  exit 0
+fi
+exit 1
+EOF
+    chmod +x "${bin_dir}/terragrunt"
+    export PATH="${bin_dir}:${PATH}"
+    export DRY_RUN="false"
+
+    run init_layer "test" "${TEST_LAYER_DIR}" "false"
+    [ "$status" -eq 0 ]
+    [ ! -f "${TEST_LAYER_DIR}/provider_generated.tf" ]
+    [ ! -f "${TEST_LAYER_DIR}/backend_generated.tf" ]
+    [[ "$output" =~ "Removed stale Terragrunt-generated file(s) from test layer" ]]
+    [[ "$output" =~ "provider_generated.tf" ]]
+}
+
 @test "init_layer: verbose mode shows debug output" {
     export DRY_RUN="true"
     export VERBOSE="true"

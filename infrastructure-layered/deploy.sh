@@ -611,6 +611,7 @@ get_terragrunt_output_raw() {
     local output_name="$2"
     local layer_dir
     layer_dir=$(get_layer_dir "${layer}")
+    cleanup_layer_generated_files "${layer}" "${layer_dir}"
 
     (cd "${layer_dir}" && terragrunt output -raw "${output_name}" 2>/dev/null)
 }
@@ -620,6 +621,7 @@ get_terragrunt_output_json() {
     local output_name="$2"
     local layer_dir
     layer_dir=$(get_layer_dir "${layer}")
+    cleanup_layer_generated_files "${layer}" "${layer_dir}"
 
     (cd "${layer_dir}" && terragrunt output -json "${output_name}" 2>/dev/null)
 }
@@ -633,6 +635,24 @@ cd_layer_dir() {
     fi
 
     return 0
+}
+
+cleanup_layer_generated_files() {
+    local layer="$1"
+    local layer_dir="$2"
+    local generated_file
+    local -a removed_files=()
+
+    for generated_file in provider_generated.tf k8s_provider_generated.tf backend_generated.tf; do
+        if [[ -f "${layer_dir}/${generated_file}" ]]; then
+            rm -f -- "${layer_dir}/${generated_file}"
+            removed_files+=("${generated_file}")
+        fi
+    done
+
+    if ((${#removed_files[@]} > 0)); then
+        log_info "Removed stale Terragrunt-generated file(s) from ${layer} layer: ${removed_files[*]}"
+    fi
 }
 
 init_layer() {
@@ -654,6 +674,8 @@ init_layer() {
     if [[ "${force}" == "true" ]]; then
         log_debug "Force initialization requested"
     fi
+
+    cleanup_layer_generated_files "${layer}" "${layer_dir}"
 
     log_info "Clearing local Terragrunt and Terraform caches for ${layer} layer..."
     rm -rf -- "${layer_dir}/.terragrunt-cache" "${layer_dir}/.terraform"
@@ -699,6 +721,8 @@ validate_layer() {
         log_info "[DRY-RUN] Would validate ${layer} layer"
         return 0
     fi
+
+    cleanup_layer_generated_files "${layer}" "${layer_dir}"
     
     if ! terragrunt validate --non-interactive; then
         log_error "Validation failed for ${layer} layer"
@@ -796,6 +820,8 @@ destroy_layer() {
         log_info "[DRY-RUN] Would destroy ${layer} layer"
         return 0
     fi
+
+    cleanup_layer_generated_files "${layer}" "${layer_dir}"
     
     local destroy_args=()
     if [[ "${AUTO_APPROVE}" == "true" ]]; then
@@ -823,6 +849,8 @@ show_layer_status() {
     fi
     
     log_info "Status for ${layer} layer:"
+
+    cleanup_layer_generated_files "${layer}" "${layer_dir}"
     
     if [[ -d "${layer_dir}/.terragrunt-cache" ]]; then
         echo "  [OK] Terragrunt cache exists"
@@ -1012,7 +1040,7 @@ configure_kubectl() {
     fi
 
     local cluster_name
-    cluster_name=$(terragrunt output -raw cluster_name 2>/dev/null || echo "")
+    cluster_name=$(get_terragrunt_output_raw "base" "cluster_name" || echo "")
 
     if [[ -z "${cluster_name}" ]]; then
         if [[ "${strict}" == "true" ]]; then
@@ -1159,8 +1187,8 @@ refresh_ado_secret_in_cluster() {
     fi
 
     local ado_namespace keda_namespace
-    ado_namespace=$(cd "${MIDDLEWARE_LAYER_DIR}" && terragrunt output -raw ado_agents_namespace 2>/dev/null || echo "ado-agents")
-    keda_namespace=$(cd "${MIDDLEWARE_LAYER_DIR}" && terragrunt output -raw keda_namespace 2>/dev/null || echo "keda-system")
+    ado_namespace=$(get_terragrunt_output_raw "middleware" "ado_agents_namespace" || echo "ado-agents")
+    keda_namespace=$(get_terragrunt_output_raw "middleware" "keda_namespace" || echo "keda-system")
 
     local external_secret_name="${secret_name}-secret"
 
@@ -1242,7 +1270,7 @@ inject_ado_secret() {
     # Get the secret name from application layer Terragrunt output
     log_debug "Retrieving secret name from application layer outputs..."
     local secret_name
-    secret_name=$(cd "${APPLICATION_LAYER_DIR}" && terragrunt output -json ado_pat_secret 2>/dev/null | jq -r '.name' 2>/dev/null || echo "")
+    secret_name=$(get_terragrunt_output_json "application" "ado_pat_secret" | jq -r '.name' 2>/dev/null || echo "")
     
     # Fallback to default if output not available
     if [[ -z "${secret_name}" ]]; then
@@ -1663,9 +1691,8 @@ main() {
                         log_info "Injecting ADO secret after application layer deployment..."
 
                         # Get cluster info from base layer
-                        cd "${BASE_LAYER_DIR}"
                         local cluster_name region
-                        cluster_name=$(terragrunt output -raw cluster_name 2>/dev/null || echo "")
+                        cluster_name=$(get_terragrunt_output_raw "base" "cluster_name" || echo "")
                         if ! region=$(resolve_aws_region); then
                             exit 1
                         fi
