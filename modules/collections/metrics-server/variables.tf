@@ -62,3 +62,9 @@ variable "resources" {
     })
   })
 }
+
+variable "use_host_network_for_control_plane_reachability" {
+  description = "Enable hostNetwork when the EKS API server cannot reach metrics-server through Cilium overlay pod IPs."
+  type        = bool
+  default     = false
+}

@@ -111,6 +111,11 @@ run "feature_rich_baseline" {
   }
 
   assert {
+    condition     = module.keda_operator[0].metrics_server_dns_policy == "ClusterFirst"
+    error_message = "KEDA metrics server should use ClusterFirst DNS policy when pod_networking_mode is vpc-cni"
+  }
+
+  assert {
     condition     = length(module.external_secrets_operator) == 1
     error_message = "ESO should be planned when install_eso is true"
   }
@@ -118,6 +123,11 @@ run "feature_rich_baseline" {
   assert {
     condition     = length(module.metrics_server) == 1
     error_message = "Metrics server should be planned when install_metrics_server is true"
+  }
+
+  assert {
+    condition     = module.metrics_server[0].use_host_network_for_control_plane_reachability == false
+    error_message = "Metrics server should not use hostNetwork when pod_networking_mode is vpc-cni"
   }
 
   assert {
@@ -501,7 +511,7 @@ run "cilium_overlay_keda_host_network" {
   variables {
     install_keda                       = true
     install_eso                        = false
-    install_metrics_server             = false
+    install_metrics_server             = true
     enable_cloudwatch_observability    = false
     enable_buildkitd                   = false
     application_crd_ready_wait_seconds = 0
@@ -525,5 +535,25 @@ run "cilium_overlay_keda_host_network" {
   assert {
     condition     = module.keda_operator[0].host_network_prometheus_webhooks_port == 9081
     error_message = "KEDA webhooks should use a distinct hostNetwork Prometheus port"
+  }
+
+  assert {
+    condition     = module.keda_operator[0].metrics_server_dns_policy == "ClusterFirstWithHostNet"
+    error_message = "KEDA metrics server should use ClusterFirstWithHostNet when hostNetwork is enabled"
+  }
+
+  assert {
+    condition     = length(module.metrics_server) == 1
+    error_message = "Metrics server should be planned when install_metrics_server is true"
+  }
+
+  assert {
+    condition     = module.metrics_server[0].use_host_network_for_control_plane_reachability == true
+    error_message = "Metrics server should use hostNetwork when pod_networking_mode is cilium-overlay"
+  }
+
+  assert {
+    condition     = module.metrics_server[0].host_network_container_port == 4443
+    error_message = "Metrics server should bind a non-kubelet port when hostNetwork is enabled"
   }
 }

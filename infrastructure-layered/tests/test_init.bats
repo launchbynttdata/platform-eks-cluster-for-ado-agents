@@ -142,7 +142,7 @@ EOF
     [ "$status" -eq 0 ]
     [ ! -f "${TEST_LAYER_DIR}/provider_generated.tf" ]
     [ ! -f "${TEST_LAYER_DIR}/backend_generated.tf" ]
-    [[ "$output" =~ "Removed stale Terragrunt-generated file(s) from test layer" ]]
+    [[ "$output" =~ "Removed stale Terragrunt-generated file(s) from test layer before mutating operation" ]]
     [[ "$output" =~ "provider_generated.tf" ]]
 }
 

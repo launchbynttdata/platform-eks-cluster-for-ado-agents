@@ -698,6 +698,7 @@ module "metrics_server" {
   node_selector = var.metrics_server_node_selector
   tolerations   = var.metrics_server_tolerations
   resources     = var.metrics_server_resources
+  use_host_network_for_control_plane_reachability = local.keda_use_host_network
 }
 
 # External Secrets Operator Installation

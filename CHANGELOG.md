@@ -2,10 +2,15 @@
 
 This document tracks significant changes, fixes, and improvements. Entries are ordered by date (most recent first). Dates reflect last significant update per source document.
 
+## 2026-08-28
+
+- **Metrics-server hostNetwork on Cilium overlay**: Middleware now enables metrics-server `hostNetwork` when `pod_networking_mode = "cilium-overlay"`, matching the KEDA fix for EKS APIService discovery failures against overlay pod IPs. Host-network metrics-server binds port `4443` because kubelet already uses `10250` on EC2 nodes.
+- **Local cluster functional test script**: Added `infrastructure-layered/scripts/functional-test-cluster.sh` for operator use after deploy. The script reads `env.hcl`, configures kubectl against the target EKS cluster, and validates internal platform components (CNI, metrics-server, KEDA, ESO, BuildKit, ADO Helm release, and cross-component wiring) without queuing Azure DevOps pipeline jobs. SPN auth mode skips PAT secret checks; node auto-heal validates the `aws-node-termination-handler` Deployment.
+
 ## 2026-08-27
 
-- **KEDA hostNetwork on Cilium overlay**: Middleware now enables KEDA metrics-server and admission-webhook `hostNetwork` when `pod_networking_mode = "cilium-overlay"`. This keeps the `external.metrics.k8s.io` APIService reachable from the EKS managed API server, restores external-metrics scaling, and prevents unrelated namespaces from hanging in `Terminating` with `NamespaceDeletionDiscoveryFailure`. KEDA hostNetwork deployments also move Prometheus `/metrics` ports off the default `8080` to avoid collisions between webhooks and the metrics server on the same node.
-- **Deploy script generated-provider cleanup**: `deploy.sh` now removes stale Terragrunt-generated `provider_generated.tf`, `k8s_provider_generated.tf`, and `backend_generated.tf` files in each layer before running Terragrunt, so leftover static-test or prior-run files do not block subsequent deploys.
+- **KEDA hostNetwork on Cilium overlay**: Middleware now enables KEDA metrics-server and admission-webhook `hostNetwork` when `pod_networking_mode = "cilium-overlay"`. This keeps the `external.metrics.k8s.io` APIService reachable from the EKS managed API server, restores external-metrics scaling, and prevents unrelated namespaces from hanging in `Terminating` with `NamespaceDeletionDiscoveryFailure`. KEDA hostNetwork deployments also move Prometheus `/metrics` ports off the default `8080` to avoid collisions between webhooks and the metrics server on the same node, and set the metrics server `dnsPolicy` to `ClusterFirstWithHostNet` so it can resolve the operator service while using host networking.
+- **Deploy script generated-provider cleanup**: `deploy.sh` now removes stale Terragrunt-generated `provider_generated.tf`, `k8s_provider_generated.tf`, and `backend_generated.tf` files in each layer before init/plan/apply/validate, so leftover static-test or prior-run files do not block subsequent deploys.
 
 ## 2026-07-30
 

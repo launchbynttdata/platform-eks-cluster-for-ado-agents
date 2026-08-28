@@ -229,7 +229,9 @@ namespace = data.terraform_remote_state.middleware.outputs.ado_agents_namespace
 - Middleware enables KEDA metrics-server and webhook `hostNetwork` automatically in that mode
 - KEDA hostNetwork mode uses non-default Prometheus ports (`9080`/`9081`) so webhooks and the metrics server do not collide on node port `8080`
 - After upgrading middleware with this fix, verify `kubectl get apiservice v1beta1.external.metrics.k8s.io` reports `Available=True`
-- If namespaces are already stuck, remove the broken APIService and finalize the namespace: `kubectl get namespace <ns> -o json | jq '.spec.finalizers = []' | kubectl replace --raw /api/v1/namespaces/<ns>/finalize -f -`
+- Confirm ScaledJob/ScaledObject metric polling works (for example, queue a build and verify KEDA scales workers)
+- If namespaces are already stuck, remove the broken APIService and finalize the namespace as a last resort. **Warning:** finalize clears namespace finalizers and force-deletes the namespace object; only use this when normal deletion is blocked and the namespace content is already gone:
+  `kubectl get namespace <ns> -o json | jq '.spec.finalizers = []' | kubectl replace --raw /api/v1/namespaces/<ns>/finalize -f -`
 
 **Issue: ESO pods not starting**
 - Verify webhook is disabled (`eso_webhook_enabled = false`) for Fargate

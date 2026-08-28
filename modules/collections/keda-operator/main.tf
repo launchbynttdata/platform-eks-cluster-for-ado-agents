@@ -55,6 +55,8 @@ locals {
       }
     }
   } : {}
+
+  metrics_server_dns_policy = var.use_host_network_for_control_plane_reachability ? "ClusterFirstWithHostNet" : "ClusterFirst"
 }
 
 # Install KEDA using Helm
@@ -129,6 +131,7 @@ resource "helm_release" "keda" {
 
       metricsServer = {
         useHostNetwork = var.use_host_network_for_control_plane_reachability
+        dnsPolicy      = local.metrics_server_dns_policy
         nodeSelector   = var.node_selector
         tolerations    = var.tolerations
         affinity       = var.affinity

@@ -611,7 +611,6 @@ get_terragrunt_output_raw() {
     local output_name="$2"
     local layer_dir
     layer_dir=$(get_layer_dir "${layer}")
-    cleanup_layer_generated_files "${layer}" "${layer_dir}"
 
     (cd "${layer_dir}" && terragrunt output -raw "${output_name}" 2>/dev/null)
 }
@@ -621,7 +620,6 @@ get_terragrunt_output_json() {
     local output_name="$2"
     local layer_dir
     layer_dir=$(get_layer_dir "${layer}")
-    cleanup_layer_generated_files "${layer}" "${layer_dir}"
 
     (cd "${layer_dir}" && terragrunt output -json "${output_name}" 2>/dev/null)
 }
@@ -651,7 +649,7 @@ cleanup_layer_generated_files() {
     done
 
     if ((${#removed_files[@]} > 0)); then
-        log_info "Removed stale Terragrunt-generated file(s) from ${layer} layer: ${removed_files[*]}"
+        log_info "Removed stale Terragrunt-generated file(s) from ${layer} layer before mutating operation: ${removed_files[*]}"
     fi
 }
 
@@ -820,8 +818,6 @@ destroy_layer() {
         log_info "[DRY-RUN] Would destroy ${layer} layer"
         return 0
     fi
-
-    cleanup_layer_generated_files "${layer}" "${layer_dir}"
     
     local destroy_args=()
     if [[ "${AUTO_APPROVE}" == "true" ]]; then
@@ -849,8 +845,6 @@ show_layer_status() {
     fi
     
     log_info "Status for ${layer} layer:"
-
-    cleanup_layer_generated_files "${layer}" "${layer_dir}"
     
     if [[ -d "${layer_dir}/.terragrunt-cache" ]]; then
         echo "  [OK] Terragrunt cache exists"

@@ -47,3 +47,8 @@ output "host_network_prometheus_webhooks_port" {
   description = "Prometheus /metrics port for KEDA admission webhooks when hostNetwork is enabled"
   value       = var.use_host_network_for_control_plane_reachability ? 9081 : null
 }
+
+output "metrics_server_dns_policy" {
+  description = "DNS policy for the KEDA metrics server Helm values"
+  value       = local.metrics_server_dns_policy
+}
