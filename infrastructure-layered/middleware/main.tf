@@ -692,12 +692,12 @@ module "metrics_server" {
   count  = var.install_metrics_server ? 1 : 0
   source = "./modules/collections/metrics-server"
 
-  namespace     = var.metrics_server_namespace
-  chart_version = var.metrics_server_chart_version
-  args          = var.metrics_server_args
-  node_selector = var.metrics_server_node_selector
-  tolerations   = var.metrics_server_tolerations
-  resources     = var.metrics_server_resources
+  namespace                                       = var.metrics_server_namespace
+  chart_version                                   = var.metrics_server_chart_version
+  args                                            = var.metrics_server_args
+  node_selector                                   = var.metrics_server_node_selector
+  tolerations                                     = var.metrics_server_tolerations
+  resources                                       = var.metrics_server_resources
   use_host_network_for_control_plane_reachability = local.keda_use_host_network
 }
 
