@@ -10,6 +10,11 @@ resource "kubernetes_namespace" "this" {
   }
 }
 
+locals {
+  # kubelet already binds 10250 on EC2 nodes; hostNetwork metrics-server needs another port.
+  container_port = var.use_host_network_for_control_plane_reachability ? 4443 : 10250
+}
+
 resource "helm_release" "this" {
   name       = var.release_name
   repository = var.repository
@@ -28,6 +33,10 @@ resource "helm_release" "this" {
       nodeSelector = var.node_selector
       tolerations  = var.tolerations
       resources    = var.resources
+      containerPort = local.container_port
+      hostNetwork = {
+        enabled = var.use_host_network_for_control_plane_reachability
+      }
     })
   ]
 

@@ -63,6 +63,7 @@ override_data {
       node_auto_heal_queue_url       = "https://sqs.us-west-2.amazonaws.com/123456789012/mock-queue"
       node_auto_heal_namespace       = "kube-system"
       node_auto_heal_service_account = "aws-node-termination-handler"
+      pod_networking_mode            = "vpc-cni"
     }
   }
 }
@@ -105,6 +106,16 @@ run "feature_rich_baseline" {
   }
 
   assert {
+    condition     = module.keda_operator[0].use_host_network_for_control_plane_reachability == false
+    error_message = "KEDA should not use hostNetwork when pod_networking_mode is vpc-cni"
+  }
+
+  assert {
+    condition     = module.keda_operator[0].metrics_server_dns_policy == "ClusterFirst"
+    error_message = "KEDA metrics server should use ClusterFirst DNS policy when pod_networking_mode is vpc-cni"
+  }
+
+  assert {
     condition     = length(module.external_secrets_operator) == 1
     error_message = "ESO should be planned when install_eso is true"
   }
@@ -112,6 +123,11 @@ run "feature_rich_baseline" {
   assert {
     condition     = length(module.metrics_server) == 1
     error_message = "Metrics server should be planned when install_metrics_server is true"
+  }
+
+  assert {
+    condition     = module.metrics_server[0].use_host_network_for_control_plane_reachability == false
+    error_message = "Metrics server should not use hostNetwork when pod_networking_mode is vpc-cni"
   }
 
   assert {
@@ -462,5 +478,82 @@ run "operator_cache_variation" {
   assert {
     condition     = length(aws_ecr_repository_creation_template.pull_through_cache) == 0
     error_message = "ECR repository templates should be absent when template creation is disabled"
+  }
+}
+
+run "cilium_overlay_keda_host_network" {
+  command = plan
+
+  override_data {
+    target = data.terraform_remote_state.base
+    values = {
+      outputs = {
+        cluster_name                   = "mock-cluster"
+        cluster_oidc_issuer_url        = "https://oidc.eks.us-west-2.amazonaws.com/id/MOCK"
+        oidc_provider_arn              = "arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-west-2.amazonaws.com/id/MOCK"
+        kms_key_arn                    = "arn:aws:kms:us-west-2:123456789012:key/mock"
+        common_tags                    = { Project = "mock", Environment = "test" }
+        ec2_node_group_role_name       = "mock-node-group-role"
+        cluster_autoscaler_role_arn    = null
+        cluster_autoscaler_namespace   = "kube-system"
+        cluster_autoscaler_version     = "v1.31.0"
+        cluster_autoscaler_extra_args  = {}
+        node_auto_heal_enabled         = false
+        node_auto_heal_role_arn        = null
+        node_auto_heal_queue_url       = null
+        node_auto_heal_namespace       = "kube-system"
+        node_auto_heal_service_account = "aws-node-termination-handler"
+        pod_networking_mode            = "cilium-overlay"
+      }
+    }
+  }
+
+  variables {
+    install_keda                       = true
+    install_eso                        = false
+    install_metrics_server             = true
+    enable_cloudwatch_observability    = false
+    enable_buildkitd                   = false
+    application_crd_ready_wait_seconds = 0
+  }
+
+  assert {
+    condition     = length(module.keda_operator) == 1
+    error_message = "KEDA operator should be planned when install_keda is true"
+  }
+
+  assert {
+    condition     = module.keda_operator[0].use_host_network_for_control_plane_reachability == true
+    error_message = "KEDA should use hostNetwork when pod_networking_mode is cilium-overlay"
+  }
+
+  assert {
+    condition     = module.keda_operator[0].host_network_prometheus_metric_server_port == 9080
+    error_message = "KEDA metrics server should use a non-default hostNetwork Prometheus port"
+  }
+
+  assert {
+    condition     = module.keda_operator[0].host_network_prometheus_webhooks_port == 9081
+    error_message = "KEDA webhooks should use a distinct hostNetwork Prometheus port"
+  }
+
+  assert {
+    condition     = module.keda_operator[0].metrics_server_dns_policy == "ClusterFirstWithHostNet"
+    error_message = "KEDA metrics server should use ClusterFirstWithHostNet when hostNetwork is enabled"
+  }
+
+  assert {
+    condition     = length(module.metrics_server) == 1
+    error_message = "Metrics server should be planned when install_metrics_server is true"
+  }
+
+  assert {
+    condition     = module.metrics_server[0].use_host_network_for_control_plane_reachability == true
+    error_message = "Metrics server should use hostNetwork when pod_networking_mode is cilium-overlay"
+  }
+
+  assert {
+    condition     = module.metrics_server[0].host_network_container_port == 4443
+    error_message = "Metrics server should bind a non-kubelet port when hostNetwork is enabled"
   }
 }

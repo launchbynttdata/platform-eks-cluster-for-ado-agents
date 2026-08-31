@@ -134,6 +134,12 @@ variable "affinity" {
   default     = {}
 }
 
+variable "use_host_network_for_control_plane_reachability" {
+  description = "Enable hostNetwork for the KEDA metrics server and admission webhooks so the EKS managed API server can reach them. Required when pod IPs are not VPC-routable, such as in cilium-overlay mode."
+  type        = bool
+  default     = false
+}
+
 variable "env" {
   description = "Additional environment variables for KEDA operator"
   type = list(object({

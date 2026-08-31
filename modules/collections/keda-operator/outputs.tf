@@ -32,3 +32,23 @@ output "scaled_object_name" {
   description = "Name of the KEDA ScaledObject"
   value       = var.create_scaled_object ? kubernetes_manifest.ado_scaledobject[0].manifest.metadata.name : null
 }
+
+output "use_host_network_for_control_plane_reachability" {
+  description = "Whether KEDA metrics server and webhooks use hostNetwork for control-plane reachability"
+  value       = var.use_host_network_for_control_plane_reachability
+}
+
+output "host_network_prometheus_metric_server_port" {
+  description = "Prometheus /metrics port for the KEDA metrics server when hostNetwork is enabled"
+  value       = var.use_host_network_for_control_plane_reachability ? 9080 : null
+}
+
+output "host_network_prometheus_webhooks_port" {
+  description = "Prometheus /metrics port for KEDA admission webhooks when hostNetwork is enabled"
+  value       = var.use_host_network_for_control_plane_reachability ? 9081 : null
+}
+
+output "metrics_server_dns_policy" {
+  description = "DNS policy for the KEDA metrics server Helm values"
+  value       = local.metrics_server_dns_policy
+}

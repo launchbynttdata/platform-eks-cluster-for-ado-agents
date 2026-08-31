@@ -42,6 +42,21 @@ locals {
       drop = ["ALL"]
     }
   }
+
+  # hostNetwork binds Prometheus /metrics on the node. KEDA defaults both
+  # components to 8080, which collides when they land on the same node.
+  host_network_prometheus_values = var.use_host_network_for_control_plane_reachability ? {
+    prometheus = {
+      metricServer = {
+        port = 9080
+      }
+      webhooks = {
+        port = 9081
+      }
+    }
+  } : {}
+
+  metrics_server_dns_policy = var.use_host_network_for_control_plane_reachability ? "ClusterFirstWithHostNet" : "ClusterFirst"
 }
 
 # Install KEDA using Helm
@@ -58,7 +73,7 @@ resource "helm_release" "keda" {
   cleanup_on_fail = true
 
   values = [
-    yamlencode({
+    yamlencode(merge({
       image = {
         keda = {
           registry   = local.image_registry
@@ -115,17 +130,20 @@ resource "helm_release" "keda" {
       }
 
       metricsServer = {
-        nodeSelector = var.node_selector
-        tolerations  = var.tolerations
-        affinity     = var.affinity
+        useHostNetwork = var.use_host_network_for_control_plane_reachability
+        dnsPolicy      = local.metrics_server_dns_policy
+        nodeSelector   = var.node_selector
+        tolerations    = var.tolerations
+        affinity       = var.affinity
       }
 
       webhooks = {
-        nodeSelector = var.node_selector
-        tolerations  = var.tolerations
-        affinity     = var.affinity
+        useHostNetwork = var.use_host_network_for_control_plane_reachability
+        nodeSelector   = var.node_selector
+        tolerations    = var.tolerations
+        affinity       = var.affinity
       }
-    })
+    }, local.host_network_prometheus_values))
   ]
 
   depends_on = [

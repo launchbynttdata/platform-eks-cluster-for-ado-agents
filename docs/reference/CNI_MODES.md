@@ -67,7 +67,7 @@ Private clusters without NAT must use a registry path reachable from the node su
 - Alternate CNIs cannot be used with Fargate nodes.
 - Cilium overlay pod IPs are not directly routable from the VPC.
 - Traffic from pods to VPC resources and AWS services is masqueraded through the EC2 node IP.
-- The EKS API server cannot directly route to overlay pod IPs. Admission webhooks must use host networking or be exposed through a service path that works with this limitation.
+- The EKS API server cannot directly route to overlay pod IPs. Admission webhooks and aggregated API servers such as KEDA's `external.metrics.k8s.io` adapter and the core `metrics.k8s.io` metrics-server must use host networking or another control-plane-reachable service path. The middleware layer enables KEDA and metrics-server `hostNetwork` automatically when `pod_networking_mode = "cilium-overlay"`. For KEDA, it also sets the metrics server `dnsPolicy` to `ClusterFirstWithHostNet` and moves Prometheus bind ports off the default `8080`. Metrics-server uses host port `4443` in that mode because kubelet already binds `10250` on EC2 nodes.
 - EC2 node groups receive the Cilium startup taint `node.cilium.io/agent-not-ready=true:NoExecute` so workloads wait until Cilium is ready.
 - Cilium must be present before managed node groups bootstrap. If nodes start before any CNI is installed, managed node group creation can fail with `cni plugin not initialized`.
 - The base layer patches any existing `kube-system/aws-node` DaemonSet so it does not schedule in `cilium-overlay` mode. Do not re-enable it unless switching back to `vpc-cni`.
